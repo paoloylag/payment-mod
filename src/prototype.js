@@ -2,61 +2,61 @@ const paymentTypes = {
   reimbursement: {
     label: "Reimbursement",
     prefix: "RMB",
-    required: ["Requestor's name", "Department", "Date", "Event / purpose", "BIR-recognized invoice(s) / official receipt(s)"],
+    required: ["Requestor's Name", "Department", "Date", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
       { label: "Date", kind: "date", value: "2026-07-18" },
-      { label: "Event / purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
+      { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
-    uploadDocuments: ["BIR-recognized invoice(s) / official receipt(s)", "Proof of payment", "Cash advance form (if applicable)", "Other supporting document"],
-    lineColumns: ["Invoice date", "Invoice number", "Vendor / merchant", "Particulars", "Amount"],
+    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Payment", "Cash Advance Form (If Applicable)", "Other Supporting Document"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
   },
   cashAdvance: {
     label: "Cash Advance",
     prefix: "CA",
-    required: ["Cash advance requestor", "Department", "Cash advance request date", "Last day of the event", "Date to liquidate", "Event / purpose", "Accountability / authority to deduct acknowledgement"],
+    required: ["Cash Advance Requestor", "Department", "Cash Advance Request Date", "Last Day of the Event", "Date to Liquidate", "Event / Purpose", "Accountability / Authority to Deduct Acknowledgement"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "Sales" },
-      { label: "Cash advance request date", kind: "date", value: "2026-07-18" },
-      { label: "Last day of the event", kind: "date", value: "2026-07-25" },
-      { label: "Date to liquidate", kind: "date", value: "2026-07-30" },
-      { label: "Event / purpose", kind: "textarea", value: "Regional sales visit" },
+      { label: "Cash Advance Request Date", kind: "date", value: "2026-07-18" },
+      { label: "Last Day of the Event", kind: "date", value: "2026-07-25" },
+      { label: "Date to Liquidate", kind: "date", value: "2026-07-30" },
+      { label: "Event / Purpose", kind: "textarea", value: "Regional sales visit" },
     ],
-    uploadDocuments: ["Supporting budget / itinerary", "Other supporting document"],
+    uploadDocuments: ["Supporting Budget / Itinerary", "Other Supporting Document"],
     lineColumns: ["Particulars", "Amount"],
   },
   liquidation: {
     label: "Liquidation",
     prefix: "LIQ",
-    required: ["Cash advance requestor", "Department", "Date liquidated", "Last day of the event", "Event / purpose", "BIR-recognized invoice(s) / official receipt(s)"],
+    required: ["Cash Advance Requestor", "Department", "Date Liquidated", "Last Day of the Event", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
-      { label: "Date liquidated", kind: "date", value: "2026-07-18" },
-      { label: "Last day of the event", kind: "date", value: "2026-07-16" },
-      { label: "Event / purpose", kind: "textarea", value: "Leadership workshop liquidation" },
+      { label: "Date Liquidated", kind: "date", value: "2026-07-18" },
+      { label: "Last Day of the Event", kind: "date", value: "2026-07-16" },
+      { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop liquidation" },
     ],
-    uploadDocuments: ["BIR-recognized invoice(s) / official receipt(s)", "Proof of unused cash return (if applicable)", "Other supporting document"],
-    lineColumns: ["Invoice date", "Invoice number", "Vendor / merchant", "Particulars", "Amount"],
+    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Unused Cash Return (If Applicable)", "Other Supporting Document"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
   },
   poPayment: {
     label: "P.O. Payment",
     prefix: "PO",
-    required: ["Particulars of P.O. payment", "Department / cost center for each line item", "Approved P.O."],
+    required: ["Particulars of P.O. Payment", "Department / Cost Center for Each Line Item", "Approved P.O."],
     mandatoryFields: [
-      { label: "Particulars of P.O. payment", kind: "textarea", value: "Office equipment purchase order payment" },
+      { label: "Particulars of P.O. Payment", kind: "textarea", value: "Office equipment purchase order payment" },
     ],
-    uploadDocuments: ["Approved P.O.", "BIR 2303 (if new supplier)", "Billing / Quotation / SOA", "Invoice (if available)"],
-    lineColumns: ["P.O. number", "Supplier", "Particulars", "Department / cost center", "Amount"],
+    uploadDocuments: ["Approved P.O.", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    lineColumns: ["P.O. Number", "Supplier", "Particulars", "Department / Cost Center", "Amount"],
   },
   general: {
     label: "General Payment",
     prefix: "GEN",
-    required: ["Particulars of payment", "Department / cost center for each line item", "Billing or invoice"],
+    required: ["Particulars of Payment", "Department / Cost Center for Each Line Item", "Billing or Invoice"],
     mandatoryFields: [
-      { label: "Particulars of payment", kind: "textarea", value: "Monthly utilities and service charges" },
+      { label: "Particulars of Payment", kind: "textarea", value: "Monthly utilities and service charges" },
     ],
-    uploadDocuments: ["Billing or invoice", "BIR 2303 (if new supplier)", "Billing / Quotation / SOA", "Invoice (if available)"],
-    lineColumns: ["Supplier", "Particulars", "Department / cost center", "Amount", "Attachment"],
+    uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    lineColumns: ["Supplier", "Particulars", "Department / Cost Center", "Amount", "Attachment"],
   },
 };
 
@@ -97,29 +97,34 @@ const emailTemplates = {
 };
 
 const uploadSamples = [
-  ["RMB-2026-0161", "reimbursement", "Lia Dizon", "People Ops", "Training Center", 72300, [["Invoice", true, "training-invoice-1042.pdf", "248 KB"], ["Billing / Quotation / SOA", false, "training-quotation.pdf", "181 KB"], ["Proof of payment", true, "proof-of-payment.png", "864 KB"], ["Receipt for each line item", true], ["Cash advance form", false, "cash-advance-reference.pdf", "226 KB"]]],
-  ["RMB-2026-0164", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 21850, [["Invoice", true], ["Billing / Quotation / SOA", false], ["Proof of payment", true, "card-payment-receipt.pdf", "126 KB"], ["Receipt for each line item", true], ["Cash advance form", false]]],
-  ["CA-2026-0065", "cashAdvance", "Tara Lim", "Sales", "Internal", 35000, [["Cash advance form", true, "signed-cash-advance-form.pdf", "319 KB"], ["Supporting budget / itinerary", true]]],
-  ["CA-2026-0068", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, [["Cash advance form", true, "event-cash-advance.pdf", "284 KB"], ["Supporting budget / itinerary", true, "event-budget-and-itinerary.xlsx", "92 KB"]]],
-  ["PO-2026-0102", "poPayment", "Bea Tan", "Procurement", "Atlas Office Systems", 141750, [["Approved P.O.", true, "PO-2026-0102-approved.pdf", "411 KB"], ["BIR 2303 (new supplier)", false, "atlas-bir-2303.pdf", "205 KB"], ["Billing / Quotation / SOA", true, "atlas-soa-june.pdf", "176 KB"], ["Invoice", false]]],
-  ["PO-2026-0105", "poPayment", "Jon Reyes", "Operations", "Northstar Supplies", 98200, [["Approved P.O.", true], ["BIR 2303 (new supplier)", false], ["Billing / Quotation / SOA", true, "northstar-quotation.pdf", "238 KB"], ["Invoice", false]]],
-  ["GEN-2026-0053", "general", "Nico Ramos", "Facilities", "Metro Repairs", 66200, [["Billing or invoice", true, "metro-repairs-invoice.pdf", "154 KB"], ["BIR 2303 (new supplier)", false], ["Billing / Quotation / SOA", false, "repair-quotation.pdf", "202 KB"], ["Other supporting document", false]]],
-  ["GEN-2026-0057", "general", "Carlo Uy", "IT", "CloudWorks", 88400, [["Billing or invoice", true], ["BIR 2303 (new supplier)", false, "cloudworks-bir-2303.pdf", "196 KB"], ["Billing / Quotation / SOA", false], ["Other supporting document", false, "service-acceptance.pdf", "118 KB"]]],
+  ["RMB-2026-0161", "reimbursement", "Lia Dizon", "People Ops", "Training Center", 72300, [["Invoice", true, "training-invoice-1042.pdf", "248 KB"], ["Billing / Quotation / SOA", false, "training-quotation.pdf", "181 KB"], ["Proof of Payment", true, "proof-of-payment.png", "864 KB"], ["Receipt for Each Line Item", true], ["Cash Advance Form", false, "cash-advance-reference.pdf", "226 KB"]]],
+  ["RMB-2026-0164", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 21850, [["Invoice", true], ["Billing / Quotation / SOA", false], ["Proof of Payment", true, "card-payment-receipt.pdf", "126 KB"], ["Receipt for Each Line Item", true], ["Cash Advance Form", false]]],
+  ["CA-2026-0065", "cashAdvance", "Tara Lim", "Sales", "Internal", 35000, [["Cash Advance Form", true, "signed-cash-advance-form.pdf", "319 KB"], ["Supporting Budget / Itinerary", true]]],
+  ["CA-2026-0068", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, [["Cash Advance Form", true, "event-cash-advance.pdf", "284 KB"], ["Supporting Budget / Itinerary", true, "event-budget-and-itinerary.xlsx", "92 KB"]]],
+  ["PO-2026-0102", "poPayment", "Bea Tan", "Procurement", "Atlas Office Systems", 141750, [["Approved P.O.", true, "PO-2026-0102-approved.pdf", "411 KB"], ["BIR 2303 (New Supplier)", false, "atlas-bir-2303.pdf", "205 KB"], ["Billing / Quotation / SOA", true, "atlas-soa-june.pdf", "176 KB"], ["Invoice", false]]],
+  ["PO-2026-0105", "poPayment", "Jon Reyes", "Operations", "Northstar Supplies", 98200, [["Approved P.O.", true], ["BIR 2303 (New Supplier)", false], ["Billing / Quotation / SOA", true, "northstar-quotation.pdf", "238 KB"], ["Invoice", false]]],
+  ["GEN-2026-0053", "general", "Nico Ramos", "Facilities", "Metro Repairs", 66200, [["Billing or Invoice", true, "metro-repairs-invoice.pdf", "154 KB"], ["BIR 2303 (New Supplier)", false], ["Billing / Quotation / SOA", false, "repair-quotation.pdf", "202 KB"], ["Other Supporting Document", false]]],
+  ["GEN-2026-0057", "general", "Carlo Uy", "IT", "CloudWorks", 88400, [["Billing or Invoice", true], ["BIR 2303 (New Supplier)", false, "cloudworks-bir-2303.pdf", "196 KB"], ["Billing / Quotation / SOA", false], ["Other Supporting Document", false, "service-acceptance.pdf", "118 KB"]]],
 ].map(([id, type, requestor, department, vendor, amount, documents]) => ({ id, type, requestor, department, vendor, amount, documents: documents.map(([name, required, file, size]) => ({ name, required, file, size })) }));
 
-const initialLineItems = {
+const lineItemExamples = {
   reimbursement: [
-    { "Invoice date": "2026-07-15", "Invoice number": "INV-1042", "Vendor / merchant": "Training Center", Particulars: "Leadership workshop registration", Amount: 50000 },
-    { "Invoice date": "2026-07-16", "Invoice number": "OR-1048", "Vendor / merchant": "Travel Desk", Particulars: "Workshop transportation", Amount: 75000 },
+    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-1042", "Vendor / Merchant": "Training Center", Particulars: "Leadership workshop registration", Amount: 50000 },
+    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-1048", "Vendor / Merchant": "Travel Desk", Particulars: "Workshop transportation", Amount: 75000 },
   ],
   cashAdvance: [{ Particulars: "Regional transportation", Amount: 25000 }, { Particulars: "Meals and incidentals", Amount: 10000 }],
   liquidation: [
-    { "Invoice date": "2026-07-15", "Invoice number": "INV-2051", "Vendor / merchant": "Training Center", Particulars: "Workshop venue and meals", Amount: 30000 },
-    { "Invoice date": "2026-07-16", "Invoice number": "OR-2058", "Vendor / merchant": "Travel Desk", Particulars: "Local transportation", Amount: 15000 },
+    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-2051", "Vendor / Merchant": "Training Center", Particulars: "Workshop venue and meals", Amount: 30000 },
+    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-2058", "Vendor / Merchant": "Travel Desk", Particulars: "Local transportation", Amount: 15000 },
   ],
-  poPayment: [{ "P.O. number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Office workstations", "Department / cost center": "Operations - 4400", Amount: 98000 }, { "P.O. number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Delivery and installation", "Department / cost center": "IT - 4500", Amount: 27500 }],
-  general: [{ Supplier: "City Utilities", Particulars: "Electricity service", "Department / cost center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" }, { Supplier: "City Utilities", Particulars: "Water service", "Department / cost center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" }, { Supplier: "CloudWorks", Particulars: "Monthly hosting", "Department / cost center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" }],
+  poPayment: [{ "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Office workstations", "Department / Cost Center": "Operations - 4400", Amount: 98000 }, { "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Delivery and installation", "Department / Cost Center": "IT - 4500", Amount: 27500 }],
+  general: [{ Supplier: "City Utilities", Particulars: "Electricity service", "Department / Cost Center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" }, { Supplier: "City Utilities", Particulars: "Water service", "Department / Cost Center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" }, { Supplier: "CloudWorks", Particulars: "Monthly hosting", "Department / Cost Center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" }],
 };
+
+const initialLineItems = Object.fromEntries(Object.entries(paymentTypes).map(([type, config]) => [
+  type,
+  [Object.fromEntries(config.lineColumns.map((column) => [column, column === "Amount" ? 0 : ""]))],
+]));
 
 const requests = [
   ["RMB-2026-0144", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 12350, true, "Draft Request", 1, "2026-06-25", "", "", 0, 3],
@@ -145,9 +150,10 @@ let state = {
   tab: "dashboard",
   selectedId: requests[0].id,
   dashboardMetric: null,
+  trackerRequestId: null,
   draftType: "reimbursement",
   budgeted: true,
-  liquidationAdvanceAmount: 50000,
+  liquidationAdvanceAmount: 0,
   emailStep: 3,
   uploadId: uploadSamples[0].id,
   lineItemsByType: Object.fromEntries(Object.entries(initialLineItems).map(([type, rows]) => [type, rows.map((row) => ({ ...row }))])),
@@ -168,9 +174,8 @@ const voucherFor = (r) => {
   const netPayment = r.amount - withholdingTax;
   const voucherNumber = `PV-${r.id.replace("-2026-", "-")}`;
   const checkNumber = r.currentStep >= 11 ? "CHK-004918" : "Pending bank processing";
-  const executiveSigner = !r.budgeted && r.amount > 1000000 ? "Board Member" : r.budgeted && r.amount > 300000 ? "President" : r.amount > 100000 || !r.budgeted ? "COO" : "Finance Manager";
   return `<div class="voucher-card">
-    <div class="voucher-heading"><div><span class="eyebrow">Payment voucher</span><h4>${voucherNumber}</h4><p>Automated Payment System</p></div><button class="print-button" data-print-voucher="true">Print</button></div>
+    <div class="voucher-heading"><div><span class="eyebrow">Payment Voucher</span><h4>${voucherNumber}</h4><p>Automated Payment System</p></div><button class="print-button" data-print-voucher="true">Print</button></div>
     <div class="voucher-meta"><span>Date: 2026-06-24</span><span>Request: ${r.id}</span><span>Status: ${r.status}</span></div>
     <table class="voucher-table"><tbody>
       <tr><th>Payee</th><td>${r.vendor}</td><th>Department</th><td>${r.department}</td></tr>
@@ -183,17 +188,11 @@ const voucherFor = (r) => {
       <tr><th>Less: Withholding Tax</th><td>${money(withholdingTax)}</td></tr>
       <tr class="net-row"><th>Net Payment</th><td>${money(netPayment)}</td></tr>
     </tbody></table>
-    <table class="voucher-table"><thead><tr><th>Accounting Entry</th><th>Debit</th><th>Credit</th></tr></thead><tbody>
-      <tr><td>Expense / payable</td><td>${money(r.amount)}</td><td>-</td></tr>
-      <tr><td>Withholding tax payable</td><td>-</td><td>${money(withholdingTax)}</td></tr>
-      <tr><td>Cash in bank</td><td>-</td><td>${money(netPayment)}</td></tr>
-    </tbody></table>
-    <div class="signature-row"><span>Department Head</span><span>Finance Associate</span><span>${executiveSigner}</span></div>
   </div>`;
 };
 const fieldInput = (field) => field.kind === "textarea"
-  ? `<label class="full">${field.label}<textarea>${field.value}</textarea></label>`
-  : `<label>${field.label}<input type="${field.kind === "date" ? "date" : "text"}" value="${field.value}"></label>`;
+  ? `<label class="full">${field.label}<textarea placeholder="${field.value}"></textarea></label>`
+  : `<label>${field.label}<input type="${field.kind === "date" ? "date" : "text"}" placeholder="${field.value}"></label>`;
 const uploadInput = (documentName) => `<label class="upload-row"><span>${documentName}</span><input type="file"></label>`;
 
 function setState(patch) {
@@ -257,7 +256,7 @@ function statusPill(status) {
 }
 
 function requestTable() {
-  return `<section class="panel"><div class="panel-header"><h3>Live requests</h3><span class="count">${requests.length}</span></div><div class="table-wrap"><table><thead><tr><th>Step</th><th>Voucher</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+  return `<section class="panel"><div class="panel-header"><h3>Live Requests</h3><span class="count">${requests.length}</span></div><div class="table-wrap"><table><thead><tr><th>Step</th><th>Voucher</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody>
     ${requests.map((r) => `<tr data-request="${r.id}" class="${state.selectedId === r.id ? "selected" : ""}"><td>${stepLabel(r.currentStep)}</td><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("")}
   </tbody></table></div></section>`;
 }
@@ -284,17 +283,17 @@ function dashboard() {
   const returnedRequests = requests.filter((r) => r.status.includes("Returned"));
   const unclaimedRequests = requests.filter((r) => r.currentStep === 12);
   const metricViews = {
-    pending: { title: "Pending approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
-    value: { title: "Open request value", description: "All active payment requests represented on the dashboard.", rows: requests, total: money(total) },
-    returned: { title: "Returned requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
-    unclaimed: { title: "Unclaimed checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
+    pending: { title: "Pending Approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
+    value: { title: "Open Request Value", description: "All active payment requests represented on the dashboard.", rows: requests, total: money(total) },
+    returned: { title: "Returned Requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
+    unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
   };
   if (state.dashboardMetric) {
     const view = metricViews[state.dashboardMetric];
-    return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
+    return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
   }
   return `<section class="content-grid">
-    <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending approval</span><strong>${pendingRequests.length}</strong><small>View requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open request value</span><strong>${money(total)}</strong><small>View breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed checks</span><strong>${unclaimedRequests.length}</strong><small>View checks →</small></button></div>
+    <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${money(total)}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
     <div class="two-column">${requestTable()}${detail(selected)}</div>${workflow(selected.currentStep)}
   </section>`;
 }
@@ -306,24 +305,24 @@ function requestBuilder() {
   const isLiquidation = state.draftType === "liquidation";
   const isCashAdvance = state.draftType === "cashAdvance";
   const primaryFields = state.draftType === "reimbursement"
-    ? `<label>Requestor's name<input value="Paolo Reyes"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher number <small>(Finance use only)</small><input value="Assigned after approval" disabled></label><label>Calculated total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
+    ? `<label>Requestor's Name<input placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
     : isLiquidation
-    ? `<label>Cash advance requestor<input value="Paolo Reyes"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher number <small>(Finance use only)</small><input value="Assigned after approval" disabled></label>`
+    ? `<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label>`
     : isCashAdvance
-    ? `<label>Cash advance requestor<input value="Paolo Reyes"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher number <small>(Finance use only)</small><input value="Assigned after approval" disabled></label><label>Cash advance amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
-    : `<label>Requestor<input value="Paolo Reyes"></label><label>Payee / vendor<input value="Sample Supplier Inc."></label><label>Calculated amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`;
-  const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash advance amount<input id="liquidationAdvanceAmount" type="number" value="${state.liquidationAdvanceAmount}"></label><div><span>Total expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For return / for reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div></div>` : "";
+    ? `<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
+    : `<label>Requestor<input placeholder="Enter requestor's full name"></label><label>Payee / Vendor<input placeholder="Enter payee or vendor name"></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`;
+  const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div></div>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section class="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section>` : "";
-  return `<section class="form-layout"><div class="panel"><div class="panel-header"><h3>${state.draftType === "reimbursement" ? "Reimbursement details" : isLiquidation ? "Liquidation details" : isCashAdvance ? "Cash advance details" : "Request details"}</h3><span class="voucher-preview">${config.prefix}-2026-0150</span></div>
+  return `<section class="form-layout"><div class="panel"><div class="panel-header"><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3><span class="voucher-preview">${config.prefix}-2026-0150</span></div>
     <div class="segmented">${Object.entries(paymentTypes).map(([id, type]) => `<button data-type="${id}" class="${state.draftType === id ? "active" : ""}">${type.label}</button>`).join("")}</div>
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${liquidationSummary}
-    ${isCashAdvance || isLiquidation ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted request</label>`}
-    <div class="line-items-section"><div class="line-items-header"><div><span class="eyebrow">Request breakdown</span><h4>Line items</h4></div><button type="button" class="add-line-button" data-add-line="true">+ Add line item</button></div><div class="table-wrap"><table class="line-item-table"><thead><tr>${config.lineColumns.map((column) => `<th>${column}</th>`).join("")}<th><span class="sr-only">Actions</span></th></tr></thead><tbody>
-      ${lineItems.map((item, rowIndex) => `<tr>${config.lineColumns.map((column) => { const isFile = column === "Receipt" || column === "Attachment"; return isFile ? `<td><input type="file" aria-label="${column} for line ${rowIndex + 1}">${item[column] ? `<small class="existing-line-file">${item[column]}</small>` : ""}</td>` : `<td><input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${item[column] || ""}"></td>`; }).join("")}<td><button type="button" class="remove-line-button" data-remove-line="${rowIndex}" title="Remove line item" aria-label="Remove line item ${rowIndex + 1}" ${lineItems.length === 1 ? "disabled" : ""}>×</button></td></tr>`).join("")}
+    ${isCashAdvance || isLiquidation ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted Request</label>`}
+    <div class="line-items-section"><div class="line-items-header"><div><span class="eyebrow">Request Breakdown</span><h4>Line Items</h4></div><button type="button" class="add-line-button" data-add-line="true">+ Add Line Item</button></div><div class="table-wrap"><table class="line-item-table"><thead><tr>${config.lineColumns.map((column) => `<th>${column}</th>`).join("")}<th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+      ${lineItems.map((item, rowIndex) => `<tr>${config.lineColumns.map((column) => { const isFile = column === "Receipt" || column === "Attachment"; const example = lineItemExamples[state.draftType]?.[0]?.[column] ?? column; return isFile ? `<td><input type="file" aria-label="${column} for line ${rowIndex + 1}"></td>` : `<td><input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${item[column] || ""}" placeholder="${example}"></td>`; }).join("")}<td><button type="button" class="remove-line-button" data-remove-line="${rowIndex}" title="Remove line item" aria-label="Remove line item ${rowIndex + 1}" ${lineItems.length === 1 ? "disabled" : ""}>×</button></td></tr>`).join("")}
     </tbody><tfoot><tr><th colspan="${config.lineColumns.length}"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : "Total"}</span><strong>${money(draftAmount)}</strong></th><td></td></tr></tfoot></table></div></div>${accountability}</div>
-    <div class="panel"><div class="panel-header"><h3>Validation preview</h3><span class="count">${config.required.length}</span></div><ul class="check-list">${config.required.map((item, index) => `<li><span class="${index < config.required.length - 1 ? "ok" : "warn"}">${index < config.required.length - 1 ? "✓" : "!"}</span>${item}</li>`).join("")}</ul>
-    <h4>Document uploads</h4><div class="upload-list">${config.uploadDocuments.map(uploadInput).join("")}</div>
-    <div class="route-box"><span class="eyebrow">System route</span><strong>${route({ amount: draftAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div><button class="primary-button">Submit to Department Head</button></div></section>`;
+    <div class="panel"><div class="panel-header"><h3>Validation Preview</h3><span class="count">${config.required.length}</span></div><ul class="check-list">${config.required.map((item, index) => `<li><span class="${index < config.required.length - 1 ? "ok" : "warn"}">${index < config.required.length - 1 ? "✓" : "!"}</span>${item}</li>`).join("")}</ul>
+    <h4>Document Uploads</h4><div class="upload-list">${config.uploadDocuments.map(uploadInput).join("")}</div>
+    <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: draftAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div><button class="primary-button">Submit to Department Head</button></div></section>`;
 }
 
 function approvals() {
@@ -332,7 +331,9 @@ function approvals() {
 }
 
 function tracker() {
-  return `<section class="panel"><div class="panel-header"><h3>Payment tracker</h3><button class="icon-button" title="Export report">↧</button></div><div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Check approval</th><th>Payment</th></tr></thead><tbody>${requests.map((r, i) => `<tr><td>${r.id}</td><td>${r.submitted}</td><td>${r.returned || "-"}</td><td>${r.resubmitted || "-"}</td><td>${i === 0 ? "Pending" : "2026-06-24"}</td><td>${r.currentStep >= 11 ? "2026-06-25" : "Pending"}</td><td>${r.currentStep >= 13 ? "2026-06-25" : "Pending"}</td></tr>`).join("")}</tbody></table></div><div class="report-band"><div><span class="eyebrow">Report</span><strong>Unclaimed checks</strong></div><p>Flags checks marked available but not yet released to the payee.</p></div></section>`;
+  const selected = requests.find((r) => r.id === state.trackerRequestId);
+  if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Payment Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${detail(selected)}${workflow(selected.currentStep)}</section>`;
+  return `<section class="panel"><div class="panel-header"><h3>Payment Tracker</h3><button class="icon-button" title="Export Report">↧</button></div><div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Check Approval</th><th>Payment</th></tr></thead><tbody>${requests.map((r, i) => `<tr data-tracker-request="${r.id}"><td>${r.id}</td><td>${r.submitted}</td><td>${r.returned || "-"}</td><td>${r.resubmitted || "-"}</td><td>${i === 0 ? "Pending" : "2026-06-24"}</td><td>${r.currentStep >= 11 ? "2026-06-25" : "Pending"}</td><td>${r.currentStep >= 13 ? "2026-06-25" : "Pending"}</td></tr>`).join("")}</tbody></table></div><div class="report-band"><div><span class="eyebrow">Report</span><strong>Unclaimed Checks</strong></div><p>Flags checks marked available but not yet released to the payee.</p></div></section>`;
 }
 
 function documentUploads() {
@@ -340,12 +341,12 @@ function documentUploads() {
   const required = selected.documents.filter((document) => document.required);
   const completed = required.filter((document) => document.file).length;
   return `<section class="document-upload-layout">
-    <section class="panel upload-request-list"><div class="panel-header"><h3>Requests needing documents</h3><span class="count">${uploadSamples.length}</span></div><div class="upload-request-buttons">
+    <section class="panel upload-request-list"><div class="panel-header"><h3>Requests Needing Documents</h3><span class="count">${uploadSamples.length}</span></div><div class="upload-request-buttons">
       ${uploadSamples.map((request) => { const requiredDocuments = request.documents.filter((document) => document.required); const uploadedDocuments = requiredDocuments.filter((document) => document.file).length; return `<button data-upload-request="${request.id}" class="${selected.id === request.id ? "active" : ""}"><div><strong>${request.id}</strong><span>${paymentTypes[request.type].label}</span></div><small>${uploadedDocuments}/${requiredDocuments.length} required</small></button>`; }).join("")}
     </div></section>
     <section class="panel upload-workspace"><div class="panel-header"><div><span class="eyebrow">${paymentTypes[selected.type].label}</span><h3>${selected.id}</h3></div><span class="upload-progress ${completed === required.length ? "complete" : "pending"}">${completed}/${required.length} required uploaded</span></div>
       <dl class="upload-request-meta"><div><dt>Requestor</dt><dd>${selected.requestor}</dd></div><div><dt>Department</dt><dd>${selected.department}</dd></div><div><dt>Payee</dt><dd>${selected.vendor}</dd></div><div><dt>Amount</dt><dd>${money(selected.amount)}</dd></div></dl>
-      <div class="document-file-list">${selected.documents.map((document) => `<article class="document-file-row ${document.file ? "uploaded" : "missing"}"><div class="document-file-info"><div><strong>${document.name}</strong><span class="${document.required ? "required-tag" : "conditional-tag"}">${document.required ? "Required" : "Conditional"}</span></div>${document.file ? `<p><span class="file-icon">${document.file.split(".").pop().toUpperCase()}</span>${document.file} <small>${document.size}</small></p>` : `<p class="missing-file">No file uploaded</p>`}</div><label class="file-picker"><span>${document.file ? "Replace file" : "Add file"}</span><input type="file" aria-label="${document.file ? "Replace" : "Add"} ${document.name}"></label></article>`).join("")}</div>
+      <div class="document-file-list">${selected.documents.map((document) => `<article class="document-file-row ${document.file ? "uploaded" : "missing"}"><div class="document-file-info"><div><strong>${document.name}</strong><span class="${document.required ? "required-tag" : "conditional-tag"}">${document.required ? "Required" : "Conditional"}</span></div>${document.file ? `<p><span class="file-icon">${document.file.split(".").pop().toUpperCase()}</span>${document.file} <small>${document.size}</small></p>` : `<p class="missing-file">No File Uploaded</p>`}</div><label class="file-picker"><span>${document.file ? "Replace File" : "Add File"}</span><input type="file" aria-label="${document.file ? "Replace" : "Add"} ${document.name}"></label></article>`).join("")}</div>
       <div class="upload-footer"><p>Accepted: PDF, JPG, PNG, XLSX. Maximum 10 MB per file.</p><button class="primary-button">Save Documents</button></div>
     </section>
   </section>`;
@@ -386,6 +387,8 @@ function render() {
   document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => setState({ dashboardMetric: button.dataset.metric })));
   document.querySelector("[data-close-metric]")?.addEventListener("click", () => setState({ dashboardMetric: null }));
   document.querySelectorAll("[data-metric-request]").forEach((row) => row.addEventListener("click", () => setState({ dashboardMetric: null, selectedId: row.dataset.metricRequest })));
+  document.querySelectorAll("[data-tracker-request]").forEach((row) => row.addEventListener("click", () => setState({ trackerRequestId: row.dataset.trackerRequest })));
+  document.querySelector("[data-close-tracker]")?.addEventListener("click", () => setState({ trackerRequestId: null }));
   document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => setState({ draftType: button.dataset.type })));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => setState({ emailStep: Number(button.dataset.emailStep) })));
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest })));
