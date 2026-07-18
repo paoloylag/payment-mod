@@ -4,61 +4,61 @@ const paymentTypes = {
   reimbursement: {
     label: "Reimbursement",
     prefix: "RMB",
-    required: ["Requestor's name", "Department", "Date", "Event / purpose", "BIR-recognized invoice(s) / official receipt(s)"],
+    required: ["Requestor's Name", "Department", "Date", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
       { label: "Date", kind: "date", value: "2026-07-18" },
-      { label: "Event / purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
+      { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
-    uploadDocuments: ["BIR-recognized invoice(s) / official receipt(s)", "Proof of payment", "Cash advance form (if applicable)", "Other supporting document"],
-    lineColumns: ["Invoice date", "Invoice number", "Vendor / merchant", "Particulars", "Amount"],
+    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Payment", "Cash Advance Form (If Applicable)", "Other Supporting Document"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
   },
   cashAdvance: {
     label: "Cash Advance",
     prefix: "CA",
-    required: ["Cash advance requestor", "Department", "Cash advance request date", "Last day of the event", "Date to liquidate", "Event / purpose", "Accountability / authority to deduct acknowledgement"],
+    required: ["Cash Advance Requestor", "Department", "Cash Advance Request Date", "Last Day of the Event", "Date to Liquidate", "Event / Purpose", "Accountability / Authority to Deduct Acknowledgement"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "Sales" },
-      { label: "Cash advance request date", kind: "date", value: "2026-07-18" },
-      { label: "Last day of the event", kind: "date", value: "2026-07-25" },
-      { label: "Date to liquidate", kind: "date", value: "2026-07-30" },
-      { label: "Event / purpose", kind: "textarea", value: "Regional sales visit" },
+      { label: "Cash Advance Request Date", kind: "date", value: "2026-07-18" },
+      { label: "Last Day of the Event", kind: "date", value: "2026-07-25" },
+      { label: "Date to Liquidate", kind: "date", value: "2026-07-30" },
+      { label: "Event / Purpose", kind: "textarea", value: "Regional sales visit" },
     ],
-    uploadDocuments: ["Supporting budget / itinerary", "Other supporting document"],
+    uploadDocuments: ["Supporting Budget / Itinerary", "Other Supporting Document"],
     lineColumns: ["Particulars", "Amount"],
   },
   liquidation: {
     label: "Liquidation",
     prefix: "LIQ",
-    required: ["Cash advance requestor", "Department", "Date liquidated", "Last day of the event", "Event / purpose", "BIR-recognized invoice(s) / official receipt(s)"],
+    required: ["Cash Advance Requestor", "Department", "Date Liquidated", "Last Day of the Event", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
-      { label: "Date liquidated", kind: "date", value: "2026-07-18" },
-      { label: "Last day of the event", kind: "date", value: "2026-07-16" },
-      { label: "Event / purpose", kind: "textarea", value: "Leadership workshop liquidation" },
+      { label: "Date Liquidated", kind: "date", value: "2026-07-18" },
+      { label: "Last Day of the Event", kind: "date", value: "2026-07-16" },
+      { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop liquidation" },
     ],
-    uploadDocuments: ["BIR-recognized invoice(s) / official receipt(s)", "Proof of unused cash return (if applicable)", "Other supporting document"],
-    lineColumns: ["Invoice date", "Invoice number", "Vendor / merchant", "Particulars", "Amount"],
+    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Unused Cash Return (If Applicable)", "Other Supporting Document"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
   },
   poPayment: {
     label: "P.O. Payment",
     prefix: "PO",
-    required: ["Particulars of P.O. payment", "Department / cost center for each line item", "Approved P.O."],
+    required: ["Particulars of P.O. Payment", "Department / Cost Center for Each Line Item", "Approved P.O."],
     mandatoryFields: [
-      { label: "Particulars of P.O. payment", kind: "textarea", value: "Office equipment purchase order payment" },
+      { label: "Particulars of P.O. Payment", kind: "textarea", value: "Office equipment purchase order payment" },
     ],
-    uploadDocuments: ["Approved P.O.", "BIR 2303 (if new supplier)", "Billing / Quotation / SOA", "Invoice (if available)"],
-    lineColumns: ["P.O. number", "Supplier", "Particulars", "Department / cost center", "Amount"],
+    uploadDocuments: ["Approved P.O.", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    lineColumns: ["P.O. Number", "Supplier", "Particulars", "Department / Cost Center", "Amount"],
   },
   general: {
     label: "General Payment",
     prefix: "GEN",
-    required: ["Particulars of payment", "Department / cost center for each line item", "Billing or invoice"],
+    required: ["Particulars of Payment", "Department / Cost Center for Each Line Item", "Billing or Invoice"],
     mandatoryFields: [
-      { label: "Particulars of payment", kind: "textarea", value: "Monthly utilities and service charges" },
+      { label: "Particulars of Payment", kind: "textarea", value: "Monthly utilities and service charges" },
     ],
-    uploadDocuments: ["Billing or invoice", "BIR 2303 (if new supplier)", "Billing / Quotation / SOA", "Invoice (if available)"],
-    lineColumns: ["Supplier", "Particulars", "Department / cost center", "Amount", "Attachment"],
+    uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    lineColumns: ["Supplier", "Particulars", "Department / Cost Center", "Amount", "Attachment"],
   },
 };
 
@@ -102,74 +102,79 @@ const uploadSamples = [
   { id: "RMB-2026-0161", type: "reimbursement", requestor: "Lia Dizon", department: "People Ops", vendor: "Training Center", amount: 72300, documents: [
     { name: "Invoice", required: true, file: "training-invoice-1042.pdf", size: "248 KB" },
     { name: "Billing / Quotation / SOA", required: false, file: "training-quotation.pdf", size: "181 KB" },
-    { name: "Proof of payment", required: true, file: "proof-of-payment.png", size: "864 KB" },
-    { name: "Receipt for each line item", required: true },
-    { name: "Cash advance form", required: false, file: "cash-advance-reference.pdf", size: "226 KB" },
+    { name: "Proof of Payment", required: true, file: "proof-of-payment.png", size: "864 KB" },
+    { name: "Receipt for Each Line Item", required: true },
+    { name: "Cash Advance Form", required: false, file: "cash-advance-reference.pdf", size: "226 KB" },
   ] },
   { id: "RMB-2026-0164", type: "reimbursement", requestor: "Mika Santos", department: "Marketing", vendor: "Event Registration", amount: 21850, documents: [
     { name: "Invoice", required: true },
     { name: "Billing / Quotation / SOA", required: false },
-    { name: "Proof of payment", required: true, file: "card-payment-receipt.pdf", size: "126 KB" },
-    { name: "Receipt for each line item", required: true },
-    { name: "Cash advance form", required: false },
+    { name: "Proof of Payment", required: true, file: "card-payment-receipt.pdf", size: "126 KB" },
+    { name: "Receipt for Each Line Item", required: true },
+    { name: "Cash Advance Form", required: false },
   ] },
   { id: "CA-2026-0065", type: "cashAdvance", requestor: "Tara Lim", department: "Sales", vendor: "Internal", amount: 35000, documents: [
-    { name: "Cash advance form", required: true, file: "signed-cash-advance-form.pdf", size: "319 KB" },
-    { name: "Supporting budget / itinerary", required: true },
+    { name: "Cash Advance Form", required: true, file: "signed-cash-advance-form.pdf", size: "319 KB" },
+    { name: "Supporting Budget / Itinerary", required: true },
   ] },
   { id: "CA-2026-0068", type: "cashAdvance", requestor: "Iya Cruz", department: "Events", vendor: "Internal", amount: 39000, documents: [
-    { name: "Cash advance form", required: true, file: "event-cash-advance.pdf", size: "284 KB" },
-    { name: "Supporting budget / itinerary", required: true, file: "event-budget-and-itinerary.xlsx", size: "92 KB" },
+    { name: "Cash Advance Form", required: true, file: "event-cash-advance.pdf", size: "284 KB" },
+    { name: "Supporting Budget / Itinerary", required: true, file: "event-budget-and-itinerary.xlsx", size: "92 KB" },
   ] },
   { id: "PO-2026-0102", type: "poPayment", requestor: "Bea Tan", department: "Procurement", vendor: "Atlas Office Systems", amount: 141750, documents: [
     { name: "Approved P.O.", required: true, file: "PO-2026-0102-approved.pdf", size: "411 KB" },
-    { name: "BIR 2303 (new supplier)", required: false, file: "atlas-bir-2303.pdf", size: "205 KB" },
+    { name: "BIR 2303 (New Supplier)", required: false, file: "atlas-bir-2303.pdf", size: "205 KB" },
     { name: "Billing / Quotation / SOA", required: true, file: "atlas-soa-june.pdf", size: "176 KB" },
     { name: "Invoice", required: false },
   ] },
   { id: "PO-2026-0105", type: "poPayment", requestor: "Jon Reyes", department: "Operations", vendor: "Northstar Supplies", amount: 98200, documents: [
     { name: "Approved P.O.", required: true },
-    { name: "BIR 2303 (new supplier)", required: false },
+    { name: "BIR 2303 (New Supplier)", required: false },
     { name: "Billing / Quotation / SOA", required: true, file: "northstar-quotation.pdf", size: "238 KB" },
     { name: "Invoice", required: false },
   ] },
   { id: "GEN-2026-0053", type: "general", requestor: "Nico Ramos", department: "Facilities", vendor: "Metro Repairs", amount: 66200, documents: [
-    { name: "Billing or invoice", required: true, file: "metro-repairs-invoice.pdf", size: "154 KB" },
-    { name: "BIR 2303 (new supplier)", required: false },
+    { name: "Billing or Invoice", required: true, file: "metro-repairs-invoice.pdf", size: "154 KB" },
+    { name: "BIR 2303 (New Supplier)", required: false },
     { name: "Billing / Quotation / SOA", required: false, file: "repair-quotation.pdf", size: "202 KB" },
-    { name: "Other supporting document", required: false },
+    { name: "Other Supporting Document", required: false },
   ] },
   { id: "GEN-2026-0057", type: "general", requestor: "Carlo Uy", department: "IT", vendor: "CloudWorks", amount: 88400, documents: [
-    { name: "Billing or invoice", required: true },
-    { name: "BIR 2303 (new supplier)", required: false, file: "cloudworks-bir-2303.pdf", size: "196 KB" },
+    { name: "Billing or Invoice", required: true },
+    { name: "BIR 2303 (New Supplier)", required: false, file: "cloudworks-bir-2303.pdf", size: "196 KB" },
     { name: "Billing / Quotation / SOA", required: false },
-    { name: "Other supporting document", required: false, file: "service-acceptance.pdf", size: "118 KB" },
+    { name: "Other Supporting Document", required: false, file: "service-acceptance.pdf", size: "118 KB" },
   ] },
 ];
 
-const initialLineItems = {
+const lineItemExamples = {
   reimbursement: [
-    { "Invoice date": "2026-07-15", "Invoice number": "INV-1042", "Vendor / merchant": "Training Center", Particulars: "Leadership workshop registration", Amount: 50000 },
-    { "Invoice date": "2026-07-16", "Invoice number": "OR-1048", "Vendor / merchant": "Travel Desk", Particulars: "Workshop transportation", Amount: 75000 },
+    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-1042", "Vendor / Merchant": "Training Center", Particulars: "Leadership workshop registration", Amount: 50000 },
+    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-1048", "Vendor / Merchant": "Travel Desk", Particulars: "Workshop transportation", Amount: 75000 },
   ],
   cashAdvance: [
     { Particulars: "Regional transportation", Amount: 25000 },
     { Particulars: "Meals and incidentals", Amount: 10000 },
   ],
   liquidation: [
-    { "Invoice date": "2026-07-15", "Invoice number": "INV-2051", "Vendor / merchant": "Training Center", Particulars: "Workshop venue and meals", Amount: 30000 },
-    { "Invoice date": "2026-07-16", "Invoice number": "OR-2058", "Vendor / merchant": "Travel Desk", Particulars: "Local transportation", Amount: 15000 },
+    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-2051", "Vendor / Merchant": "Training Center", Particulars: "Workshop venue and meals", Amount: 30000 },
+    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-2058", "Vendor / Merchant": "Travel Desk", Particulars: "Local transportation", Amount: 15000 },
   ],
   poPayment: [
-    { "P.O. number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Office workstations", "Department / cost center": "Operations - 4400", Amount: 98000 },
-    { "P.O. number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Delivery and installation", "Department / cost center": "IT - 4500", Amount: 27500 },
+    { "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Office workstations", "Department / Cost Center": "Operations - 4400", Amount: 98000 },
+    { "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Delivery and installation", "Department / Cost Center": "IT - 4500", Amount: 27500 },
   ],
   general: [
-    { Supplier: "City Utilities", Particulars: "Electricity service", "Department / cost center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" },
-    { Supplier: "City Utilities", Particulars: "Water service", "Department / cost center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" },
-    { Supplier: "CloudWorks", Particulars: "Monthly hosting", "Department / cost center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" },
+    { Supplier: "City Utilities", Particulars: "Electricity service", "Department / Cost Center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" },
+    { Supplier: "City Utilities", Particulars: "Water service", "Department / Cost Center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" },
+    { Supplier: "CloudWorks", Particulars: "Monthly hosting", "Department / Cost Center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" },
   ],
 };
+
+const initialLineItems = Object.fromEntries(Object.entries(paymentTypes).map(([type, config]) => [
+  type,
+  [Object.fromEntries(config.lineColumns.map((column) => [column, column === "Amount" ? 0 : ""]))],
+]));
 
 const seedRequests = [
   ["RMB-2026-0144", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 12350, true, "Draft Request", 1, "2026-06-25", "", "", 0, 3, "Requestor is filling out mandatory request fields."],
@@ -241,17 +246,13 @@ function getVoucher(request) {
       request.type === "poPayment" ? "Approved purchase order" : "Invoice / billing support",
       "Accounting entry support",
     ],
-    signatories: [
-      "Department Head",
-      "Finance Associate",
-      !request.budgeted && request.amount > 1000000 ? "Board Member" : request.budgeted && request.amount > 300000 ? "President" : request.amount > 100000 || !request.budgeted ? "COO" : "Finance Manager",
-    ],
   };
 }
 
 function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedId, setSelectedId] = useState(seedRequests[0].id);
+  const [trackerRequestId, setTrackerRequestId] = useState(null);
   const [dashboardMetric, setDashboardMetric] = useState(null);
   const [draftType, setDraftType] = useState("reimbursement");
   const [lineItemsByType, setLineItemsByType] = useState(() => Object.fromEntries(
@@ -356,7 +357,7 @@ function App() {
           />
         )}
         {activeTab === "approvals" && <ApprovalQueue selected={selected} onSelect={setSelectedId} />}
-        {activeTab === "tracker" && <Tracker />}
+        {activeTab === "tracker" && <Tracker selectedId={trackerRequestId} onSelect={setTrackerRequestId} />}
         {activeTab === "uploads" && <DocumentUploads selectedId={uploadId} onSelect={setUploadId} />}
         {activeTab === "documents" && <DocumentRules />}
         {activeTab === "emails" && <EmailSamples selectedStep={emailStep} onSelectStep={setEmailStep} />}
@@ -384,19 +385,19 @@ function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric }) {
   const returnedRequests = seedRequests.filter((request) => request.status.includes("Returned"));
   const unclaimedRequests = seedRequests.filter((request) => request.currentStep === 12);
   const metricViews = {
-    pending: { title: "Pending approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
-    value: { title: "Open request value", description: "All active payment requests represented on the dashboard.", rows: seedRequests, total: formatCurrency(metrics.total) },
-    returned: { title: "Returned requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
-    unclaimed: { title: "Unclaimed checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
+    pending: { title: "Pending Approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
+    value: { title: "Open Request Value", description: "All active payment requests represented on the dashboard.", rows: seedRequests, total: formatCurrency(metrics.total) },
+    returned: { title: "Returned Requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
+    unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
   };
   if (activeMetric) return <MetricDetail view={metricViews[activeMetric]} onBack={() => onMetric(null)} onSelect={(id) => { onSelect(id); onMetric(null); }} />;
   return (
     <section className="content-grid">
       <div className="metric-row">
-        <Metric label="Pending approval" value={metrics.pendingApproval} tone="green" hint="View requests" onClick={() => onMetric("pending")} />
-        <Metric label="Open request value" value={formatCurrency(metrics.total)} tone="blue" hint="View breakdown" onClick={() => onMetric("value")} />
-        <Metric label="Returned" value={metrics.returned} tone="amber" hint="View requests" onClick={() => onMetric("returned")} />
-        <Metric label="Unclaimed checks" value={metrics.unclaimed} tone="red" hint="View checks" onClick={() => onMetric("unclaimed")} />
+        <Metric label="Pending Approval" value={metrics.pendingApproval} tone="green" hint="View Requests" onClick={() => onMetric("pending")} />
+        <Metric label="Open Request Value" value={formatCurrency(metrics.total)} tone="blue" hint="View Breakdown" onClick={() => onMetric("value")} />
+        <Metric label="Returned" value={metrics.returned} tone="amber" hint="View Requests" onClick={() => onMetric("returned")} />
+        <Metric label="Unclaimed Checks" value={metrics.unclaimed} tone="red" hint="View Checks" onClick={() => onMetric("unclaimed")} />
       </div>
       <div className="two-column">
         <RequestTable selectedId={selected.id} onSelect={onSelect} />
@@ -420,9 +421,9 @@ function Metric({ label, value, tone, hint, onClick }) {
 function MetricDetail({ view, onBack, onSelect }) {
   return (
     <section className="metric-detail-view">
-      <div className="metric-detail-actions"><button type="button" className="back-button" onClick={onBack}>← Back to dashboard</button></div>
+      <div className="metric-detail-actions"><button type="button" className="back-button" onClick={onBack}>← Back to Dashboard</button></div>
       <div className="metric-detail-header">
-        <div><span className="eyebrow">Dashboard detail</span><h3>{view.title}</h3><p>{view.description}</p></div>
+        <div><span className="eyebrow">Dashboard Detail</span><h3>{view.title}</h3><p>{view.description}</p></div>
         <strong>{view.total}</strong>
       </div>
       <section className="panel"><div className="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>
@@ -436,7 +437,7 @@ function RequestTable({ selectedId, onSelect }) {
   return (
     <section className="panel">
       <div className="panel-header">
-        <h3>Live requests</h3>
+        <h3>Live Requests</h3>
         <span className="count">{seedRequests.length}</span>
       </div>
       <div className="table-wrap">
@@ -498,7 +499,7 @@ function VoucherCard({ voucher, request }) {
     <div className="voucher-card">
       <div className="voucher-heading">
         <div>
-          <span className="eyebrow">Payment voucher</span>
+          <span className="eyebrow">Payment Voucher</span>
           <h4>{voucher.number}</h4>
           <p>Automated Payment System</p>
         </div>
@@ -524,17 +525,6 @@ function VoucherCard({ voucher, request }) {
           <tr className="net-row"><th>Net Payment</th><td>{formatCurrency(voucher.netPayment)}</td></tr>
         </tbody>
       </table>
-      <table className="voucher-table">
-        <thead><tr><th>Accounting Entry</th><th>Debit</th><th>Credit</th></tr></thead>
-        <tbody>
-          <tr><td>Expense / payable</td><td>{formatCurrency(voucher.grossAmount)}</td><td>-</td></tr>
-          <tr><td>Withholding tax payable</td><td>-</td><td>{formatCurrency(voucher.withholdingTax)}</td></tr>
-          <tr><td>Cash in bank</td><td>-</td><td>{formatCurrency(voucher.netPayment)}</td></tr>
-        </tbody>
-      </table>
-      <div className="signature-row">
-        {voucher.signatories.map((name) => <span key={name}>{name}</span>)}
-      </div>
     </div>
   );
 }
@@ -544,13 +534,13 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
   const isReimbursement = draftType === "reimbursement";
   const isLiquidation = draftType === "liquidation";
   const isCashAdvance = draftType === "cashAdvance";
-  const liquidationAdvanceAmount = 50000;
+  const liquidationAdvanceAmount = 0;
   const liquidationBalance = liquidationAdvanceAmount - draftAmount;
   return (
     <section className="form-layout">
       <div className="panel">
         <div className="panel-header">
-          <h3>{isReimbursement ? "Reimbursement details" : isLiquidation ? "Liquidation details" : isCashAdvance ? "Cash advance details" : "Request details"}</h3>
+          <h3>{isReimbursement ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3>
           <span className="voucher-preview">{config.prefix}-2026-0150</span>
         </div>
         <div className="segmented">
@@ -561,26 +551,26 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
           ))}
         </div>
         <div className={`field-grid ${isReimbursement || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}`}>
-          <label>{isReimbursement ? "Requestor's name" : isLiquidation || isCashAdvance ? "Cash advance requestor" : "Requestor"}<input defaultValue="Paolo Reyes" /></label>
-          {!isReimbursement && !isLiquidation && !isCashAdvance && <label>Payee / vendor<input defaultValue="Sample Supplier Inc." /></label>}
+          <label>{isReimbursement ? "Requestor's Name" : isLiquidation || isCashAdvance ? "Cash Advance Requestor" : "Requestor"}<input placeholder={isLiquidation || isCashAdvance ? "Enter cash advance requestor" : "Enter requestor's full name"} /></label>
+          {!isReimbursement && !isLiquidation && !isCashAdvance && <label>Payee / Vendor<input placeholder="Enter payee or vendor name" /></label>}
           {config.mandatoryFields.map((field) => (
             <label className={field.kind === "textarea" ? "full" : ""} key={field.label}>
               {field.label}
-              {field.kind === "textarea" ? <textarea defaultValue={field.value} /> : <input type={field.kind === "date" ? "date" : "text"} defaultValue={field.value} />}
+              {field.kind === "textarea" ? <textarea placeholder={field.value} /> : <input type={field.kind === "date" ? "date" : "text"} placeholder={field.value} />}
             </label>
           ))}
-          {(isReimbursement || isLiquidation || isCashAdvance) && <label>Voucher number <small>(Finance use only)</small><input defaultValue="Assigned after approval" disabled /></label>}
-          {!isLiquidation && <label>{isCashAdvance ? "Cash advance amount" : "Calculated total"}<input type="number" value={draftAmount} readOnly /></label>}
+          {(isReimbursement || isLiquidation || isCashAdvance) && <label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled /></label>}
+          {!isLiquidation && <label>{isCashAdvance ? "Cash Advance Amount" : "Calculated Total"}<input type="number" value={draftAmount} readOnly /></label>}
         </div>
-        {isLiquidation && <div className="liquidation-summary"><label>Cash advance amount<input type="number" defaultValue={liquidationAdvanceAmount} /></label><div><span>Total expenses</span><strong>{formatCurrency(draftAmount)}</strong></div><div><span>For return / for reimbursement</span><strong>{formatCurrency(Math.abs(liquidationBalance))} {liquidationBalance >= 0 ? "for return" : "for reimbursement"}</strong></div></div>}
+        {isLiquidation && <div className="liquidation-summary"><label>Cash Advance Amount<input type="number" placeholder="e.g. 50000" /></label><div><span>Total Expenses</span><strong>{formatCurrency(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong>{formatCurrency(Math.abs(liquidationBalance))} {liquidationBalance >= 0 ? "for return" : "for reimbursement"}</strong></div></div>}
         {!isCashAdvance && !isLiquidation && <label className="toggle-row">
           <input type="checkbox" checked={!budgeted} onChange={(event) => setBudgeted(!event.target.checked)} />
-          Unbudgeted request
+          Unbudgeted Request
         </label>}
         <div className="line-items-section">
           <div className="line-items-header">
-            <div><span className="eyebrow">Request breakdown</span><h4>Line items</h4></div>
-            <button type="button" className="add-line-button" onClick={addLineItem}>+ Add line item</button>
+            <div><span className="eyebrow">Request Breakdown</span><h4>Line Items</h4></div>
+            <button type="button" className="add-line-button" onClick={addLineItem}>+ Add Line Item</button>
           </div>
           <div className="table-wrap">
             <table className="line-item-table">
@@ -590,8 +580,9 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
                   <tr key={`${draftType}-${rowIndex}`}>
                     {config.lineColumns.map((column) => {
                       const isFile = column === "Receipt" || column === "Attachment";
-                      if (isFile) return <td key={column}><input type="file" aria-label={`${column} for line ${rowIndex + 1}`} />{item[column] && <small className="existing-line-file">{item[column]}</small>}</td>;
-                      return <td key={column}><input type={column === "Amount" ? "number" : column.includes("date") ? "date" : "text"} value={item[column] || ""} onChange={(event) => updateLineItem(rowIndex, column, event.target.value)} /></td>;
+                      const example = lineItemExamples[draftType]?.[0]?.[column] ?? column;
+                      if (isFile) return <td key={column}><input type="file" aria-label={`${column} for line ${rowIndex + 1}`} /></td>;
+                      return <td key={column}><input type={column === "Amount" ? "number" : column.includes("date") ? "date" : "text"} value={item[column] || ""} placeholder={String(example)} onChange={(event) => updateLineItem(rowIndex, column, event.target.value)} /></td>;
                     })}
                     <td><button type="button" className="remove-line-button" title="Remove line item" aria-label={`Remove line item ${rowIndex + 1}`} disabled={lineItems.length === 1} onClick={() => removeLineItem(rowIndex)}>×</button></td>
                   </tr>
@@ -605,7 +596,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
       </div>
       <div className="panel">
         <div className="panel-header">
-          <h3>Validation preview</h3>
+          <h3>Validation Preview</h3>
           <span className="count">{config.required.length}</span>
         </div>
         <ul className="check-list">
@@ -616,7 +607,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
             </li>
           ))}
         </ul>
-        <h4>Document uploads</h4>
+        <h4>Document Uploads</h4>
         <div className="upload-list">
           {config.uploadDocuments.map((documentName) => (
             <label key={documentName} className="upload-row">
@@ -626,7 +617,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
           ))}
         </div>
         <div className="route-box">
-          <span className="eyebrow">System route</span>
+          <span className="eyebrow">System Route</span>
           <strong>{getRoute(draftRequest)}</strong>
         </div>
         <button className="primary-button">Submit to Department Head</button>
@@ -656,12 +647,21 @@ function ApprovalQueue({ selected, onSelect }) {
   );
 }
 
-function Tracker() {
+function Tracker({ selectedId, onSelect }) {
+  const selected = seedRequests.find((request) => request.id === selectedId);
+  if (selected) return (
+    <section className="metric-detail-view">
+      <div className="metric-detail-actions"><button type="button" className="back-button" onClick={() => onSelect(null)}>← Back to Payment Tracker</button></div>
+      <div className="metric-detail-header"><div><span className="eyebrow">Tracker Detail</span><h3>{selected.id}</h3><p>Review request information and its current payment progress.</p></div><StatusPill status={selected.status} /></div>
+      <RequestDetail request={selected} />
+      <WorkflowMap currentStep={selected.currentStep} />
+    </section>
+  );
   return (
     <section className="panel">
       <div className="panel-header">
-        <h3>Payment tracker</h3>
-        <button className="icon-button" title="Export report">↧</button>
+        <h3>Payment Tracker</h3>
+        <button className="icon-button" title="Export Report">↧</button>
       </div>
       <div className="table-wrap">
         <table>
@@ -672,13 +672,13 @@ function Tracker() {
               <th>Returned</th>
               <th>Resubmitted</th>
               <th>Approval</th>
-              <th>Check approval</th>
+              <th>Check Approval</th>
               <th>Payment</th>
             </tr>
           </thead>
           <tbody>
             {seedRequests.map((request, index) => (
-              <tr key={request.id}>
+              <tr key={request.id} onClick={() => onSelect(request.id)}>
                 <td>{request.id}</td>
                 <td>{request.submitted}</td>
                 <td>{request.returned || "-"}</td>
@@ -694,7 +694,7 @@ function Tracker() {
       <div className="report-band">
         <div>
           <span className="eyebrow">Report</span>
-          <strong>Unclaimed checks</strong>
+          <strong>Unclaimed Checks</strong>
         </div>
         <p>Flags checks marked available but not yet released to the payee.</p>
       </div>
@@ -711,7 +711,7 @@ function DocumentUploads({ selectedId, onSelect }) {
     <section className="document-upload-layout">
       <section className="panel upload-request-list">
         <div className="panel-header">
-          <h3>Requests needing documents</h3>
+          <h3>Requests Needing Documents</h3>
           <span className="count">{uploadSamples.length}</span>
         </div>
         <div className="upload-request-buttons">
@@ -743,10 +743,10 @@ function DocumentUploads({ selectedId, onSelect }) {
             <article className={`document-file-row ${document.file ? "uploaded" : "missing"}`} key={document.name}>
               <div className="document-file-info">
                 <div><strong>{document.name}</strong><span className={document.required ? "required-tag" : "conditional-tag"}>{document.required ? "Required" : "Conditional"}</span></div>
-                {document.file ? <p><span className="file-icon">{document.file.split(".").pop().toUpperCase()}</span>{document.file} <small>{document.size}</small></p> : <p className="missing-file">No file uploaded</p>}
+                {document.file ? <p><span className="file-icon">{document.file.split(".").pop().toUpperCase()}</span>{document.file} <small>{document.size}</small></p> : <p className="missing-file">No File Uploaded</p>}
               </div>
               <label className="file-picker">
-                <span>{document.file ? "Replace file" : "Add file"}</span>
+                <span>{document.file ? "Replace File" : "Add File"}</span>
                 <input type="file" aria-label={`${document.file ? "Replace" : "Add"} ${document.name}`} />
               </label>
             </article>

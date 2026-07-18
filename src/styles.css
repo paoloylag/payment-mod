@@ -54,11 +54,19 @@ textarea {
   border-radius: 6px;
   padding: 10px 12px;
   background: #fff;
+  font-weight: 400;
 }
 
 textarea {
   min-height: 92px;
   resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #92999f;
+  opacity: 1;
+  font-weight: 400;
 }
 
 .app-shell {
@@ -492,29 +500,20 @@ dd {
   text-align: right;
 }
 
+.amount-table th {
+  width: 65%;
+  white-space: nowrap;
+}
+
+.amount-table td {
+  width: 35%;
+  white-space: nowrap;
+}
+
 .net-row th,
 .net-row td {
   color: var(--primary);
   font-size: 14px;
-}
-
-.signature-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-top: 22px;
-}
-
-.signature-row span {
-  border: 0;
-  border-top: 1px solid var(--ink);
-  border-radius: 0;
-  padding: 8px 4px 0;
-  color: var(--ink);
-  background: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  text-align: center;
 }
 
 .segmented {
@@ -822,6 +821,18 @@ label {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
   margin: 14px 0;
+}
+
+.approval-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
+  padding: 10px 12px;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .approval-actions .danger {
@@ -1280,10 +1291,6 @@ label {
   .email-request-summary > div:nth-child(odd) { border-right: 0; }
   .email-body { padding: 22px 18px; }
 
-  .signature-row {
-    grid-template-columns: 1fr;
-  }
-
   .nav-list {
     grid-template-columns: 1fr;
   }
@@ -1299,9 +1306,10 @@ label {
 
   html,
   body {
-    width: 210mm;
+    width: 100%;
     min-width: 0;
     margin: 0;
+    padding: 0;
     background: #fff;
   }
 
@@ -1316,21 +1324,40 @@ label {
     visibility: hidden;
   }
 
+  body *:not(:has(.voucher-card)):not(.voucher-card):not(.voucher-card *) {
+    display: none !important;
+  }
+
+  body *:has(.voucher-card) {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
   .voucher-card,
   .voucher-card * {
     visibility: visible;
   }
 
   .voucher-card {
-    position: absolute;
+    position: fixed !important;
     left: 0;
     top: 0;
-    width: 182mm;
+    width: 100%;
+    max-width: none;
+    max-height: 132mm;
+    box-sizing: border-box;
     min-height: 0;
     margin: 0;
     border: 1px solid var(--primary);
     border-radius: 6px;
-    padding: 8mm;
+    padding: 6mm 8mm;
     color: var(--ink);
     background: #fff;
     box-shadow: none;
@@ -1343,6 +1370,7 @@ label {
 
   .voucher-heading {
     border-bottom-color: var(--primary);
+    padding-bottom: 3mm;
   }
 
   .voucher-heading h4,
@@ -1354,12 +1382,14 @@ label {
   .voucher-meta {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4mm;
+    gap: 3mm;
+    margin: 3mm 0;
     color: var(--muted);
   }
 
   .voucher-table {
     table-layout: fixed;
+    margin-top: 3mm;
     break-inside: avoid;
   }
 
@@ -1375,6 +1405,7 @@ label {
   .voucher-table th,
   .voucher-table td {
     border-color: var(--line);
+    padding: 2mm 2.5mm;
     overflow-wrap: anywhere;
   }
 
@@ -1383,19 +1414,9 @@ label {
   }
 
   .amount-table {
-    width: 96mm;
+    width: 50%;
     max-width: 96mm;
+    margin-left: auto;
   }
 
-  .signature-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6mm;
-    margin-top: 12mm;
-    break-inside: avoid;
-  }
-
-  .signature-row span {
-    border-top-color: var(--ink);
-    background: #fff;
-  }
 }
