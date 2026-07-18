@@ -108,7 +108,26 @@ textarea {
 
 .nav-list {
   display: grid;
-  gap: 8px;
+  gap: 18px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-group-label {
+  padding: 0 10px;
+  color: #d7aeb0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.nav-group-links {
+  display: grid;
+  gap: 5px;
 }
 
 .nav-list button {
@@ -203,9 +222,17 @@ main {
 }
 
 .metric {
+  width: 100%;
   padding: 16px;
   border-top-width: 4px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: transform .16s ease, box-shadow .16s ease;
 }
+
+.metric:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(48, 29, 30, .10); }
+.metric:focus-visible { outline: 3px solid rgba(20, 105, 115, .28); outline-offset: 2px; }
 
 .metric span {
   color: var(--muted);
@@ -218,10 +245,31 @@ main {
   font-size: 24px;
 }
 
+.metric small { display: block; margin-top: 12px; color: var(--primary); font-size: 11px; font-weight: 800; }
+
 .metric.green { border-top-color: var(--green); }
 .metric.blue { border-top-color: var(--blue); }
 .metric.amber { border-top-color: var(--amber); }
 .metric.red { border-top-color: var(--red); }
+
+.metric-detail-view { display: grid; gap: 16px; }
+.metric-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--panel);
+}
+.metric-detail-actions { display: flex; justify-content: flex-start; }
+.metric-detail-header h3 { margin: 3px 0 4px; font-size: 24px; }
+.metric-detail-header p { margin: 0; color: var(--muted); font-size: 13px; }
+.metric-detail-header > strong { color: var(--primary); font-size: 20px; white-space: nowrap; }
+.back-button { color: var(--primary); background: var(--accent); font-weight: 800; }
+.metric-detail-view tbody tr { cursor: pointer; }
+.empty-state { padding: 28px !important; color: var(--muted); text-align: center; }
 
 .two-column,
 .form-layout {
@@ -503,6 +551,60 @@ label {
 
 .full {
   grid-column: 1 / -1;
+}
+
+.reimbursement-fields {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  padding: 16px;
+  background: #fffafa;
+}
+
+.reimbursement-fields label.full { grid-column: 1 / -1; }
+.reimbursement-fields label small { color: var(--muted); font-weight: 600; }
+.reimbursement-fields input:disabled { color: #7b6667; background: #f3e7e8; }
+
+.liquidation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  background: #fff;
+}
+
+.liquidation-summary > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+}
+
+.liquidation-summary span { color: var(--muted); font-size: 12px; font-weight: 700; }
+.liquidation-summary strong { margin-top: 5px; color: var(--primary); font-size: 15px; }
+
+.accountability-box,
+.cash-advance-policy {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  padding: 15px;
+  background: #fff;
+}
+
+.accountability-box h4,
+.cash-advance-policy h4 { margin: 0 0 9px; }
+.accountability-box p,
+.cash-advance-policy li { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.accountability-box label { display: flex; align-items: flex-start; gap: 9px; margin-top: 12px; color: var(--ink); font-size: 12px; font-weight: 800; }
+.accountability-box input { width: auto; margin-top: 2px; }
+.cash-advance-policy { background: #fff9ed; }
+.cash-advance-policy ul { margin: 0; padding-left: 18px; }
+
+@media (max-width: 760px) {
+  .liquidation-summary { grid-template-columns: 1fr; }
+  .liquidation-summary > div { border-top: 1px solid var(--line); border-left: 0; padding: 10px 0 0; }
 }
 
 .toggle-row {
@@ -1122,6 +1224,7 @@ label {
 
   .nav-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
   }
 
   .metric-row,
@@ -1184,6 +1287,8 @@ label {
   .nav-list {
     grid-template-columns: 1fr;
   }
+
+  .metric-detail-header { grid-template-columns: 1fr; align-items: start; }
 }
 
 @media print {
