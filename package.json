@@ -1,8 +1,24 @@
 {
   "name": "automated-payment-system-prototype",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "description": "Front-end prototype for payment requests, approvals, document validation, voucher printing, and payment tracking.",
   "private": true,
   "type": "module",
+  "homepage": "https://paoloylag.github.io/payment-mod/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paoloylag/payment-mod.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paoloylag/payment-mod/issues"
+  },
+  "keywords": [
+    "payment-workflow",
+    "accounts-payable",
+    "approval-routing",
+    "react",
+    "vite"
+  ],
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",

@@ -1,4 +1,4 @@
-const { useMemo, useState } = React;
+const { useEffect, useMemo, useState } = React;
 
 const paymentTypes = {
   reimbursement: {
@@ -250,11 +250,13 @@ function getVoucher(request) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const initialPath = (window.location.hash.slice(1) || "/dashboard").split("/").filter(Boolean);
+  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : ["dashboard", "approvals", "tracker", "emails", "archive"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedId, setSelectedId] = useState(seedRequests[0].id);
-  const [trackerRequestId, setTrackerRequestId] = useState(null);
-  const [dashboardMetric, setDashboardMetric] = useState(null);
-  const [draftType, setDraftType] = useState("reimbursement");
+  const [trackerRequestId, setTrackerRequestId] = useState(initialTab === "tracker" ? initialPath[1] || null : null);
+  const [dashboardMetric, setDashboardMetric] = useState(initialTab === "dashboard" && ["pending", "value", "returned", "unclaimed"].includes(initialPath[1]) ? initialPath[1] : null);
+  const [draftType, setDraftType] = useState(initialTab === "request" && paymentTypes[initialPath[2]] ? initialPath[2] : "reimbursement");
   const [lineItemsByType, setLineItemsByType] = useState(() => Object.fromEntries(
     Object.entries(initialLineItems).map(([type, rows]) => [type, rows.map((row) => ({ ...row }))])
   ));
@@ -265,6 +267,22 @@ function App() {
   const draftLineItems = lineItemsByType[draftType];
   const draftAmount = draftLineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
   const draftRequest = { amount: draftAmount, budgeted, type: draftType };
+  const navigateTo = (path) => { window.location.hash = path; };
+
+  useEffect(() => {
+    const syncRoute = () => {
+      const parts = (window.location.hash.slice(1) || "/dashboard").split("/").filter(Boolean);
+      if (parts[0] === "requests") { setActiveTab("request"); if (paymentTypes[parts[2]]) setDraftType(parts[2]); }
+      else if (parts[0] === "documents") setActiveTab(parts[1] === "rules" ? "documents" : "uploads");
+      else if (parts[0] === "tracker") { setActiveTab("tracker"); setTrackerRequestId(parts[1] || null); }
+      else if (parts[0] === "dashboard") { setActiveTab("dashboard"); setDashboardMetric(["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null); if (parts[1] === "request" && seedRequests.some((request) => request.id === parts[2])) setSelectedId(parts[2]); }
+      else if (["approvals", "emails", "archive"].includes(parts[0])) setActiveTab(parts[0]);
+      else setActiveTab("dashboard");
+    };
+    window.addEventListener("hashchange", syncRoute);
+    if (!window.location.hash) window.location.hash = "/dashboard";
+    return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
 
   const updateLineItem = (rowIndex, column, value) => {
     setLineItemsByType((current) => ({
@@ -314,7 +332,7 @@ function App() {
               <span className="nav-group-label">{group}</span>
               <div className="nav-group-links">
                 {links.map(([id, label, icon]) => (
-                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}>
+                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails", archive: "/archive" })[id])}>
                     <span>{icon}</span>{label}
                   </button>
                 ))}
@@ -341,11 +359,11 @@ function App() {
           <div className="user-chip">Finance Associate</div>
         </header>
 
-        {activeTab === "dashboard" && <Dashboard metrics={metrics} selected={selected} onSelect={setSelectedId} activeMetric={dashboardMetric} onMetric={setDashboardMetric} />}
+        {activeTab === "dashboard" && <Dashboard metrics={metrics} selected={selected} onSelect={(id) => { setSelectedId(id); navigateTo(`/dashboard/request/${id}`); }} activeMetric={dashboardMetric} onMetric={(metric) => navigateTo(metric ? `/dashboard/${metric}` : "/dashboard")} />}
         {activeTab === "request" && (
           <RequestBuilder
             draftType={draftType}
-            setDraftType={setDraftType}
+            setDraftType={(type) => navigateTo(`/requests/new/${type}`)}
             draftAmount={draftAmount}
             lineItems={draftLineItems}
             updateLineItem={updateLineItem}
@@ -357,7 +375,7 @@ function App() {
           />
         )}
         {activeTab === "approvals" && <ApprovalQueue selected={selected} onSelect={setSelectedId} />}
-        {activeTab === "tracker" && <Tracker selectedId={trackerRequestId} onSelect={setTrackerRequestId} />}
+        {activeTab === "tracker" && <Tracker selectedId={trackerRequestId} onSelect={(id) => navigateTo(id ? `/tracker/${id}` : "/tracker")} />}
         {activeTab === "uploads" && <DocumentUploads selectedId={uploadId} onSelect={setUploadId} />}
         {activeTab === "documents" && <DocumentRules />}
         {activeTab === "emails" && <EmailSamples selectedStep={emailStep} onSelectStep={setEmailStep} />}
@@ -390,7 +408,7 @@ function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric }) {
     returned: { title: "Returned Requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
     unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
   };
-  if (activeMetric) return <MetricDetail view={metricViews[activeMetric]} onBack={() => onMetric(null)} onSelect={(id) => { onSelect(id); onMetric(null); }} />;
+  if (activeMetric) return <MetricDetail view={metricViews[activeMetric]} onBack={() => onMetric(null)} onSelect={onSelect} />;
   return (
     <section className="content-grid">
       <div className="metric-row">
