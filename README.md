@@ -1,10 +1,12 @@
-# Automated Payment System Prototype
+# Automated Payment System
 
-This React-compatible prototype is based on `Automated Payment System.xlsx`.
+A front-end workflow prototype for creating, reviewing, approving, tracking, and documenting payment requests. It includes type-specific request forms, approval routing, document requirements, printable payment vouchers, and finance operation views.
+
+Live prototype: [https://paoloylag.github.io/payment-mod/](https://paoloylag.github.io/payment-mod/)
 
 ## Open locally
 
-Serve this folder with any static server and open `index.html`. The checked-in HTML uses a self-contained preview script so it can run without installing dependencies.
+The checked-in HTML and static preview script can run without installing dependencies:
 
 Example:
 
@@ -12,56 +14,52 @@ Example:
 python -m http.server 8766 --bind 127.0.0.1
 ```
 
-Then open:
+Then open [http://127.0.0.1:8766/](http://127.0.0.1:8766/).
 
-```text
-http://127.0.0.1:8766/
-```
-
-## Publish with GitHub Pages
-
-This folder is ready to publish as a static GitHub Pages site.
-
-1. Create a new GitHub repository.
-2. Upload or push the full contents of this folder to the repository root.
-3. In GitHub, go to **Settings > Pages**.
-4. Under **Build and deployment**, set **Source** to **GitHub Actions**.
-5. Push to the `main` branch, or run the **Publish prototype to GitHub Pages** workflow manually from the **Actions** tab.
-
-After the workflow finishes, GitHub will show the public Pages URL in the deployment summary.
-
-### Command-line setup
-
-From this folder:
-
-```bash
-git init
-git add .
-git commit -m "Publish automated payment prototype"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/YOUR-REPOSITORY.git
-git push -u origin main
-```
-
-## Use in a React/Vite app
-
-Install dependencies, then run:
+For Vite development with automatic reload:
 
 ```bash
 npm install
 npm run dev
 ```
 
-The React-compatible component source is in `src/App.jsx`, the static preview script is in `src/prototype.js`, and styling is in `src/styles.css`.
+Create and preview a production build with:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Publish with GitHub Pages
+
+The repository publishes through the GitHub Actions Pages workflow when updates reach `main`. Deployment status is available in the repository's **Actions** and **Deployments** views.
+
+Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloylag/payment-mod)
+
+## Project structure
+
+- `index.html` loads the static browser prototype.
+- `src/prototype.js` is the runtime used by the deployed static preview.
+- `src/App.jsx` contains the synchronized React implementation.
+- `src/styles.css` contains screen, responsive, and print styling.
+- `.github/workflows/pages.yml` defines the GitHub Pages deployment.
 
 ## Covered workflow
 
-- Payment request creation with reimbursement, cash advance, P.O. payment, and general payment variants.
-- Type-specific document validation and line-item fields.
-- Multiple line items with department/cost-center allocation.
-- Type-specific required document uploads, including reimbursement cash advance forms.
+- Payment request creation for reimbursement, liquidation, cash advance, P.O. payment, and general payment requests.
+- Form structures based on the supplied LCI reimbursement, liquidation, and cash advance references.
+- Placeholder-based text inputs, calculated totals, multiple line items, and department/cost-center allocation.
+- Type-specific validation rules and required or conditional document uploads.
+- Grouped navigation for overview, requests, processing, and records.
+- Clickable dashboard metrics with dedicated request lists and detail views.
 - Department Head, Finance Associate, Finance Manager, COO, President, and Board Member review paths.
+- Standardized approval actions for consistent approver views.
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
-- Printable payment voucher with corresponding payment details.
+- Full-width printable payment vouchers with compact half-page content, payment details, and an amount summary.
 - Approver email samples for each workflow stage.
-- Payment tracker, unclaimed-check report concept, archive search, and ERP posting queue.
+- Clickable Payment Tracker rows with dedicated request and workflow details.
+- Unclaimed-check reporting, archive search, and an ERP posting queue concept.
+
+## Prototype scope
+
+This repository currently demonstrates front-end workflow behavior with sample data. It does not yet include authentication, persistent storage, file processing, email delivery, banking integrations, or ERP connectivity.

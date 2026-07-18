@@ -287,6 +287,18 @@ main {
   align-items: start;
 }
 
+.form-layout {
+  grid-template-columns: minmax(0, 1fr) 270px;
+}
+
+.form-layout > .panel:last-child {
+  padding: 14px;
+}
+
+.form-layout > .panel:last-child .check-list li {
+  font-size: 12px;
+}
+
 .approval-layout {
   grid-template-columns: minmax(0, 0.95fr) minmax(390px, 1.05fr);
 }
@@ -657,9 +669,9 @@ label {
 
 .upload-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.15fr);
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;
@@ -667,12 +679,18 @@ label {
 }
 
 .upload-row span {
+  display: block;
   color: var(--ink);
   font-size: 13px;
   font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .upload-row input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 7px;
   font-size: 12px;
 }
@@ -705,7 +723,7 @@ label {
 }
 
 .line-item-table {
-  min-width: 1060px;
+  min-width: 760px;
   table-layout: fixed;
 }
 
@@ -809,6 +827,11 @@ label {
 .posting-item strong {
   display: block;
   margin-top: 4px;
+}
+
+.form-layout .route-box strong {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .primary-button {

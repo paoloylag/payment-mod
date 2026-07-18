@@ -158,6 +158,34 @@ let state = {
   uploadId: uploadSamples[0].id,
   lineItemsByType: Object.fromEntries(Object.entries(initialLineItems).map(([type, rows]) => [type, rows.map((row) => ({ ...row }))])),
 };
+const tabRoutes = {
+  dashboard: "/dashboard",
+  request: "/requests/new/reimbursement",
+  approvals: "/approvals",
+  tracker: "/tracker",
+  uploads: "/documents/uploads",
+  documents: "/documents/rules",
+  emails: "/emails",
+  archive: "/archive",
+};
+function routeStateFromHash() {
+  const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "requests") return { tab: "request", draftType: paymentTypes[parts[2]] ? parts[2] : "reimbursement", dashboardMetric: null, trackerRequestId: null };
+  if (parts[0] === "approvals") return { tab: "approvals", selectedId: requests.some((r) => r.id === parts[1]) ? parts[1] : state.selectedId, dashboardMetric: null, trackerRequestId: null };
+  if (parts[0] === "tracker") return { tab: "tracker", trackerRequestId: requests.some((r) => r.id === parts[1]) ? parts[1] : null, dashboardMetric: null };
+  if (parts[0] === "documents") return { tab: parts[1] === "rules" ? "documents" : "uploads", trackerRequestId: null, dashboardMetric: null };
+  if (parts[0] === "emails") return { tab: "emails", emailStep: steps.some(([id]) => String(id) === parts[1]) ? Number(parts[1]) : state.emailStep, trackerRequestId: null, dashboardMetric: null };
+  if (parts[0] === "archive") return { tab: "archive", trackerRequestId: null, dashboardMetric: null };
+  if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null };
+  return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
+}
+function navigate(path) {
+  if (window.location.hash === `#${path}`) {
+    state = { ...state, ...routeStateFromHash() };
+    render();
+  } else window.location.hash = path;
+}
 const money = (value) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value);
 const settlementFor = (advance, expenses) => advance >= expenses
   ? `${money(advance - expenses)} for return`
@@ -382,15 +410,15 @@ function archive() {
 function render() {
   const views = { dashboard, request: requestBuilder, approvals, tracker, uploads: documentUploads, documents, emails, archive };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
-  document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => setState({ tab: button.dataset.tab })));
-  document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => setState({ selectedId: row.dataset.request })));
-  document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => setState({ dashboardMetric: button.dataset.metric })));
-  document.querySelector("[data-close-metric]")?.addEventListener("click", () => setState({ dashboardMetric: null }));
-  document.querySelectorAll("[data-metric-request]").forEach((row) => row.addEventListener("click", () => setState({ dashboardMetric: null, selectedId: row.dataset.metricRequest })));
-  document.querySelectorAll("[data-tracker-request]").forEach((row) => row.addEventListener("click", () => setState({ trackerRequestId: row.dataset.trackerRequest })));
-  document.querySelector("[data-close-tracker]")?.addEventListener("click", () => setState({ trackerRequestId: null }));
-  document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => setState({ draftType: button.dataset.type })));
-  document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => setState({ emailStep: Number(button.dataset.emailStep) })));
+  document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.tab === "request" ? `/requests/new/${state.draftType}` : tabRoutes[button.dataset.tab])));
+  document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => navigate(state.tab === "approvals" ? `/approvals/${row.dataset.request}` : `/dashboard/request/${row.dataset.request}`)));
+  document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/${button.dataset.metric}`)));
+  document.querySelector("[data-close-metric]")?.addEventListener("click", () => navigate("/dashboard"));
+  document.querySelectorAll("[data-metric-request]").forEach((row) => row.addEventListener("click", () => navigate(`/dashboard/request/${row.dataset.metricRequest}`)));
+  document.querySelectorAll("[data-tracker-request]").forEach((row) => row.addEventListener("click", () => navigate(`/tracker/${row.dataset.trackerRequest}`)));
+  document.querySelector("[data-close-tracker]")?.addEventListener("click", () => navigate("/tracker"));
+  document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => navigate(`/requests/new/${button.dataset.type}`)));
+  document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest })));
   document.querySelector("[data-add-line]")?.addEventListener("click", addDraftLineItem);
   document.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => removeDraftLineItem(Number(button.dataset.removeLine))));
@@ -405,4 +433,10 @@ function render() {
   });
 }
 
+window.addEventListener("hashchange", () => {
+  state = { ...state, ...routeStateFromHash() };
+  render();
+});
+if (!window.location.hash) window.location.replace(`${window.location.pathname}${window.location.search}#/dashboard`);
+state = { ...state, ...routeStateFromHash() };
 render();
