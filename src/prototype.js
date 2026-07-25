@@ -75,7 +75,7 @@ const steps = [
   [12, "Vendor Notice", "Finance Associate"],
   [13, "Release", "Finance Associate"],
   [14, "Tracker", "System"],
-  [15, "Archive + ERP", "System"],
+  [15, "Complete", "System"],
 ];
 
 const emailTemplates = {
@@ -93,7 +93,7 @@ const emailTemplates = {
   12: ["Finance Associate", "Notify payee that payment is available", "Bank authorization completed", "The payment has been authorized and is ready for payee notification.", "Send the payment availability notice and confirm the release or collection instructions.", "Send Payee Notice"],
   13: ["Finance Associate", "Record payment release", "Payee notified", "The payment is ready for release to the payee.", "Record the release date, recipient, payment reference, and acknowledgement details.", "Record Release"],
   14: ["Finance Associate", "Payment tracker updated", "Payment released", "The payment tracker has been updated automatically.", "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", "View Tracker"],
-  15: ["Finance Associate", "Archive and ERP posting completed", "Tracker update completed", "The completed request has been archived and queued for ERP posting.", "Review the journal reference and archived record if reconciliation is required.", "View Archived Record"],
+  15: ["Finance Associate", "Payment request completed", "Tracker update completed", "The payment request workflow is complete.", "Review the completed payment record if reconciliation is required.", "View Completed Request"],
 };
 
 const uploadSamples = [
@@ -141,21 +141,48 @@ const requests = [
   ["GEN-2026-0044", "general", "Carlo Uy", "IT", "CloudWorks", 88400, true, "Vendor Notification", 12, "2026-06-14", "", "", 3, 0],
   ["RMB-2026-0154", "reimbursement", "Sam Lee", "Legal", "Travel Desk", 30750, true, "Payment Release", 13, "2026-06-13", "", "", 4, 0],
   ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Payment Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0],
-  ["GEN-2026-0049", "general", "Paolo Reyes", "Finance", "ERP Posting", 101250, true, "Archive + ERP Posting", 15, "2026-06-11", "", "", 4, 0],
+  ["GEN-2026-0049", "general", "Paolo Reyes", "Finance", "Completed Payment", 101250, true, "Completed", 15, "2026-06-11", "", "", 4, 0],
 ].map(([id, type, requestor, department, vendor, amount, budgeted, status, currentStep, submitted, returned, resubmitted, documents, missing]) => ({
   id, type, requestor, department, vendor, amount, budgeted, status, currentStep, submitted, returned, resubmitted, documents, missing,
 }));
 
+const personas = {
+  all: { label: "All Roles", name: "Prototype Admin", subtitle: "Complete Prototype Access" },
+  requestor: { label: "Requestor", name: "Mika Santos", subtitle: "Marketing Department" },
+  financeAssociate: { label: "Finance Associate", name: "Ms. Rhee", subtitle: "Document Validation" },
+  financeManager: { label: "Finance Manager", name: "Finance Manager", subtitle: "All-Request Visibility" },
+  coo: { label: "COO", name: "Chief Operating Officer", subtitle: "Routed Approvals Only" },
+  president: { label: "President", name: "President", subtitle: "Routed Approvals Only" },
+};
+
 let state = {
+  persona: "all",
   tab: "dashboard",
   selectedId: requests[0].id,
   dashboardMetric: null,
+  dashboardWorkflow: false,
   trackerRequestId: null,
+  dashboardFilters: { voucher: "", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" },
+  requestCreatedDate: new Date().toISOString().slice(0, 10),
   draftType: "reimbursement",
   budgeted: true,
   liquidationAdvanceAmount: 0,
   emailStep: 3,
   uploadId: uploadSamples[0].id,
+  documentValidation: {
+    vat: "",
+    ewt: "",
+    otherEwt: "",
+    hardCopy: false,
+    softCopy: true,
+    completionDate: "",
+    checkNumber: "",
+    reviewerNote: "Validate supporting documents, tax treatment, and accounting entries.",
+    entries: [
+      { account: "Training Expense", debit: 84350, credit: 0 },
+      { account: "Accounts Payable", debit: 0, credit: 84350 },
+    ],
+  },
   lineItemsByType: Object.fromEntries(Object.entries(initialLineItems).map(([type, rows]) => [type, rows.map((row) => ({ ...row }))])),
 };
 const tabRoutes = {
@@ -166,7 +193,6 @@ const tabRoutes = {
   uploads: "/documents/uploads",
   documents: "/documents/rules",
   emails: "/emails",
-  archive: "/archive",
 };
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
@@ -176,8 +202,7 @@ function routeStateFromHash() {
   if (parts[0] === "tracker") return { tab: "tracker", trackerRequestId: requests.some((r) => r.id === parts[1]) ? parts[1] : null, dashboardMetric: null };
   if (parts[0] === "documents") return { tab: parts[1] === "rules" ? "documents" : "uploads", trackerRequestId: null, dashboardMetric: null };
   if (parts[0] === "emails") return { tab: "emails", emailStep: steps.some(([id]) => String(id) === parts[1]) ? Number(parts[1]) : state.emailStep, trackerRequestId: null, dashboardMetric: null };
-  if (parts[0] === "archive") return { tab: "archive", trackerRequestId: null, dashboardMetric: null };
-  if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null };
+  if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null };
   return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
 }
 function navigate(path) {
@@ -257,23 +282,47 @@ function removeDraftLineItem(rowIndex) {
   setState({ lineItemsByType });
 }
 
+function personaRequests(persona = state.persona) {
+  if (persona === "requestor") return requests.filter((request) => request.requestor === personas.requestor.name);
+  if (persona === "coo") return requests.filter((request) => request.currentStep === 7);
+  if (persona === "president") return requests.filter((request) => request.currentStep === 8);
+  return requests;
+}
+
+function approvalRequests(persona = state.persona) {
+  if (persona === "financeAssociate") return requests.filter((request) => [4, 9, 10, 12, 13].includes(request.currentStep));
+  if (persona === "financeManager") return requests.filter((request) => request.currentStep === 5);
+  if (persona === "coo") return requests.filter((request) => request.currentStep === 7);
+  if (persona === "president") return requests.filter((request) => request.currentStep === 8);
+  if (persona === "requestor") return [];
+  return requests;
+}
+
 function shell(content) {
-  const navGroups = [
+  const allNavGroups = [
     ["Overview", [["dashboard", "Dashboard", "▦"]]],
     ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
     ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
-    ["Records", [["archive", "Archive / ERP", "◆"], ["emails", "Email Samples", "@"]]],
+    ["Records", [["emails", "Email Samples", "@"]]],
   ];
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", archive: "Records and Posting" };
+  const personaNav = {
+    requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]]],
+    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Processing", [["approvals", "Document Validation", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]]],
+    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Reference", [["documents", "Document Rules", "□"]]]],
+    coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
+    president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
+  };
+  const navGroups = personaNav[state.persona] || allNavGroups;
+  const persona = personas[state.persona];
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples" };
   return `
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand-block"><div class="brand-mark">AP</div><div><h1>Automated Payment System</h1><p>Workflow prototype</p></div></div>
         <nav class="nav-list" aria-label="Primary">${navGroups.map(([group, links]) => `<div class="nav-group"><span class="nav-group-label">${group}</span><div class="nav-group-links">${links.map(([id, label, icon]) => `<button data-tab="${id}" class="${state.tab === id ? "active" : ""}"><span>${icon}</span>${label}</button>`).join("")}</div></div>`).join("")}</nav>
-        <div class="threshold-panel"><span class="eyebrow">Routing thresholds</span><p>Budgeted ≤ P100k: Finance Manager</p><p>Budgeted P100k-P300k: COO</p><p>Budgeted &gt; P300k: President</p><p>Unbudgeted ≤ P1M: COO</p><p>Unbudgeted &gt; P1M: Board Member</p></div>
       </aside>
       <main>
-        <header class="topbar"><div><p class="eyebrow">Finance operations</p><h2>${titles[state.tab]}</h2></div><div class="user-chip">Finance Associate</div></header>
+        <header class="topbar"><div><p class="eyebrow">${persona.subtitle}</p><h2>${titles[state.tab]}</h2></div><div class="persona-control"><label for="personaSwitcher">View As</label><select id="personaSwitcher">${Object.entries(personas).map(([id, option]) => `<option value="${id}" ${state.persona === id ? "selected" : ""}>${option.label}</option>`).join("")}</select><div class="user-chip">${persona.name}</div></div></header>
         ${content}
       </main>
     </div>`;
@@ -283,19 +332,43 @@ function statusPill(status) {
   return `<span class="status-pill ${pillTone(status)}">${status}</span>`;
 }
 
-function requestTable() {
-  return `<section class="panel"><div class="panel-header"><h3>Live Requests</h3><span class="count">${requests.length}</span></div><div class="table-wrap"><table><thead><tr><th>Step</th><th>Voucher</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody>
-    ${requests.map((r) => `<tr data-request="${r.id}" class="${state.selectedId === r.id ? "selected" : ""}"><td>${stepLabel(r.currentStep)}</td><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("")}
+function requestTable(rows = requests, combineStepStatus = false) {
+  const headers = combineStepStatus ? `<th>Status</th><th>Submitted</th><th>Voucher</th><th>Type</th><th>Amount</th>` : `<th>Step</th><th>Submitted</th><th>Voucher</th><th>Type</th><th>Amount</th><th>Status</th>`;
+  return `<section class="panel"><div class="panel-header"><h3>Live Requests</h3><span class="count">${rows.length}</span></div><div class="table-wrap"><table><thead><tr>${headers}</tr></thead><tbody>
+    ${rows.length ? rows.map((r) => `<tr data-request="${r.id}" class="${state.selectedId === r.id ? "selected" : ""}">${combineStepStatus ? `<td><div class="step-status-cell">${statusPill(r.status)}</div></td><td>${r.submitted}</td><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${money(r.amount)}</td>` : `<td>${stepLabel(r.currentStep)}</td><td>${r.submitted}</td><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td>`}</tr>`).join("") : `<tr><td colspan="${combineStepStatus ? 5 : 6}" class="empty-state">No requests match the selected filters.</td></tr>`}
   </tbody></table></div></section>`;
 }
 
-function detail(r) {
+function workflowSummary(r) {
+  const currentIndex = Math.max(0, steps.findIndex(([id]) => id === r.currentStep));
+  const current = steps[currentIndex];
+  const previous = currentIndex > 0 ? steps[currentIndex - 1] : null;
+  const next = currentIndex < steps.length - 1 ? steps[currentIndex + 1] : null;
+  const progress = Math.round(((currentIndex + 1) / steps.length) * 100);
+  return `<section class="workflow-summary"><div class="workflow-summary-heading"><div><span class="eyebrow">Workflow Progress</span><strong>${current[1]}</strong><small>${current[2]} · ${currentIndex + 1} of ${steps.length} stages</small></div><button type="button" data-view-workflow="${r.id}">View Full Workflow</button></div><div class="workflow-progress-bar" aria-label="${progress}% complete"><span style="width:${progress}%"></span></div><div class="workflow-summary-stages"><div><span>Previous</span><strong>${previous ? previous[1] : "None"}</strong></div><div class="current"><span>Current</span><strong>${current[1]}</strong></div><div><span>Next</span><strong>${next ? next[1] : "Complete"}</strong></div></div></section>`;
+}
+
+function detail(r, showWorkflowSummary = false) {
   return `<section class="panel"><div class="panel-header"><h3>${r.id}</h3>${statusPill(r.status)}</div>
     <dl class="detail-list">
       <div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div>
       <div><dt>Payee</dt><dd>${r.vendor}</dd></div><div><dt>Amount</dt><dd>${money(r.amount)}</dd></div>
-      <div><dt>Documents</dt><dd>${r.documents} attached, ${r.missing} missing</dd></div><div><dt>Next route</dt><dd>${route(r)}</dd></div>
-    </dl><div class="comment-log"><h4>Notes</h4><p>${r.status.includes("Returned") ? "Reviewer requested additional information before resubmission." : "Validated supporting documents and routing threshold."}</p></div>${voucherFor(r)}</section>`;
+      <div><dt>Documents</dt><dd>${r.documents} attached, ${r.missing} missing</dd></div><div><dt>Budget</dt><dd>${r.budgeted ? "Budgeted" : "Unbudgeted"}</dd></div>
+    </dl><div class="request-routing-card"><span class="eyebrow">Routing Threshold</span><strong>${route(r)}</strong><small>${r.budgeted ? "Budgeted request" : "Unbudgeted request"} · ${money(r.amount)}</small></div>${showWorkflowSummary ? workflowSummary(r) : ""}<div class="comment-log"><h4>Notes</h4><p>${r.status.includes("Returned") ? "Reviewer requested additional information before resubmission." : "Validated supporting documents and routing threshold."}</p></div>${voucherFor(r)}</section>`;
+}
+
+function dashboardFilters(visibleRequests = requests) {
+  const filters = state.dashboardFilters;
+  const statusOptions = [...new Set(visibleRequests.map((r) => r.status))].sort();
+  return `<section class="panel dashboard-filter-panel"><div class="panel-header"><div><span class="eyebrow">Find a Request</span><h3>Search and Sort</h3></div><button type="button" class="clear-filter-button" data-clear-filters="true">Clear Filters</button></div><div class="dashboard-filters">
+    <label>Voucher Number<input data-dashboard-filter="voucher" placeholder="Search voucher no." value="${filters.voucher}"></label>
+    <label>Type<select data-dashboard-filter="type"><option value="all">All Types</option>${Object.entries(paymentTypes).map(([id, type]) => `<option value="${id}" ${filters.type === id ? "selected" : ""}>${type.label}</option>`).join("")}</select></label>
+    <label>Status<select data-dashboard-filter="status"><option value="all">All Statuses</option>${statusOptions.map((status) => `<option value="${status}" ${filters.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
+    <label>Minimum Amount<input data-dashboard-filter="minAmount" type="number" min="0" placeholder="0" value="${filters.minAmount}"></label>
+    <label>Maximum Amount<input data-dashboard-filter="maxAmount" type="number" min="0" placeholder="No limit" value="${filters.maxAmount}"></label>
+    <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
+    <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
+  </div></section>`;
 }
 
 function workflow(currentStep) {
@@ -305,14 +378,36 @@ function workflow(currentStep) {
 }
 
 function dashboard() {
-  const selected = requests.find((r) => r.id === state.selectedId);
-  const total = requests.reduce((sum, r) => sum + r.amount, 0);
-  const pendingRequests = requests.filter((r) => [3, 4, 5, 7, 8, 8.5].includes(r.currentStep));
-  const returnedRequests = requests.filter((r) => r.status.includes("Returned"));
-  const unclaimedRequests = requests.filter((r) => r.currentStep === 12);
+  const visibleRequests = personaRequests();
+  const selected = visibleRequests.find((r) => r.id === state.selectedId) || visibleRequests[0] || requests[0];
+  const total = visibleRequests.reduce((sum, r) => sum + r.amount, 0);
+  const pendingRequests = state.persona === "requestor"
+    ? visibleRequests.filter((r) => ![1, 2, 15].includes(r.currentStep))
+    : visibleRequests.filter((r) => [3, 4, 5, 7, 8, 8.5].includes(r.currentStep));
+  const returnedRequests = visibleRequests.filter((r) => r.status.includes("Returned"));
+  const unclaimedRequests = visibleRequests.filter((r) => r.currentStep === 12);
+  const filters = state.dashboardFilters;
+  const filteredRequests = visibleRequests.filter((r) => {
+    const voucherMatch = r.id.toLowerCase().includes(filters.voucher.trim().toLowerCase());
+    const typeMatch = filters.type === "all" || r.type === filters.type;
+    const statusMatch = filters.status === "all" || r.status === filters.status;
+    const minMatch = filters.minAmount === "" || r.amount >= Number(filters.minAmount);
+    const maxMatch = filters.maxAmount === "" || r.amount <= Number(filters.maxAmount);
+    return voucherMatch && typeMatch && statusMatch && minMatch && maxMatch;
+  }).sort((a, b) => {
+    const values = {
+      voucher: [a.id, b.id],
+      type: [paymentTypes[a.type].label, paymentTypes[b.type].label],
+      status: [a.status, b.status],
+      amount: [a.amount, b.amount],
+      submitted: [a.submitted, b.submitted],
+    }[filters.sortBy];
+    const result = typeof values[0] === "number" ? values[0] - values[1] : values[0].localeCompare(values[1]);
+    return filters.sortDirection === "desc" ? -result : result;
+  });
   const metricViews = {
     pending: { title: "Pending Approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
-    value: { title: "Open Request Value", description: "All active payment requests represented on the dashboard.", rows: requests, total: money(total) },
+    value: { title: "Open Request Value", description: "All active payment requests visible to this persona.", rows: visibleRequests, total: money(total) },
     returned: { title: "Returned Requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
     unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
   };
@@ -320,9 +415,11 @@ function dashboard() {
     const view = metricViews[state.dashboardMetric];
     return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
   }
-  return `<section class="content-grid">
+  const workflowModal = state.dashboardWorkflow ? `<div class="workflow-modal-backdrop" data-workflow-modal="true"><section class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-modal-title"><div class="workflow-modal-header"><div><span class="eyebrow">Request Workflow</span><h3 id="workflow-modal-title">${selected.id}</h3><p>Complete approval and processing trail for this payment request.</p></div><button type="button" class="workflow-modal-close" data-close-workflow="true" aria-label="Close full workflow">×</button></div><div class="workflow-modal-body">${workflow(selected.currentStep)}</div></section></div>` : "";
+  const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
+  return `<section class="content-grid"><div class="persona-banner"><div><span class="eyebrow">Persona View</span><strong>${personas[state.persona].label}</strong></div><p>${state.persona === "all" ? "The original all-access prototype is retained in this view." : `Navigation, request visibility, and actions are scoped for ${personas[state.persona].label}.`}</p></div>
     <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${money(total)}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
-    <div class="two-column">${requestTable()}${detail(selected)}</div>${workflow(selected.currentStep)}
+    ${dashboardFilters(visibleRequests)}<div class="two-column">${requestTable(filteredRequests, true)}${detail(selected, true)}</div>${workflowModal}
   </section>`;
 }
 
@@ -332,13 +429,14 @@ function requestBuilder() {
   const draftAmount = lineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
   const isLiquidation = state.draftType === "liquidation";
   const isCashAdvance = state.draftType === "cashAdvance";
+  const systemDateField = `<input type="hidden" name="requestDate" value="${state.requestCreatedDate}">`;
   const primaryFields = state.draftType === "reimbursement"
-    ? `<label>Requestor's Name<input placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
+    ? `${systemDateField}<label>Requestor's Name<input placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
     : isLiquidation
-    ? `<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label>`
+    ? `${systemDateField}<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label>`
     : isCashAdvance
-    ? `<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
-    : `<label>Requestor<input placeholder="Enter requestor's full name"></label><label>Payee / Vendor<input placeholder="Enter payee or vendor name"></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`;
+    ? `${systemDateField}<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>`
+    : `${systemDateField}<label>Requestor<input placeholder="Enter requestor's full name"></label><label>Payee / Vendor<input placeholder="Enter payee or vendor name"></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`;
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div></div>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section class="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section>` : "";
   return `<section class="form-layout"><div class="panel"><div class="panel-header"><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3><span class="voucher-preview">${config.prefix}-2026-0150</span></div>
@@ -353,13 +451,45 @@ function requestBuilder() {
     <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: draftAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div><button class="primary-button">Submit to Department Head</button></div></section>`;
 }
 
+function documentValidationWorkspace(request) {
+  const validation = state.documentValidation;
+  const automaticNoEwt = request.amount <= 3000;
+  const selectedEwt = automaticNoEwt ? "0" : validation.ewt;
+  const ewtRate = selectedEwt === "other" ? Number(validation.otherEwt) || 0 : Number(selectedEwt) || 0;
+  const ewtAmount = request.amount * (ewtRate / 100);
+  const netAmount = request.amount - ewtAmount;
+  const debitTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.debit) || 0), 0);
+  const creditTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.credit) || 0), 0);
+  const balanced = debitTotal > 0 && Math.abs(debitTotal - creditTotal) < 0.01;
+  const documentsRecorded = validation.hardCopy || validation.softCopy;
+  const complete = Boolean(validation.vat && selectedEwt !== "" && documentsRecorded && balanced);
+  const documentStatus = validation.hardCopy ? "Complete" : validation.softCopy ? "Awaiting Hard Copy" : "Missing Documents";
+  const ewtOptions = [["0", "No EWT"], ["1", "1%"], ["2", "2%"], ["5", "5%"], ["10", "10%"], ["other", "Others"]];
+  return `<section class="document-validation-workspace">
+    <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Tax Classification</span><h4>VAT and Expanded Withholding Tax</h4></div><span class="validation-status ${complete ? "complete" : "pending"}">${complete ? "Ready to Complete" : "In Progress"}</span></div>
+      <div class="validation-choice-grid"><fieldset><legend>VAT Classification <span>*</span></legend><label><input type="radio" name="validationVat" value="subject" ${validation.vat === "subject" ? "checked" : ""}> Subject to VAT</label><label><input type="radio" name="validationVat" value="not-subject" ${validation.vat === "not-subject" ? "checked" : ""}> Not Subject to VAT</label></fieldset>
+      <fieldset><legend>Expanded Withholding Tax <span>*</span></legend><div class="ewt-options">${ewtOptions.map(([value, label]) => `<label><input type="radio" name="validationEwt" value="${value}" ${selectedEwt === value ? "checked" : ""} ${automaticNoEwt && value !== "0" ? "disabled" : ""}> ${label}</label>`).join("")}</div>${selectedEwt === "other" ? `<label class="other-ewt">Other EWT Rate (%)<input type="number" min="0" max="100" step="0.01" data-validation-other-ewt value="${validation.otherEwt}" placeholder="Enter percentage"></label>` : ""}${automaticNoEwt ? `<p class="automatic-rule">No EWT automatically applied because the gross amount is ₱3,000 or below.</p>` : ""}</fieldset></div>
+      <div class="tax-summary"><div><span>Gross Amount</span><strong>${money(request.amount)}</strong></div><div><span>EWT Rate</span><strong>${ewtRate}%</strong></div><div><span>EWT Amount</span><strong>${money(ewtAmount)}</strong></div><div><span>Net Amount After EWT</span><strong>${money(netAmount)}</strong></div></div>
+    </div>
+    <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Submitted Documents</span><h4>Copy Receipt Status</h4></div><span class="document-status ${validation.hardCopy ? "complete" : "pending"}">${documentStatus}</span></div><div class="copy-options"><label><input type="checkbox" data-validation-copy="hardCopy" ${validation.hardCopy ? "checked" : ""}> Hard Copy Received</label><label><input type="checkbox" data-validation-copy="softCopy" ${validation.softCopy ? "checked" : ""}> Soft Copy Received</label></div>${validation.softCopy && !validation.hardCopy ? `<div class="hard-copy-reminder"><strong>Hard copies must still be submitted to Finance.</strong><span>This request can be reviewed, but the physical documents remain outstanding.</span></div>` : ""}</div>
+    <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Accounting Entry</span><h4>Manual Debit and Credit Entry</h4></div><button type="button" data-add-accounting-row>+ Add Entry</button></div><div class="table-wrap"><table class="accounting-entry-table"><thead><tr><th>Account Name</th><th>Debit</th><th>Credit</th><th><span class="sr-only">Action</span></th></tr></thead><tbody>${validation.entries.map((entry, index) => `<tr><td><input data-accounting-index="${index}" data-accounting-field="account" value="${entry.account}" placeholder="Enter account name"></td><td><input type="number" min="0" data-accounting-index="${index}" data-accounting-field="debit" value="${entry.debit || ""}" placeholder="0.00"></td><td><input type="number" min="0" data-accounting-index="${index}" data-accounting-field="credit" value="${entry.credit || ""}" placeholder="0.00"></td><td><button type="button" class="remove-line-button" data-remove-accounting-row="${index}" ${validation.entries.length === 1 ? "disabled" : ""} aria-label="Remove accounting entry ${index + 1}">×</button></td></tr>`).join("")}</tbody><tfoot><tr><th>Totals</th><th>${money(debitTotal)}</th><th>${money(creditTotal)}</th><th></th></tr></tfoot></table></div><div class="balance-status ${balanced ? "balanced" : "unbalanced"}">${balanced ? "Debit and credit totals are balanced." : `Entries are out of balance by ${money(Math.abs(debitTotal - creditTotal))}.`}</div></div>
+    <div class="validation-section validation-completion"><div><span class="eyebrow">Completion Details</span><h4>Finalize Document Validation</h4></div><div class="validation-completion-grid"><label>Document Validation Completion Date<input type="date" value="${validation.completionDate}" readonly placeholder="Set when completed"></label><label>Check Number <small>(Optional)</small><input data-validation-check-number value="${validation.checkNumber}" placeholder="Enter check number when available"></label></div><label>Reviewer Note<textarea data-validation-reviewer-note>${validation.reviewerNote}</textarea></label><div class="approval-actions"><button type="button" class="primary-button" data-complete-validation ${complete ? "" : "disabled"}>${validation.completionDate ? "Validation Completed" : "Complete Validation and Notify Finance Manager"}</button><button type="button">Request More Information</button><button type="button" class="danger">Disapprove</button></div>${!complete ? `<p class="validation-requirements">Complete VAT, EWT, document receipt status, and balanced accounting entries before completing validation.</p>` : ""}</div>
+  </section>`;
+}
+
 function approvals() {
-  const selected = requests.find((r) => r.id === state.selectedId);
-  return `<section class="two-column approval-layout">${requestTable()}<section class="panel action-panel"><div class="panel-header"><h3>Approval action</h3>${statusPill(selected.status)}</div>${detail(selected)}<div class="approval-actions"><button class="primary-button">Approve and Notify Next Owner</button><button>Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer note<textarea>Validated supporting documents and routing threshold.</textarea></label></section></section>`;
+  const queue = approvalRequests();
+  if (!queue.length) return `<section class="panel empty-persona-view"><span class="eyebrow">Requestor View</span><h3>No Approval Queue</h3><p>Requestors can monitor progress and respond to returned requests from their dashboard.</p></section>`;
+  const selected = queue.find((r) => r.id === state.selectedId) || queue[0];
+  const actionTitle = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Document Validation" : "Approval Action";
+  const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
+  const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
+  return `<section class="two-column approval-layout">${requestTable(queue)}<section class="panel action-panel"><div class="panel-header"><h3>${actionTitle}</h3>${statusPill(selected.status)}</div>${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : `<div class="approval-actions"><button class="primary-button">${primaryAction}</button><button>Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section></section>`;
 }
 
 function tracker() {
-  const selected = requests.find((r) => r.id === state.trackerRequestId);
+  const visibleRequests = personaRequests();
+  const selected = visibleRequests.find((r) => r.id === state.trackerRequestId);
   if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Payment Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${detail(selected)}${workflow(selected.currentStep)}</section>`;
   return `<section class="panel"><div class="panel-header"><h3>Payment Tracker</h3><button class="icon-button" title="Export Report">↧</button></div><div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Check Approval</th><th>Payment</th></tr></thead><tbody>${requests.map((r, i) => `<tr data-tracker-request="${r.id}"><td>${r.id}</td><td>${r.submitted}</td><td>${r.returned || "-"}</td><td>${r.resubmitted || "-"}</td><td>${i === 0 ? "Pending" : "2026-06-24"}</td><td>${r.currentStep >= 11 ? "2026-06-25" : "Pending"}</td><td>${r.currentStep >= 13 ? "2026-06-25" : "Pending"}</td></tr>`).join("")}</tbody></table></div><div class="report-band"><div><span class="eyebrow">Report</span><strong>Unclaimed Checks</strong></div><p>Flags checks marked available but not yet released to the payee.</p></div></section>`;
 }
@@ -403,22 +533,52 @@ function emails() {
   </section>`;
 }
 
-function archive() {
-  return `<section class="two-column"><div class="panel"><h3>Document archive</h3><p class="muted">Finance users can retrieve requests, uploaded receipts, reviewer notes, voucher PDFs, signed checks, and release confirmations.</p><div class="archive-search"><input placeholder="Search by voucher, vendor, requestor, or department"><button class="primary-button">Search</button></div></div><div class="panel"><h3>ERP posting queue</h3><div class="posting-item"><span>Accounting entry</span><strong>Auto-post journal entries after payment release</strong></div><div class="posting-item"><span>Controls</span><strong>Finance Associate can attach computations and withholding tax details</strong></div></div></section>`;
-}
-
 function render() {
-  const views = { dashboard, request: requestBuilder, approvals, tracker, uploads: documentUploads, documents, emails, archive };
+  const views = { dashboard, request: requestBuilder, approvals, tracker, uploads: documentUploads, documents, emails };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
+  if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.tab === "request" ? `/requests/new/${state.draftType}` : tabRoutes[button.dataset.tab])));
+  document.querySelector("#personaSwitcher")?.addEventListener("change", (event) => {
+    const persona = event.target.value;
+    const visible = personaRequests(persona);
+    state = { ...state, persona, selectedId: visible[0]?.id || requests[0].id, dashboardMetric: null, dashboardWorkflow: false };
+    navigate("/dashboard");
+  });
+  document.querySelectorAll('input[name="validationVat"]').forEach((input) => input.addEventListener("change", () => setState({ documentValidation: { ...state.documentValidation, vat: input.value } })));
+  document.querySelectorAll('input[name="validationEwt"]').forEach((input) => input.addEventListener("change", () => setState({ documentValidation: { ...state.documentValidation, ewt: input.value } })));
+  document.querySelector("[data-validation-other-ewt]")?.addEventListener("change", (event) => setState({ documentValidation: { ...state.documentValidation, otherEwt: event.target.value } }));
+  document.querySelectorAll("[data-validation-copy]").forEach((input) => input.addEventListener("change", () => setState({ documentValidation: { ...state.documentValidation, [input.dataset.validationCopy]: input.checked } })));
+  document.querySelector("[data-validation-check-number]")?.addEventListener("change", (event) => setState({ documentValidation: { ...state.documentValidation, checkNumber: event.target.value } }));
+  document.querySelector("[data-validation-reviewer-note]")?.addEventListener("change", (event) => setState({ documentValidation: { ...state.documentValidation, reviewerNote: event.target.value } }));
+  document.querySelectorAll("[data-accounting-index]").forEach((input) => input.addEventListener("change", () => {
+    const entries = state.documentValidation.entries.map((entry, index) => index === Number(input.dataset.accountingIndex) ? { ...entry, [input.dataset.accountingField]: input.dataset.accountingField === "account" ? input.value : Number(input.value) || 0 } : entry);
+    setState({ documentValidation: { ...state.documentValidation, entries } });
+  }));
+  document.querySelector("[data-add-accounting-row]")?.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, entries: [...state.documentValidation.entries, { account: "", debit: 0, credit: 0 }] } }));
+  document.querySelectorAll("[data-remove-accounting-row]").forEach((button) => button.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, entries: state.documentValidation.entries.filter((_, index) => index !== Number(button.dataset.removeAccountingRow)) } })));
+  document.querySelector("[data-complete-validation]")?.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, completionDate: new Date().toISOString().slice(0, 10) } }));
   document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => navigate(state.tab === "approvals" ? `/approvals/${row.dataset.request}` : `/dashboard/request/${row.dataset.request}`)));
   document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/${button.dataset.metric}`)));
   document.querySelector("[data-close-metric]")?.addEventListener("click", () => navigate("/dashboard"));
+  document.querySelector("[data-view-workflow]")?.addEventListener("click", (event) => navigate(`/dashboard/workflow/${event.currentTarget.dataset.viewWorkflow}`));
+  document.querySelectorAll("[data-close-workflow]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/request/${state.selectedId}`)));
+  document.querySelector("[data-workflow-modal]")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) navigate(`/dashboard/request/${state.selectedId}`);
+  });
   document.querySelectorAll("[data-metric-request]").forEach((row) => row.addEventListener("click", () => navigate(`/dashboard/request/${row.dataset.metricRequest}`)));
   document.querySelectorAll("[data-tracker-request]").forEach((row) => row.addEventListener("click", () => navigate(`/tracker/${row.dataset.trackerRequest}`)));
   document.querySelector("[data-close-tracker]")?.addEventListener("click", () => navigate("/tracker"));
   document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => navigate(`/requests/new/${button.dataset.type}`)));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
+  document.querySelectorAll("[data-dashboard-filter]").forEach((input) => input.addEventListener(input.tagName === "INPUT" && input.type !== "number" ? "input" : "change", () => {
+    state.dashboardFilters = { ...state.dashboardFilters, [input.dataset.dashboardFilter]: input.value };
+    render();
+    const replacement = document.querySelector(`[data-dashboard-filter="${input.dataset.dashboardFilter}"]`);
+    replacement?.focus();
+    if (replacement?.setSelectionRange && input.tagName === "INPUT" && input.type !== "number") replacement.setSelectionRange(replacement.value.length, replacement.value.length);
+  }));
+  document.querySelector("[data-clear-filters]")?.addEventListener("click", () => setState({ dashboardFilters: { voucher: "", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" } }));
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest })));
   document.querySelector("[data-add-line]")?.addEventListener("click", addDraftLineItem);
   document.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => removeDraftLineItem(Number(button.dataset.removeLine))));
@@ -436,6 +596,9 @@ function render() {
 window.addEventListener("hashchange", () => {
   state = { ...state, ...routeStateFromHash() };
   render();
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);
 });
 if (!window.location.hash) window.location.replace(`${window.location.pathname}${window.location.search}#/dashboard`);
 state = { ...state, ...routeStateFromHash() };
