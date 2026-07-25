@@ -77,7 +77,7 @@ const steps = [
   { id: 12, name: "Vendor Notice", owner: "Finance Associate" },
   { id: 13, name: "Release", owner: "Finance Associate" },
   { id: 14, name: "Tracker", owner: "System" },
-  { id: 15, name: "Archive + ERP", owner: "System" },
+  { id: 15, name: "Complete", owner: "System" },
 ];
 
 const emailTemplates = {
@@ -95,7 +95,7 @@ const emailTemplates = {
   12: { recipient: "Finance Associate", subject: "Notify payee that payment is available", trigger: "Bank authorization completed", intro: "The payment has been authorized and is ready for payee notification.", message: "Send the payment availability notice and confirm the release or collection instructions.", action: "Send Payee Notice" },
   13: { recipient: "Finance Associate", subject: "Record payment release", trigger: "Payee notified", intro: "The payment is ready for release to the payee.", message: "Record the release date, recipient, payment reference, and acknowledgement details.", action: "Record Release" },
   14: { recipient: "Finance Associate", subject: "Payment tracker updated", trigger: "Payment released", intro: "The payment tracker has been updated automatically.", message: "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", action: "View Tracker" },
-  15: { recipient: "Finance Associate", subject: "Archive and ERP posting completed", trigger: "Tracker update completed", intro: "The completed request has been archived and queued for ERP posting.", message: "Review the journal reference and archived record if reconciliation is required.", action: "View Archived Record" },
+  15: { recipient: "Finance Associate", subject: "Payment request completed", trigger: "Tracker update completed", intro: "The payment request workflow is complete.", message: "Review the completed payment record if reconciliation is required.", action: "View Completed Request" },
 };
 
 const uploadSamples = [
@@ -191,7 +191,7 @@ const seedRequests = [
   ["GEN-2026-0044", "general", "Carlo Uy", "IT", "CloudWorks", 88400, true, "Vendor Notification", 12, "2026-06-14", "", "", 3, 0, "Check is available and vendor notification is ready."],
   ["RMB-2026-0154", "reimbursement", "Sam Lee", "Legal", "Travel Desk", 30750, true, "Payment Release", 13, "2026-06-13", "", "", 4, 0, "Finance Associate is recording check release to the payee."],
   ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Payment Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0, "System is updating turnaround dates and tracker reporting."],
-  ["GEN-2026-0049", "general", "Paolo Reyes", "Finance", "ERP Posting", 101250, true, "Archive + ERP Posting", 15, "2026-06-11", "", "", 4, 0, "Records are archived and journal entries are queued for ERP posting."],
+  ["GEN-2026-0049", "general", "Paolo Reyes", "Finance", "Completed Payment", 101250, true, "Completed", 15, "2026-06-11", "", "", 4, 0, "The payment request workflow is complete."],
 ].map(([id, type, requestor, department, vendor, amount, budgeted, status, currentStep, submitted, returned, resubmitted, documents, missing, note]) => ({
   id,
   type,
@@ -251,11 +251,12 @@ function getVoucher(request) {
 
 function App() {
   const initialPath = (window.location.hash.slice(1) || "/dashboard").split("/").filter(Boolean);
-  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : ["dashboard", "approvals", "tracker", "emails", "archive"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
+  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : ["dashboard", "approvals", "tracker", "emails"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedId, setSelectedId] = useState(seedRequests[0].id);
   const [trackerRequestId, setTrackerRequestId] = useState(initialTab === "tracker" ? initialPath[1] || null : null);
   const [dashboardMetric, setDashboardMetric] = useState(initialTab === "dashboard" && ["pending", "value", "returned", "unclaimed"].includes(initialPath[1]) ? initialPath[1] : null);
+  const [dashboardWorkflowId, setDashboardWorkflowId] = useState(initialTab === "dashboard" && initialPath[1] === "workflow" ? initialPath[2] || null : null);
   const [draftType, setDraftType] = useState(initialTab === "request" && paymentTypes[initialPath[2]] ? initialPath[2] : "reimbursement");
   const [lineItemsByType, setLineItemsByType] = useState(() => Object.fromEntries(
     Object.entries(initialLineItems).map(([type, rows]) => [type, rows.map((row) => ({ ...row }))])
@@ -275,8 +276,8 @@ function App() {
       if (parts[0] === "requests") { setActiveTab("request"); if (paymentTypes[parts[2]]) setDraftType(parts[2]); }
       else if (parts[0] === "documents") setActiveTab(parts[1] === "rules" ? "documents" : "uploads");
       else if (parts[0] === "tracker") { setActiveTab("tracker"); setTrackerRequestId(parts[1] || null); }
-      else if (parts[0] === "dashboard") { setActiveTab("dashboard"); setDashboardMetric(["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null); if (parts[1] === "request" && seedRequests.some((request) => request.id === parts[2])) setSelectedId(parts[2]); }
-      else if (["approvals", "emails", "archive"].includes(parts[0])) setActiveTab(parts[0]);
+      else if (parts[0] === "dashboard") { setActiveTab("dashboard"); setDashboardMetric(["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null); setDashboardWorkflowId(parts[1] === "workflow" ? parts[2] || null : null); if (["request", "workflow"].includes(parts[1]) && seedRequests.some((request) => request.id === parts[2])) setSelectedId(parts[2]); }
+      else if (["approvals", "emails"].includes(parts[0])) setActiveTab(parts[0]);
       else setActiveTab("dashboard");
     };
     window.addEventListener("hashchange", syncRoute);
@@ -326,13 +327,13 @@ function App() {
             ["Overview", [["dashboard", "Dashboard", "▦"]]],
             ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
             ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
-            ["Records", [["archive", "Archive / ERP", "◆"], ["emails", "Email Samples", "@"]]],
+            ["Records", [["emails", "Email Samples", "@"]]],
           ].map(([group, links]) => (
             <div className="nav-group" key={group}>
               <span className="nav-group-label">{group}</span>
               <div className="nav-group-links">
                 {links.map(([id, label, icon]) => (
-                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails", archive: "/archive" })[id])}>
+                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails" })[id])}>
                     <span>{icon}</span>{label}
                   </button>
                 ))}
@@ -340,14 +341,6 @@ function App() {
             </div>
           ))}
         </nav>
-        <div className="threshold-panel">
-          <span className="eyebrow">Routing thresholds</span>
-          <p>Budgeted ≤ P100k: Finance Manager</p>
-          <p>Budgeted P100k-P300k: COO</p>
-          <p>Budgeted &gt; P300k: President</p>
-          <p>Unbudgeted ≤ P1M: COO</p>
-          <p>Unbudgeted &gt; P1M: Board Member</p>
-        </div>
       </aside>
 
       <main>
@@ -359,7 +352,7 @@ function App() {
           <div className="user-chip">Finance Associate</div>
         </header>
 
-        {activeTab === "dashboard" && <Dashboard metrics={metrics} selected={selected} onSelect={(id) => { setSelectedId(id); navigateTo(`/dashboard/request/${id}`); }} activeMetric={dashboardMetric} onMetric={(metric) => navigateTo(metric ? `/dashboard/${metric}` : "/dashboard")} />}
+        {activeTab === "dashboard" && <Dashboard metrics={metrics} selected={selected} onSelect={(id) => { setSelectedId(id); navigateTo(`/dashboard/request/${id}`); }} activeMetric={dashboardMetric} onMetric={(metric) => navigateTo(metric ? `/dashboard/${metric}` : "/dashboard")} workflowRequestId={dashboardWorkflowId} onWorkflow={(id) => navigateTo(id ? `/dashboard/workflow/${id}` : `/dashboard/request/${selected.id}`)} />}
         {activeTab === "request" && (
           <RequestBuilder
             draftType={draftType}
@@ -379,7 +372,6 @@ function App() {
         {activeTab === "uploads" && <DocumentUploads selectedId={uploadId} onSelect={setUploadId} />}
         {activeTab === "documents" && <DocumentRules />}
         {activeTab === "emails" && <EmailSamples selectedStep={emailStep} onSelectStep={setEmailStep} />}
-        {activeTab === "archive" && <Archive />}
       </main>
     </div>
   );
@@ -394,14 +386,31 @@ function tabTitle(tab) {
     uploads: "Upload Required Documents",
     documents: "Required Documents",
     emails: "Workflow Email Samples",
-    archive: "Records and Posting",
   }[tab];
 }
 
-function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric }) {
+function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric, workflowRequestId, onWorkflow }) {
+  const [filters, setFilters] = useState({ voucher: "", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" });
+  useEffect(() => {
+    const closeOnEscape = (event) => { if (event.key === "Escape" && workflowRequestId) onWorkflow(null); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [workflowRequestId]);
   const pendingRequests = seedRequests.filter((request) => [3, 4, 5, 7, 8, 8.5].includes(request.currentStep));
   const returnedRequests = seedRequests.filter((request) => request.status.includes("Returned"));
   const unclaimedRequests = seedRequests.filter((request) => request.currentStep === 12);
+  const filteredRequests = seedRequests.filter((request) => {
+    const voucherMatch = request.id.toLowerCase().includes(filters.voucher.trim().toLowerCase());
+    const typeMatch = filters.type === "all" || request.type === filters.type;
+    const statusMatch = filters.status === "all" || request.status === filters.status;
+    const minMatch = filters.minAmount === "" || request.amount >= Number(filters.minAmount);
+    const maxMatch = filters.maxAmount === "" || request.amount <= Number(filters.maxAmount);
+    return voucherMatch && typeMatch && statusMatch && minMatch && maxMatch;
+  }).sort((a, b) => {
+    const values = { submitted: [a.submitted, b.submitted], voucher: [a.id, b.id], type: [paymentTypes[a.type].label, paymentTypes[b.type].label], status: [a.status, b.status], amount: [a.amount, b.amount] }[filters.sortBy];
+    const result = typeof values[0] === "number" ? values[0] - values[1] : values[0].localeCompare(values[1]);
+    return filters.sortDirection === "desc" ? -result : result;
+  });
   const metricViews = {
     pending: { title: "Pending Approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
     value: { title: "Open Request Value", description: "All active payment requests represented on the dashboard.", rows: seedRequests, total: formatCurrency(metrics.total) },
@@ -409,6 +418,7 @@ function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric }) {
     unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
   };
   if (activeMetric) return <MetricDetail view={metricViews[activeMetric]} onBack={() => onMetric(null)} onSelect={onSelect} />;
+  const workflowRequest = workflowRequestId ? seedRequests.find((request) => request.id === workflowRequestId) || selected : null;
   return (
     <section className="content-grid">
       <div className="metric-row">
@@ -417,11 +427,34 @@ function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric }) {
         <Metric label="Returned" value={metrics.returned} tone="amber" hint="View Requests" onClick={() => onMetric("returned")} />
         <Metric label="Unclaimed Checks" value={metrics.unclaimed} tone="red" hint="View Checks" onClick={() => onMetric("unclaimed")} />
       </div>
+      <DashboardFilters filters={filters} onChange={(key, value) => setFilters((current) => ({ ...current, [key]: value }))} onClear={() => setFilters({ voucher: "", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" })} />
       <div className="two-column">
-        <RequestTable selectedId={selected.id} onSelect={onSelect} />
-        <RequestDetail request={selected} />
+        <RequestTable selectedId={selected.id} onSelect={onSelect} rows={filteredRequests} combineStepStatus />
+        <RequestDetail request={selected} showWorkflowSummary onViewWorkflow={() => onWorkflow(selected.id)} />
       </div>
-      <WorkflowMap currentStep={selected.currentStep} />
+      {workflowRequest && <WorkflowModal request={workflowRequest} onClose={() => onWorkflow(null)} />}
+    </section>
+  );
+}
+
+function WorkflowModal({ request, onClose }) {
+  return <div className="workflow-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-modal-title"><div className="workflow-modal-header"><div><span className="eyebrow">Request Workflow</span><h3 id="workflow-modal-title">{request.id}</h3><p>Complete approval and processing trail for this payment request.</p></div><button type="button" className="workflow-modal-close" onClick={onClose} aria-label="Close full workflow">×</button></div><div className="workflow-modal-body"><WorkflowMap currentStep={request.currentStep} /></div></section></div>;
+}
+
+function DashboardFilters({ filters, onChange, onClear }) {
+  const statusOptions = [...new Set(seedRequests.map((request) => request.status))].sort();
+  return (
+    <section className="panel dashboard-filter-panel">
+      <div className="panel-header"><div><span className="eyebrow">Find a Request</span><h3>Search and Sort</h3></div><button type="button" className="clear-filter-button" onClick={onClear}>Clear Filters</button></div>
+      <div className="dashboard-filters">
+        <label>Voucher Number<input placeholder="Search voucher no." value={filters.voucher} onChange={(event) => onChange("voucher", event.target.value)} /></label>
+        <label>Type<select value={filters.type} onChange={(event) => onChange("type", event.target.value)}><option value="all">All Types</option>{Object.entries(paymentTypes).map(([id, type]) => <option key={id} value={id}>{type.label}</option>)}</select></label>
+        <label>Status<select value={filters.status} onChange={(event) => onChange("status", event.target.value)}><option value="all">All Statuses</option>{statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+        <label>Minimum Amount<input type="number" min="0" placeholder="0" value={filters.minAmount} onChange={(event) => onChange("minAmount", event.target.value)} /></label>
+        <label>Maximum Amount<input type="number" min="0" placeholder="No limit" value={filters.maxAmount} onChange={(event) => onChange("maxAmount", event.target.value)} /></label>
+        <label>Sort By<select value={filters.sortBy} onChange={(event) => onChange("sortBy", event.target.value)}><option value="submitted">Submitted Date</option><option value="voucher">Voucher Number</option><option value="type">Type</option><option value="status">Status</option><option value="amount">Amount</option></select></label>
+        <label>Order<select value={filters.sortDirection} onChange={(event) => onChange("sortDirection", event.target.value)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+      </div>
     </section>
   );
 }
@@ -451,34 +484,36 @@ function MetricDetail({ view, onBack, onSelect }) {
   );
 }
 
-function RequestTable({ selectedId, onSelect }) {
+function RequestTable({ selectedId, onSelect, rows = seedRequests, combineStepStatus = false }) {
   return (
     <section className="panel">
       <div className="panel-header">
         <h3>Live Requests</h3>
-        <span className="count">{seedRequests.length}</span>
+        <span className="count">{rows.length}</span>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Step</th>
+              <th>{combineStepStatus ? "Status" : "Step"}</th>
+              <th>Submitted</th>
               <th>Voucher</th>
               <th>Type</th>
               <th>Amount</th>
-              <th>Status</th>
+              {!combineStepStatus && <th>Status</th>}
             </tr>
           </thead>
           <tbody>
-            {seedRequests.map((request) => (
+            {rows.length ? rows.map((request) => (
               <tr key={request.id} className={selectedId === request.id ? "selected" : ""} onClick={() => onSelect(request.id)}>
-                <td>{formatStep(request.currentStep)}</td>
+                <td>{combineStepStatus ? <div className="step-status-cell"><StatusPill status={request.status} /></div> : formatStep(request.currentStep)}</td>
+                <td>{request.submitted}</td>
                 <td>{request.id}</td>
                 <td>{paymentTypes[request.type].label}</td>
                 <td>{formatCurrency(request.amount)}</td>
-                <td><StatusPill status={request.status} /></td>
+                {!combineStepStatus && <td><StatusPill status={request.status} /></td>}
               </tr>
-            ))}
+            )) : <tr><td colSpan={combineStepStatus ? 5 : 6} className="empty-state">No requests match the selected filters.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -486,7 +521,7 @@ function RequestTable({ selectedId, onSelect }) {
   );
 }
 
-function RequestDetail({ request }) {
+function RequestDetail({ request, showWorkflowSummary = false, onViewWorkflow }) {
   return (
     <section className="panel">
       <div className="panel-header">
@@ -499,8 +534,10 @@ function RequestDetail({ request }) {
         <div><dt>Payee</dt><dd>{request.vendor}</dd></div>
         <div><dt>Amount</dt><dd>{formatCurrency(request.amount)}</dd></div>
         <div><dt>Documents</dt><dd>{request.documents} attached, {request.missing} missing</dd></div>
-        <div><dt>Next route</dt><dd>{getRoute(request)}</dd></div>
+        <div><dt>Budget</dt><dd>{request.budgeted ? "Budgeted" : "Unbudgeted"}</dd></div>
       </dl>
+      <div className="request-routing-card"><span className="eyebrow">Routing Threshold</span><strong>{getRoute(request)}</strong><small>{request.budgeted ? "Budgeted request" : "Unbudgeted request"} · {formatCurrency(request.amount)}</small></div>
+      {showWorkflowSummary && <WorkflowSummary request={request} onView={onViewWorkflow} />}
       <div className="comment-log">
         <h4>Notes</h4>
         {request.comments.map((comment) => <p key={comment}>{comment}</p>)}
@@ -508,6 +545,15 @@ function RequestDetail({ request }) {
       <VoucherCard voucher={getVoucher(request)} request={request} />
     </section>
   );
+}
+
+function WorkflowSummary({ request, onView }) {
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.id === request.currentStep));
+  const current = steps[currentIndex];
+  const previous = currentIndex > 0 ? steps[currentIndex - 1] : null;
+  const next = currentIndex < steps.length - 1 ? steps[currentIndex + 1] : null;
+  const progress = Math.round(((currentIndex + 1) / steps.length) * 100);
+  return <section className="workflow-summary"><div className="workflow-summary-heading"><div><span className="eyebrow">Workflow Progress</span><strong>{current.name}</strong><small>{current.owner} · {currentIndex + 1} of {steps.length} stages</small></div><button type="button" onClick={onView}>View Full Workflow</button></div><div className="workflow-progress-bar" aria-label={`${progress}% complete`}><span style={{ width: `${progress}%` }} /></div><div className="workflow-summary-stages"><div><span>Previous</span><strong>{previous?.name || "None"}</strong></div><div className="current"><span>Current</span><strong>{current.name}</strong></div><div><span>Next</span><strong>{next?.name || "Complete"}</strong></div></div></section>;
 }
 
 function VoucherCard({ voucher, request }) {
@@ -554,6 +600,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
   const isCashAdvance = draftType === "cashAdvance";
   const liquidationAdvanceAmount = 0;
   const liquidationBalance = liquidationAdvanceAmount - draftAmount;
+  const requestCreatedDate = new Date().toISOString().slice(0, 10);
   return (
     <section className="form-layout">
       <div className="panel">
@@ -569,6 +616,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
           ))}
         </div>
         <div className={`field-grid ${isReimbursement || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}`}>
+          <input type="hidden" name="requestDate" value={requestCreatedDate} />
           <label>{isReimbursement ? "Requestor's Name" : isLiquidation || isCashAdvance ? "Cash Advance Requestor" : "Requestor"}<input placeholder={isLiquidation || isCashAdvance ? "Enter cash advance requestor" : "Enter requestor's full name"} /></label>
           {!isReimbursement && !isLiquidation && !isCashAdvance && <label>Payee / Vendor<input placeholder="Enter payee or vendor name" /></label>}
           {config.mandatoryFields.map((field) => (
@@ -858,32 +906,6 @@ function EmailSamples({ selectedStep, onSelectStep }) {
           <footer>This is an automated workflow notification. Replies are not monitored.</footer>
         </article>
       </section>
-    </section>
-  );
-}
-
-function Archive() {
-  return (
-    <section className="two-column">
-      <div className="panel">
-        <h3>Document archive</h3>
-        <p className="muted">Finance users can retrieve requests, uploaded receipts, reviewer notes, voucher PDFs, signed checks, and release confirmations.</p>
-        <div className="archive-search">
-          <input placeholder="Search by voucher, vendor, requestor, or department" />
-          <button className="primary-button">Search</button>
-        </div>
-      </div>
-      <div className="panel">
-        <h3>ERP posting queue</h3>
-        <div className="posting-item">
-          <span>Accounting entry</span>
-          <strong>Auto-post journal entries after payment release</strong>
-        </div>
-        <div className="posting-item">
-          <span>Controls</span>
-          <strong>Finance Associate can attach computations and withholding tax details</strong>
-        </div>
-      </div>
     </section>
   );
 }

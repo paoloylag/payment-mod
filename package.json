@@ -1,7 +1,7 @@
 {
   "name": "automated-payment-system-prototype",
-  "version": "0.2.0",
-  "description": "Front-end prototype for payment requests, approvals, document validation, voucher printing, and payment tracking.",
+  "version": "0.3.0",
+  "description": "Role-aware front-end prototype for payment requests, document validation, approvals, voucher printing, and payment tracking.",
   "private": true,
   "type": "module",
   "homepage": "https://paoloylag.github.io/payment-mod/",
@@ -16,6 +16,8 @@
     "payment-workflow",
     "accounts-payable",
     "approval-routing",
+    "document-validation",
+    "persona-views",
     "react",
     "vite"
   ],

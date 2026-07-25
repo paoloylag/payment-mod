@@ -51,14 +51,19 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - Placeholder-based text inputs, calculated totals, multiple line items, and department/cost-center allocation.
 - Type-specific validation rules and required or conditional document uploads.
 - Grouped navigation for overview, requests, processing, and records.
+- Persona-based prototype views for Requestor, Finance Associate, Finance Manager, COO, and President, with the original all-access view retained.
 - Clickable dashboard metrics with dedicated request lists and detail views.
+- Role-scoped dashboards, navigation, request visibility, and approval queues.
+- A modal full-workflow view that preserves the selected request and dashboard context.
 - Department Head, Finance Associate, Finance Manager, COO, President, and Board Member review paths.
+- Finance Associate document validation with VAT and EWT classification, copy receipt status, hard-copy reminders, accounting entries, completion date, and optional check number.
+- Automatic No EWT handling for requests at or below PHP 3,000, calculated tax summaries, and balanced-entry completion controls.
 - Standardized approval actions for consistent approver views.
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
 - Full-width printable payment vouchers with compact half-page content, payment details, and an amount summary.
 - Approver email samples for each workflow stage.
 - Clickable Payment Tracker rows with dedicated request and workflow details.
-- Unclaimed-check reporting, archive search, and an ERP posting queue concept.
+- Unclaimed-check reporting and completed payment tracking.
 
 ## Prototype scope
 
