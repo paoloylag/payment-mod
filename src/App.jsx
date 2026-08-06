@@ -11,17 +11,15 @@ const paymentTypes = {
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
     uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Payment", "Cash Advance Form (If Applicable)", "Other Supporting Document"],
-    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   cashAdvance: {
     label: "Cash Advance",
     prefix: "CA",
-    required: ["Cash Advance Requestor", "Department", "Cash Advance Request Date", "Last Day of the Event", "Date to Liquidate", "Event / Purpose", "Accountability / Authority to Deduct Acknowledgement"],
+    required: ["Cash Advance Requestor", "Department", "Last Day of the Event", "Automatic Date to Liquidate", "Event / Purpose", "Accountability / Authority to Deduct Acknowledgement"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "Sales" },
-      { label: "Cash Advance Request Date", kind: "date", value: "2026-07-18" },
       { label: "Last Day of the Event", kind: "date", value: "2026-07-25" },
-      { label: "Date to Liquidate", kind: "date", value: "2026-07-30" },
       { label: "Event / Purpose", kind: "textarea", value: "Regional sales visit" },
     ],
     uploadDocuments: ["Supporting Budget / Itinerary", "Other Supporting Document"],
@@ -30,15 +28,16 @@ const paymentTypes = {
   liquidation: {
     label: "Liquidation",
     prefix: "LIQ",
-    required: ["Cash Advance Requestor", "Department", "Date Liquidated", "Last Day of the Event", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
+    required: ["Cash Advance Reference Number", "Cash Advance Requestor", "Department", "Date to Be Liquidated", "Actual Date of Liquidation", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
+      { label: "Cash Advance Reference Number", kind: "input", value: "CA-2026-0049" },
       { label: "Department", kind: "input", value: "People Operations" },
-      { label: "Date Liquidated", kind: "date", value: "2026-07-18" },
-      { label: "Last Day of the Event", kind: "date", value: "2026-07-16" },
+      { label: "Date to Be Liquidated", kind: "date", value: "2026-07-31" },
+      { label: "Actual Date of Liquidation", kind: "date", value: "2026-07-30" },
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop liquidation" },
     ],
     uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Unused Cash Return (If Applicable)", "Other Supporting Document"],
-    lineColumns: ["Invoice Date", "Invoice Number", "Vendor / Merchant", "Particulars", "Amount"],
+    lineColumns: ["Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   poPayment: {
     label: "P.O. Payment",
@@ -48,7 +47,7 @@ const paymentTypes = {
       { label: "Particulars of P.O. Payment", kind: "textarea", value: "Office equipment purchase order payment" },
     ],
     uploadDocuments: ["Approved P.O.", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
-    lineColumns: ["P.O. Number", "Supplier", "Particulars", "Department / Cost Center", "Amount"],
+    lineColumns: ["P.O. Number", "Supplier", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
   general: {
     label: "General Payment",
@@ -58,7 +57,7 @@ const paymentTypes = {
       { label: "Particulars of Payment", kind: "textarea", value: "Monthly utilities and service charges" },
     ],
     uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
-    lineColumns: ["Supplier", "Particulars", "Department / Cost Center", "Amount", "Attachment"],
+    lineColumns: ["Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
 };
 
@@ -92,10 +91,10 @@ const emailTemplates = {
   9: { recipient: "Finance Associate", subject: "Create payment voucher", trigger: "Final approval completed", intro: "The payment request has received its final approval.", message: "Create the payment voucher and confirm the payee, tax deductions, net payment, and accounting entries.", action: "Create Voucher" },
   10: { recipient: "Finance Associate", subject: "Payment is ready for bank processing", trigger: "Voucher created", intro: "An approved payment voucher is ready for processing.", message: "Prepare the bank transfer or check and record the payment reference in the request.", action: "Process Payment" },
   11: { recipient: "Authorized Signatories", subject: "Bank authorization required", trigger: "Payment instruction prepared", intro: "A payment instruction is awaiting bank authorization.", message: "Review the voucher, approval trail, payee details, and payment instruction before authorizing.", action: "Authorize Payment" },
-  12: { recipient: "Finance Associate", subject: "Notify payee that payment is available", trigger: "Bank authorization completed", intro: "The payment has been authorized and is ready for payee notification.", message: "Send the payment availability notice and confirm the release or collection instructions.", action: "Send Payee Notice" },
-  13: { recipient: "Finance Associate", subject: "Record payment release", trigger: "Payee notified", intro: "The payment is ready for release to the payee.", message: "Record the release date, recipient, payment reference, and acknowledgement details.", action: "Record Release" },
+  12: { recipient: "Vendor", subject: "Payment ready for processing: {{request_id}}", trigger: "Bank authorization completed", intro: "Your payment is ready for processing.", message: "The payment instruction has completed bank authorization. Review the payment details and reference below.", action: "View Payment Details" },
+  13: { recipient: "Department Requestor and Vendor", subject: "Payment available for pick-up: {{request_id}}", trigger: "Payment marked available for pick-up", intro: "The payment is now available for pick-up.", message: "The update date, time, and Finance personnel who recorded the status are included for reference.", action: "View Release Details" },
   14: { recipient: "Finance Associate", subject: "Payment tracker updated", trigger: "Payment released", intro: "The payment tracker has been updated automatically.", message: "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", action: "View Tracker" },
-  15: { recipient: "Finance Associate", subject: "Payment request completed", trigger: "Tracker update completed", intro: "The payment request workflow is complete.", message: "Review the completed payment record if reconciliation is required.", action: "View Completed Request" },
+  15: { recipient: "Department Requestor and Vendor", subject: "Payment completed: {{request_id}}", trigger: "Transaction completed", intro: "Your payment transaction has been completed.", message: "Payment has been completed. The payment date, amount, method, and reference are included for your records.", action: "View Payment Record" },
 };
 
 const uploadSamples = [
@@ -221,6 +220,22 @@ function getRoute(request) {
   if (request.amount <= 100000) return "Finance Manager can approve and route to voucher creation.";
   if (request.amount <= 300000) return "COO approval required by amount threshold.";
   return "President approval required for budgeted payments above PHP 300,000.";
+}
+
+function getFinalApprovalRole(request) {
+  if (request.type === "cashAdvance" || (request.budgeted && request.amount <= 100000)) return "Finance Manager";
+  if (!request.budgeted && request.amount > 1000000) return "Board Member";
+  if (!request.budgeted || request.amount <= 300000) return "COO";
+  return "President";
+}
+
+function getApprovalCertification(request) {
+  const key = request.id.replace(/[^A-Z0-9]/g, "");
+  return [
+    { stage: "Department Approval", approver: `${request.department} Department Head`, decision: "Approved", timestamp: "2026-06-20 09:14", id: `APR-${key}-DH` },
+    { stage: "Document Validation", approver: "Ms. Rhee · Finance Associate", decision: "Validated", timestamp: "2026-06-22 14:36", id: `APR-${key}-DV` },
+    { stage: "Final Approval", approver: getFinalApprovalRole(request), decision: "Approved", timestamp: "2026-06-23 11:08", id: `APR-${key}-FA` },
+  ];
 }
 
 function getVoucher(request) {
@@ -521,6 +536,20 @@ function RequestTable({ selectedId, onSelect, rows = seedRequests, combineStepSt
   );
 }
 
+function RequestActivity({ request }) {
+  const formatDate = (date, hour = 9) => new Intl.DateTimeFormat("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(`${date}T${String(hour).padStart(2, "0")}:00:00`));
+  const addDays = (date, days) => { const value = new Date(`${date}T00:00:00`); value.setDate(value.getDate() + days); return value.toISOString().slice(0, 10); };
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.id === request.currentStep));
+  const current = steps[currentIndex];
+  const activities = [{ date: formatDate(request.submitted, 8), actor: request.requestor, title: request.currentStep === 1 ? "Draft Created" : "Request Submitted", detail: `${paymentTypes[request.type].label} request created for ${request.vendor}.`, tone: "system" }];
+  if (request.currentStep >= 2) activities.push({ date: formatDate(addDays(request.submitted, 1), 9), actor: request.requestor, title: "Supporting Documents Recorded", detail: `${request.documents} document${request.documents === 1 ? "" : "s"} attached${request.missing ? `; ${request.missing} still required` : "; document set complete"}.`, tone: request.missing ? "pending" : "complete" });
+  if (request.returned) activities.push({ date: formatDate(request.returned, 14), actor: "Workflow Reviewer", title: "Returned for Correction", detail: "Additional information or corrected support was requested from the requestor.", tone: "returned" });
+  if (request.resubmitted) activities.push({ date: formatDate(request.resubmitted, 10), actor: request.requestor, title: "Request Resubmitted", detail: "The requestor supplied updated information and returned the request to the workflow.", tone: "system" });
+  if (currentIndex > 1) { const previous = steps[currentIndex - 1]; activities.push({ date: formatDate(addDays(request.submitted, Math.min(currentIndex, 8)), 11), actor: previous.owner, title: `${previous.name} Completed`, detail: `The ${previous.name.toLowerCase()} stage was completed and recorded by the system.`, tone: "complete" }); }
+  activities.push({ date: formatDate(addDays(request.submitted, Math.min(currentIndex + 1, 9)), 13), actor: current.owner, title: request.currentStep === 15 ? "Request Completed" : `Assigned to ${current.name}`, detail: request.currentStep === 15 ? "The payment request completed all workflow stages." : `${current.owner} is the current workflow owner. Status: ${request.status}.`, tone: request.currentStep === 15 ? "complete" : "current" });
+  return <section className="request-activity"><div className="request-activity-heading"><div><span className="eyebrow">Request History</span><h4>Request Activity</h4></div><span className="system-generated-tag">System Generated</span></div><div className="activity-timeline">{activities.slice(-5).reverse().map((activity) => <article className={`activity-entry ${activity.tone}`} key={`${activity.date}-${activity.title}`}><span className="activity-dot" /><div><div className="activity-entry-heading"><strong>{activity.title}</strong><time>{activity.date}</time></div><p>{activity.detail}</p><small>{activity.actor}</small></div></article>)}</div></section>;
+}
+
 function RequestDetail({ request, showWorkflowSummary = false, onViewWorkflow }) {
   return (
     <section className="panel">
@@ -538,10 +567,7 @@ function RequestDetail({ request, showWorkflowSummary = false, onViewWorkflow })
       </dl>
       <div className="request-routing-card"><span className="eyebrow">Routing Threshold</span><strong>{getRoute(request)}</strong><small>{request.budgeted ? "Budgeted request" : "Unbudgeted request"} · {formatCurrency(request.amount)}</small></div>
       {showWorkflowSummary && <WorkflowSummary request={request} onView={onViewWorkflow} />}
-      <div className="comment-log">
-        <h4>Notes</h4>
-        {request.comments.map((comment) => <p key={comment}>{comment}</p>)}
-      </div>
+      <RequestActivity request={request} />
       <VoucherCard voucher={getVoucher(request)} request={request} />
     </section>
   );
@@ -558,6 +584,7 @@ function WorkflowSummary({ request, onView }) {
 
 function VoucherCard({ voucher, request }) {
   if (!voucher) return null;
+  const certifications = getApprovalCertification(request);
 
   return (
     <div className="voucher-card">
@@ -570,9 +597,8 @@ function VoucherCard({ voucher, request }) {
         <button className="print-button" onClick={() => window.print()}>Print</button>
       </div>
       <div className="voucher-meta">
-        <span>Date: {voucher.date}</span>
-        <span>Request: {request.id}</span>
-        <span>Status: {request.status}</span>
+        <span><small>Reference No.</small><strong>{request.id}</strong></span>
+        <span><small>Date</small><strong>{voucher.date}</strong></span>
       </div>
       <table className="voucher-table">
         <tbody>
@@ -589,6 +615,11 @@ function VoucherCard({ voucher, request }) {
           <tr className="net-row"><th>Net Payment</th><td>{formatCurrency(voucher.netPayment)}</td></tr>
         </tbody>
       </table>
+      <section className="approval-certification">
+        <div className="certification-heading"><div><span className="eyebrow">Digital Approval Certification</span><strong>System-verified approval trail</strong></div><small>No handwritten signature required</small></div>
+        <div className="certification-list">{certifications.map((record) => <div className="certification-record" key={record.id}><div><small>{record.stage}</small><strong>{record.approver}</strong></div><div><small>Decision</small><strong>{record.decision}</strong></div><div><small>Date and Time</small><strong>{record.timestamp}</strong></div><div><small>Approval ID</small><strong>{record.id}</strong></div></div>)}</div>
+        <p>Authenticated through the Automated Payment System. Approval records are linked to request version {request.id}-01.</p>
+      </section>
     </div>
   );
 }
@@ -699,7 +730,6 @@ function ApprovalQueue({ selected, onSelect }) {
       <section className="panel action-panel">
         <div className="panel-header">
           <h3>Approval action</h3>
-          <StatusPill status={selected.status} />
         </div>
         <RequestDetail request={selected} />
         <div className="approval-actions">
