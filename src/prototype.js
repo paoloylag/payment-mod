@@ -9,7 +9,7 @@ const paymentTypes = {
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
     uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Payment", "Cash Advance Form (If Applicable)", "Other Supporting Document"],
-    lineColumns: ["Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
+    lineColumns: ["Merchant Name", "Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   cashAdvance: {
     label: "Cash Advance",
@@ -35,7 +35,7 @@ const paymentTypes = {
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop liquidation" },
     ],
     uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Unused Cash Return (If Applicable)", "Other Supporting Document"],
-    lineColumns: ["Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
+    lineColumns: ["Merchant Name", "Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   poPayment: {
     label: "P.O. Payment",
@@ -55,7 +55,7 @@ const paymentTypes = {
       { label: "Particulars of Payment", kind: "textarea", value: "Monthly utilities and service charges" },
     ],
     uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
-    lineColumns: ["Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
+    lineColumns: ["Merchant Name", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
 };
 
@@ -108,16 +108,16 @@ const uploadSamples = [
 
 const lineItemExamples = {
   reimbursement: [
-    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-1042", Particulars: "Leadership workshop registration", "Expense Account": "Training Expense", "Department to Be Charged": "People Operations", Amount: 50000, Attachment: "training-invoice.pdf" },
-    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-1048", Particulars: "Workshop transportation", "Expense Account": "Transportation Expense", "Department to Be Charged": "People Operations", Amount: 75000, Attachment: "transport-receipt.pdf" },
+    { "Merchant Name": "Training Center", "Invoice Date": "2026-07-15", "Invoice Number": "INV-1042", Particulars: "Leadership workshop registration", "Expense Account": "Training Expense", "Department to Be Charged": "People Operations", Amount: 50000, Attachment: "training-invoice.pdf" },
+    { "Merchant Name": "Travel Desk", "Invoice Date": "2026-07-16", "Invoice Number": "OR-1048", Particulars: "Workshop transportation", "Expense Account": "Transportation Expense", "Department to Be Charged": "People Operations", Amount: 75000, Attachment: "transport-receipt.pdf" },
   ],
   cashAdvance: [{ Particulars: "Regional transportation", Amount: 25000 }, { Particulars: "Meals and incidentals", Amount: 10000 }],
   liquidation: [
-    { "Invoice Date": "2026-07-15", "Invoice Number": "INV-2051", Particulars: "Workshop venue and meals", "Expense Account": "Events Expense", "Department to Be Charged": "People Operations", Amount: 30000, Attachment: "event-invoice.pdf" },
-    { "Invoice Date": "2026-07-16", "Invoice Number": "OR-2058", Particulars: "Local transportation", "Expense Account": "Transportation Expense", "Department to Be Charged": "People Operations", Amount: 15000, Attachment: "transport-receipt.pdf" },
+    { "Merchant Name": "Training Center", "Invoice Date": "2026-07-15", "Invoice Number": "INV-2051", Particulars: "Workshop venue and meals", "Expense Account": "Events Expense", "Department to Be Charged": "People Operations", Amount: 30000, Attachment: "event-invoice.pdf" },
+    { "Merchant Name": "Travel Desk", "Invoice Date": "2026-07-16", "Invoice Number": "OR-2058", Particulars: "Local transportation", "Expense Account": "Transportation Expense", "Department to Be Charged": "People Operations", Amount: 15000, Attachment: "transport-receipt.pdf" },
   ],
   poPayment: [{ "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Office workstations", "Expense Account": "Office Equipment", "Department / Cost Center": "Operations - 4400", Amount: 98000, Attachment: "approved-po.pdf" }, { "P.O. Number": "PO-2026-0106", Supplier: "Northstar Supplies", Particulars: "Delivery and installation", "Expense Account": "Installation Expense", "Department / Cost Center": "IT - 4500", Amount: 27500, Attachment: "supplier-invoice.pdf" }],
-  general: [{ Particulars: "Electricity service", "Expense Account": "Utilities Expense", "Department / Cost Center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" }, { Particulars: "Water service", "Expense Account": "Utilities Expense", "Department / Cost Center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" }, { Particulars: "Monthly hosting", "Expense Account": "Cloud Services", "Department / Cost Center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" }],
+  general: [{ "Merchant Name": "City Utilities", Particulars: "Electricity service", "Expense Account": "Utilities Expense", "Department / Cost Center": "Facilities - 4600", Amount: 48500, Attachment: "electric-bill.pdf" }, { "Merchant Name": "City Utilities", Particulars: "Water service", "Expense Account": "Utilities Expense", "Department / Cost Center": "Admin - 4000", Amount: 12200, Attachment: "water-bill.pdf" }, { "Merchant Name": "CloudWorks", Particulars: "Monthly hosting", "Expense Account": "Cloud Services", "Department / Cost Center": "IT - 4500", Amount: 27700, Attachment: "cloud-invoice.pdf" }],
 };
 
 const poSystemRecords = [
@@ -183,6 +183,9 @@ let state = {
   trackerRequestId: null,
   dashboardFilters: { voucher: "", department: "all", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" },
   requestCreatedDate: new Date().toISOString().slice(0, 10),
+  requestMode: "new",
+  activeDraftId: null,
+  drafts: [],
   draftType: "reimbursement",
   draftCurrency: "PHP",
   otherCurrency: "",
@@ -226,7 +229,7 @@ const tabRoutes = {
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
   const parts = path.split("/").filter(Boolean);
-  if (parts[0] === "requests") return { tab: "request", draftType: paymentTypes[parts[2]] ? parts[2] : "reimbursement", dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
+  if (parts[0] === "requests") return { tab: "request", requestMode: parts[1] === "drafts" ? "drafts" : "new", draftType: paymentTypes[parts[2]] ? parts[2] : state.draftType, dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
   if (parts[0] === "approvals") {
     const approvalView = parts[1] === "request" ? "detail" : parts[1] === "review" ? "review" : "list";
     const requestId = approvalView === "list" ? null : parts[2];
@@ -340,11 +343,96 @@ function removeDraftLineItem(rowIndex) {
   setState({ lineItemsByType });
 }
 
+const draftAmountFor = (draft) => draft.lineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
+
+function captureDraftControls() {
+  return [...document.querySelectorAll(".request-form-panel input:not([type=file]), .request-form-panel select, .request-form-panel textarea")].map((control) => ({
+    value: control.type === "checkbox" ? control.checked : control.value,
+    checkbox: control.type === "checkbox",
+    disabled: control.disabled,
+  }));
+}
+
+function saveDraft({ silent = false } = {}) {
+  const now = new Date().toISOString();
+  const existing = state.drafts.find((draft) => draft.id === state.activeDraftId);
+  const draft = {
+    id: existing?.id || `DRAFT-${new Date().getFullYear()}-${String(state.drafts.length + 1).padStart(4, "0")}`,
+    type: state.draftType,
+    requestor: personas.requestor.name,
+    department: "Marketing",
+    savedAt: now,
+    createdAt: existing?.createdAt || now,
+    currency: state.draftCurrency,
+    otherCurrency: state.otherCurrency,
+    budgeted: state.budgeted,
+    liquidationAdvanceAmount: state.liquidationAdvanceAmount,
+    lineItems: state.lineItemsByType[state.draftType].map((item) => ({ ...item })),
+    controls: captureDraftControls(),
+  };
+  state.drafts = existing ? state.drafts.map((item) => item.id === draft.id ? draft : item) : [...state.drafts, draft];
+  state.activeDraftId = draft.id;
+  if (!silent) render();
+}
+
+function restoreDraftControls() {
+  const draft = state.drafts.find((item) => item.id === state.activeDraftId);
+  if (!draft || state.requestMode !== "new") return;
+  const controls = [...document.querySelectorAll(".request-form-panel input:not([type=file]), .request-form-panel select, .request-form-panel textarea")];
+  draft.controls.forEach((saved, index) => {
+    const control = controls[index];
+    if (!control || control.disabled !== saved.disabled) return;
+    if (saved.checkbox) control.checked = saved.value;
+    else control.value = saved.value;
+  });
+}
+
+function openDraft(id) {
+  const draft = state.drafts.find((item) => item.id === id);
+  if (!draft) return;
+  state = {
+    ...state,
+    activeDraftId: draft.id,
+    draftType: draft.type,
+    draftCurrency: draft.currency,
+    otherCurrency: draft.otherCurrency,
+    budgeted: draft.budgeted,
+    liquidationAdvanceAmount: draft.liquidationAdvanceAmount,
+    lineItemsByType: { ...state.lineItemsByType, [draft.type]: draft.lineItems.map((item) => ({ ...item })) },
+  };
+  navigate(`/requests/new/${draft.type}`);
+}
+
+function submitSavedDraft(id) {
+  const draft = state.drafts.find((item) => item.id === id);
+  if (!draft) return;
+  const config = paymentTypes[draft.type];
+  const sequence = requests.filter((request) => request.type === draft.type).length + 151;
+  const idValue = `${config.prefix}-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
+  const vendor = draft.lineItems.find((item) => item["Merchant Name"] || item.Supplier)?.["Merchant Name"] || draft.lineItems.find((item) => item.Supplier)?.Supplier || "To Be Confirmed";
+  requests.unshift({
+    id: idValue, type: draft.type, requestor: draft.requestor, department: draft.department, vendor,
+    amount: draftAmountFor(draft), budgeted: draft.budgeted, status: "Department Approval", currentStep: 3,
+    submitted: new Date().toISOString().slice(0, 10), returned: "", resubmitted: "", documents: 0, missing: 0,
+    currency: draft.currency === "OTHER" ? draft.otherCurrency || "PHP" : draft.currency, unlocked: false,
+    audit: [{ action: "Request Submitted", actor: draft.requestor, timestamp: new Date().toISOString(), reason: "Submitted to Department Head from saved draft." }],
+    bankSubmittedAt: "", bankSubmittedBy: "", bankAuthorizedAt: "", bankAuthorizedBy: "", vendorNotifiedAt: "", vendorNotifiedBy: "", pickupAvailableAt: "", pickupAvailableBy: "",
+  });
+  state = { ...state, drafts: state.drafts.filter((item) => item.id !== id), activeDraftId: null, selectedId: idValue, requestMode: "new" };
+  navigate(`/dashboard/request/${idValue}`);
+}
+
+function draftsView() {
+  const drafts = state.drafts.filter((draft) => draft.requestor === personas.requestor.name);
+  return `<section class="drafts-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-new-request>+ New Request</button></div><section class="panel"><div class="panel-header"><div><span class="eyebrow">Requestor Workspace</span><h3>My Drafts</h3><p>Saved requests remain private until submitted to the department head.</p></div><span class="count">${drafts.length}</span></div><div class="table-wrap"><table><thead><tr><th>Draft</th><th>Type</th><th>Last Saved</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>${drafts.length ? drafts.map((draft) => `<tr><td><strong>${draft.id}</strong></td><td>${paymentTypes[draft.type].label}</td><td>${new Date(draft.savedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</td><td>${money(draftAmountFor(draft), draft.currency)}</td><td>${statusPill("Draft Request")}</td><td><div class="draft-row-actions"><button type="button" data-continue-draft="${draft.id}">Continue Editing</button><button type="button" class="confirmation-button" data-submit-draft="${draft.id}">Submit to Department Head</button><button type="button" class="danger" data-delete-draft="${draft.id}">Delete Draft</button></div></td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No saved drafts yet. Start a request and choose Save as Draft.</td></tr>`}</tbody></table></div></section></section>`;
+}
+
 function personaRequests(persona = state.persona) {
-  if (persona === "requestor") return requests.filter((request) => request.requestor === personas.requestor.name);
-  if (persona === "coo") return requests.filter((request) => request.currentStep === 7);
-  if (persona === "president") return requests.filter((request) => request.currentStep === 8);
-  return requests;
+  const submittedRequests = requests.filter((request) => request.currentStep !== 1 && request.status !== "Draft Request");
+  if (persona === "requestor") return submittedRequests.filter((request) => request.requestor === personas.requestor.name);
+  if (persona === "coo") return submittedRequests.filter((request) => request.currentStep === 7);
+  if (persona === "president") return submittedRequests.filter((request) => request.currentStep === 8);
+  return submittedRequests;
 }
 
 function approvalRequests(persona = state.persona) {
@@ -390,7 +478,7 @@ function shell(content) {
 function unlockRequestModal() {
   const request = requests.find((item) => item.id === state.unlockRequestId);
   if (!request) return "";
-  return `<div class="unlock-modal-backdrop" data-unlock-modal-backdrop><section class="unlock-modal" role="dialog" aria-modal="true" aria-labelledby="unlock-modal-title"><div class="unlock-modal-header"><div><span class="eyebrow">Authorized Action</span><h3 id="unlock-modal-title">Unlock ${request.id}?</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div><button type="button" class="unlock-modal-close" data-cancel-unlock aria-label="Close unlock request">×</button></div><div class="unlock-modal-body"><div class="unlock-warning"><strong>Approvals may need to be repeated.</strong><p>Changes made after Document Validation can affect validated documents, accounting entries, routing, and previous approval decisions.</p></div><label>Reason for Urgent Change <small>(Required)</small><textarea data-unlock-reason placeholder="Explain why this request must be reopened and what needs to change."></textarea></label><p class="unlock-audit-note">The authorizing user, reason, request reference, and date and time will be recorded in the audit trail.</p></div><div class="unlock-modal-actions"><button type="button" data-cancel-unlock>Cancel</button><button type="button" class="danger" data-confirm-unlock="${request.id}" disabled>Confirm Unlock</button></div></section></div>`;
+  return `<div class="unlock-modal-backdrop" data-unlock-modal-backdrop><section class="unlock-modal" role="dialog" aria-modal="true" aria-labelledby="unlock-modal-title"><div class="unlock-modal-header"><div><span class="eyebrow">Authorized Action</span><h3 id="unlock-modal-title">Unlock ${request.id}?</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div><button type="button" class="unlock-modal-close danger" data-cancel-unlock aria-label="Close unlock request">×</button></div><div class="unlock-modal-body"><div class="unlock-warning"><strong>Approvals may need to be repeated.</strong><p>Changes made after Document Validation can affect validated documents, accounting entries, routing, and previous approval decisions.</p></div><label>Reason for Urgent Change <small>(Required)</small><textarea data-unlock-reason placeholder="Explain why this request must be reopened and what needs to change."></textarea></label><p class="unlock-audit-note">The authorizing user, reason, request reference, and date and time will be recorded in the audit trail.</p></div><div class="unlock-modal-actions"><button type="button" class="danger" data-cancel-unlock>Cancel</button><button type="button" class="danger" data-confirm-unlock="${request.id}" disabled>Confirm Unlock</button></div></section></div>`;
 }
 
 function statusPill(status) {
@@ -442,6 +530,37 @@ function detail(r, showWorkflowSummary = false) {
       <div><dt>Currency</dt><dd>${r.currency || "PHP"}</dd></div><div><dt>Aging Days</dt><dd>${agingDays(r)} day${agingDays(r) === 1 ? "" : "s"}</dd></div>
       <div><dt>Documents</dt><dd>${r.documents} attached, ${r.missing} missing</dd></div><div><dt>Budget</dt><dd>${r.budgeted ? "Budgeted" : "Unbudgeted"}</dd></div>
     </dl>${requestControls}<div class="request-routing-card"><span class="eyebrow">Routing Threshold</span><strong>${route(r)}</strong><small>${r.budgeted ? "Budgeted request" : "Unbudgeted request"} · ${requestMoney(r)}</small></div>${showWorkflowSummary ? workflowSummary(r) : ""}${requestActivity(r)}${voucherFor(r)}</section>`;
+}
+
+function allRolesActionPanel(request) {
+  if (state.persona !== "all") return "";
+  const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
+  const stageActions = {
+    1: ["Edit Request", "Requestor", "edit"],
+    2: ["Manage Document Uploads", "Requestor", "documents"],
+    3: ["Review Department Approval", "Department Head", "approval"],
+    4: ["Open Document Validation", "Finance Associate", "approval"],
+    5: ["Review Budget Approval", "Finance Manager", "approval"],
+    7: ["Complete COO Approval", "COO", "approval"],
+    8: ["Complete President Approval", "President", "approval"],
+    8.5: ["Complete Board Approval", "Board Member", "approval"],
+    9: ["Review and Print Voucher", "Finance Associate", "voucher"],
+    10: ["Process Bank Payment", "Finance Associate", "tracker"],
+    11: ["Complete Signatory Approval", "Authorized Signatories", "tracker"],
+    12: ["Send Vendor Notification", "Finance Associate", "tracker"],
+    13: ["Record Payment Release", "Finance Associate", "tracker"],
+    14: ["Review Payment Tracker", "System / Finance", "tracker"],
+    15: ["View Completed Record", "Finance Operations", "tracker"],
+  };
+  const [label, owner, action] = stageActions[request.currentStep] || ["View Request", currentOwner, "workflow"];
+  const relatedActions = [
+    [label, owner, action, "primary"],
+    ["View Full Workflow", "All Authorized Roles", "workflow", "secondary"],
+    ["Open Payment Tracker", "Finance / Requestor", "tracker", "secondary"],
+    ...(request.currentStep >= 12 ? [["Preview Notification Email", request.currentStep === 12 ? "Vendor" : "Requestor and Vendor", "email", "secondary"]] : []),
+    ...(request.currentStep >= 4 && !request.unlocked ? [["Authorize Unlock", "Finance Manager or Higher", "unlock", "danger"]] : []),
+  ];
+  return `<section class="panel all-role-actions"><div class="panel-header"><div><span class="eyebrow">All Roles View</span><h3>Available Actions</h3><p>Actions exposed by each persona for this request's current stage.</p></div><span class="count">${relatedActions.length}</span></div><div class="all-role-action-grid">${relatedActions.map(([actionLabel, actionOwner, actionId, tone]) => `<article><div><span>${actionOwner}</span><strong>${actionLabel}</strong></div><button type="button" class="${tone === "primary" ? "primary-button" : tone === "danger" ? "danger" : ""}" data-all-role-action="${actionId}" data-action-request="${request.id}">${actionLabel}</button></article>`).join("")}</div></section>`;
 }
 
 function dashboardFilters(visibleRequests = requests) {
@@ -555,7 +674,7 @@ function dashboard() {
   if (state.dashboardRequestId) {
     const dashboardRequest = visibleRequests.find((request) => request.id === state.dashboardRequestId);
     if (!dashboardRequest) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><section class="panel empty-persona-view"><h3>Request Not Available</h3><p>This request is not visible to the selected persona.</p></section></section>`;
-    return `<section class="metric-detail-view dashboard-request-detail"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Full Request Details</span><h3>${dashboardRequest.id}</h3><p>${paymentTypes[dashboardRequest.type].label} · ${dashboardRequest.department} · ${requestMoney(dashboardRequest)}</p></div></div>${detail(dashboardRequest, true)}</section>`;
+    return `<section class="metric-detail-view dashboard-request-detail"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Full Request Details</span><h3>${dashboardRequest.id}</h3><p>${paymentTypes[dashboardRequest.type].label} · ${dashboardRequest.department} · ${requestMoney(dashboardRequest)}</p></div></div>${allRolesActionPanel(dashboardRequest)}${detail(dashboardRequest, true)}</section>`;
   }
   const pendingRequests = state.persona === "requestor"
     ? visibleRequests.filter((r) => ![1, 2, 15].includes(r.currentStep))
@@ -601,6 +720,7 @@ function dashboard() {
 }
 
 function requestBuilder() {
+  if (state.requestMode === "drafts") return draftsView();
   const config = paymentTypes[state.draftType];
   const lineItems = state.lineItemsByType[state.draftType];
   const draftAmount = lineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
@@ -624,7 +744,7 @@ function requestBuilder() {
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><div class="cash-return-instructions"><span>Excess Cash Advance Return</span><strong>Security Bank · Account No. 0012-3456-7890</strong><small>Upload proof of transfer with the liquidation request.</small></div></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section class="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section>` : "";
-  return `<section class="form-layout"><div class="panel"><div class="panel-header"><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3><span class="voucher-preview">${config.prefix}-2026-0150</span></div>
+  return `<section class="form-layout"><div class="panel request-form-panel"><div class="panel-header"><div><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3>${state.activeDraftId ? `<small class="draft-save-state">${state.activeDraftId} · Auto-save enabled</small>` : ""}</div><div class="request-header-actions"><button type="button" data-view-drafts>My Drafts (${state.drafts.length})</button><span class="voucher-preview">${state.activeDraftId || `${config.prefix}-2026-0150`}</span></div></div>
     <div class="segmented">${Object.entries(paymentTypes).map(([id, type]) => `<button data-type="${id}" class="${state.draftType === id ? "active" : ""}">${type.label}</button>`).join("")}</div>
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${poSupplierNotice}${liquidationSummary}
     ${isCashAdvance || isLiquidation ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted Request</label>`}
@@ -633,7 +753,7 @@ function requestBuilder() {
     </tbody><tfoot><tr><th colspan="${config.lineColumns.length}"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "P.O. system amount" : "Total"}</span><strong>${money(effectiveAmount, state.draftCurrency)}</strong></th><td></td></tr></tfoot></table></div></div>${accountability}</div>
     <div class="panel"><div class="panel-header"><h3>Validation Preview</h3><span class="count">${config.required.length}</span></div><ul class="check-list">${config.required.map((item, index) => `<li><span class="${index < config.required.length - 1 ? "ok" : "warn"}">${index < config.required.length - 1 ? "✓" : "!"}</span>${item}</li>`).join("")}</ul>
     ${state.draftType === "reimbursement" || isPoPayment ? `<div class="line-attachment-notice"><strong>Documents are attached per line item.</strong><p>${isPoPayment ? "Approved P.O. and supplier records are retrieved from the P.O. system." : "Add the corresponding invoice or receipt in each reimbursement line."}</p></div>` : `<h4>Document Uploads</h4><div class="upload-list">${config.uploadDocuments.map(uploadInput).join("")}</div>`}
-    <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: effectiveAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div><button class="primary-button">Submit to Department Head</button></div></section>`;
+    <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: effectiveAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div></div><div class="panel request-action-footer"><div><span class="eyebrow">Request Actions</span><p>Save your progress or submit the completed request to your department head.</p></div><div class="request-submit-actions"><button type="button" data-save-draft>Save as Draft</button><button type="button" class="confirmation-button" data-submit-current>Submit to Department Head</button></div></div></section>`;
 }
 
 function validationReviewLines(request) {
@@ -693,7 +813,7 @@ function documentValidationWorkspace(request) {
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Submitted Documents</span><h4>Copy Receipt Status</h4></div><span class="document-status ${validation.hardCopy ? "complete" : "pending"}">${documentStatus}</span></div><div class="copy-options"><label><input type="checkbox" data-validation-copy="hardCopy" ${validation.hardCopy ? "checked" : ""}> Hard Copy Received</label><label><input type="checkbox" data-validation-copy="softCopy" ${validation.softCopy ? "checked" : ""}> Soft Copy Received</label></div>${validation.softCopy && !validation.hardCopy ? `<div class="hard-copy-reminder"><strong>Hard copies must still be submitted to Finance.</strong><span>This request can be reviewed, but the physical documents remain outstanding.</span></div>` : ""}</div>
     <div class="validation-section line-review-section"><div class="validation-section-heading"><div><span class="eyebrow">Line-Item Review</span><h4>Review Details and Attachments</h4></div><div class="line-review-counts"><span class="valid">${validCount} Valid</span><span class="correction">${correctionCount} Needs Correction</span><span>${pendingCount} Pending</span></div></div><div class="table-wrap"><table class="validation-line-table"><thead><tr><th>Reference</th><th>Date</th><th>Particulars</th><th>Expense Account</th><th>Department</th><th>Amount</th><th>Attachment</th><th>Review</th></tr></thead><tbody>${reviewLines.map((line, index) => { const review = reviews[index]; return `<tr class="review-${review.status}"><td>${line.reference}</td><td>${line.date}</td><td>${line.particulars}</td><td>${line.expense}</td><td>${line.department}</td><td>${money(line.amount)}</td><td><div class="attachment-actions"><strong>${line.attachment}</strong><button type="button" data-view-line-attachment="${index}">View</button><button type="button" data-download-line-attachment="${index}">Download</button></div></td><td><select data-line-review-status="${index}" aria-label="Review status for line ${index + 1}"><option value="pending" ${review.status === "pending" ? "selected" : ""}>Pending Review</option><option value="valid" ${review.status === "valid" ? "selected" : ""}>Valid</option><option value="correction" ${review.status === "correction" ? "selected" : ""}>Needs Correction</option></select><textarea data-line-review-note="${index}" placeholder="Add a line-specific review note">${review.note}</textarea>${review.reviewer ? `<small>Reviewed by ${review.reviewer} · ${review.reviewedAt}</small>` : ""}${review.status === "correction" && !review.note.trim() ? `<span class="line-note-required">A correction note is required.</span>` : ""}</td></tr>`; }).join("")}</tbody></table></div>${validation.attachmentPreview ? `<div class="attachment-preview-notice">Preview opened: <strong>${validation.attachmentPreview}</strong><button type="button" data-close-attachment-preview aria-label="Close attachment preview">×</button></div>` : ""}${!correctionNotesComplete ? `<p class="validation-requirements">Add a note explaining every line marked Needs Correction.</p>` : ""}</div>
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Accounting Entry</span><h4>Manual Debit and Credit Entry</h4></div><button type="button" data-add-accounting-row>+ Add Entry</button></div><div class="table-wrap"><table class="accounting-entry-table"><thead><tr><th>Account Name</th><th>Debit</th><th>Credit</th><th><span class="sr-only">Action</span></th></tr></thead><tbody>${validation.entries.map((entry, index) => `<tr><td><input data-accounting-index="${index}" data-accounting-field="account" value="${entry.account}" placeholder="Enter account name"></td><td><input type="number" min="0" data-accounting-index="${index}" data-accounting-field="debit" value="${entry.debit || ""}" placeholder="0.00"></td><td><input type="number" min="0" data-accounting-index="${index}" data-accounting-field="credit" value="${entry.credit || ""}" placeholder="0.00"></td><td><button type="button" class="remove-line-button" data-remove-accounting-row="${index}" ${validation.entries.length === 1 ? "disabled" : ""} aria-label="Remove accounting entry ${index + 1}">×</button></td></tr>`).join("")}</tbody><tfoot><tr><th>Totals</th><th>${money(debitTotal)}</th><th>${money(creditTotal)}</th><th></th></tr></tfoot></table></div><div class="balance-status ${balanced ? "balanced" : "unbalanced"}">${balanced ? "Debit and credit totals are balanced." : `Entries are out of balance by ${money(Math.abs(debitTotal - creditTotal))}.`}</div></div>
-    <div class="validation-section validation-completion"><div><span class="eyebrow">Completion Details</span><h4>Finalize Document Validation</h4></div><div class="validation-completion-grid"><label>Document Validation Completion Date<input type="date" value="${validation.completionDate}" readonly placeholder="Set when completed"></label><label>Check Number <small>(Optional)</small><input data-validation-check-number value="${validation.checkNumber}" placeholder="Enter check number when available"></label></div><label>Reviewer Note<textarea data-validation-reviewer-note>${validation.reviewerNote}</textarea></label><div class="approval-actions"><button type="button" class="primary-button" data-complete-validation ${complete ? "" : "disabled"}>${validation.completionDate ? "Validation Completed" : "Complete Validation and Notify Finance Manager"}</button><button type="button" ${correctionCount && correctionNotesComplete ? "" : "disabled"}>Return Lines for Correction</button><button type="button" class="danger">Disapprove</button></div>${!complete ? `<p class="validation-requirements">Complete VAT, EWT, document receipt status, balanced accounting entries, and mark every line item Valid before completing validation.</p>` : ""}</div>
+    <div class="validation-section validation-completion"><div><span class="eyebrow">Completion Details</span><h4>Finalize Document Validation</h4></div><div class="validation-completion-grid"><label>Document Validation Completion Date<input type="date" value="${validation.completionDate}" readonly placeholder="Set when completed"></label><label>Check Number <small>(Optional)</small><input data-validation-check-number value="${validation.checkNumber}" placeholder="Enter check number when available"></label></div><label>Reviewer Note<textarea data-validation-reviewer-note>${validation.reviewerNote}</textarea></label><div class="approval-actions"><button type="button" class="confirmation-button" data-complete-validation ${complete ? "" : "disabled"}>${validation.completionDate ? "Validation Completed" : "Complete Validation and Notify Finance Manager"}</button><button type="button" class="danger" ${correctionCount && correctionNotesComplete ? "" : "disabled"}>Return Lines for Correction</button><button type="button" class="danger">Disapprove</button></div>${!complete ? `<p class="validation-requirements">Complete VAT, EWT, document receipt status, balanced accounting entries, and mark every line item Valid before completing validation.</p>` : ""}</div>
   </section>`;
 }
 
@@ -773,7 +893,7 @@ function approvals() {
   const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
   const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
   const showReadOnlyValidation = ["financeManager", "coo", "president"].includes(state.persona);
-  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="primary-button">${primaryAction}</button><button>Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
+  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button">${primaryAction}</button><button class="danger">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
 }
 
 function paymentOperationsPanel(request) {
@@ -875,7 +995,7 @@ function render() {
     const approved = state.documentValidation.lineReviews[index]?.status === "valid";
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `approve-document-button ${approved ? "approved" : ""}`;
+    button.className = `approve-document-button confirmation-button ${approved ? "approved" : ""}`;
     button.dataset.approveLineDocument = String(index);
     button.textContent = approved ? "Approved ✓" : "Approve Document";
     button.disabled = approved;
@@ -955,6 +1075,19 @@ function render() {
   document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/${button.dataset.metric}`)));
   document.querySelector("[data-close-metric]")?.addEventListener("click", () => navigate("/dashboard"));
   document.querySelector("[data-close-dashboard-detail]")?.addEventListener("click", () => navigate("/dashboard"));
+  document.querySelectorAll("[data-all-role-action]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === button.dataset.actionRequest);
+    if (!request) return;
+    const action = button.dataset.allRoleAction;
+    if (action === "edit") navigate(`/requests/new/${request.type}`);
+    else if (action === "documents") navigate("/documents/uploads");
+    else if (action === "approval") navigate(`/approvals/review/${request.id}`);
+    else if (action === "tracker") navigate(`/tracker/${request.id}`);
+    else if (action === "email") navigate(`/emails/${request.currentStep >= 15 ? 15 : request.currentStep}`);
+    else if (action === "workflow") navigate(`/dashboard/workflow/${request.id}`);
+    else if (action === "voucher") document.querySelector(".voucher-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (action === "unlock") setState({ unlockRequestId: request.id });
+  }));
   document.querySelector("[data-view-workflow]")?.addEventListener("click", (event) => navigate(`/dashboard/workflow/${event.currentTarget.dataset.viewWorkflow}`));
   document.querySelectorAll("[data-close-workflow]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/request/${state.selectedId}`)));
   document.querySelector("[data-workflow-modal]")?.addEventListener("click", (event) => {
@@ -1008,6 +1141,19 @@ function render() {
   });
   document.querySelector("[data-close-tracker]")?.addEventListener("click", () => navigate("/tracker"));
   document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => navigate(`/requests/new/${button.dataset.type}`)));
+  document.querySelector("[data-view-drafts]")?.addEventListener("click", () => navigate("/requests/drafts"));
+  document.querySelector("[data-new-request]")?.addEventListener("click", () => {
+    state.activeDraftId = null;
+    navigate(`/requests/new/${state.draftType}`);
+  });
+  document.querySelector("[data-save-draft]")?.addEventListener("click", () => saveDraft());
+  document.querySelector("[data-submit-current]")?.addEventListener("click", () => {
+    saveDraft({ silent: true });
+    submitSavedDraft(state.activeDraftId);
+  });
+  document.querySelectorAll("[data-continue-draft]").forEach((button) => button.addEventListener("click", () => openDraft(button.dataset.continueDraft)));
+  document.querySelectorAll("[data-submit-draft]").forEach((button) => button.addEventListener("click", () => submitSavedDraft(button.dataset.submitDraft)));
+  document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", () => setState({ drafts: state.drafts.filter((draft) => draft.id !== button.dataset.deleteDraft), activeDraftId: state.activeDraftId === button.dataset.deleteDraft ? null : state.activeDraftId })));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
   document.querySelectorAll("[data-dashboard-filter]").forEach((input) => input.addEventListener(input.tagName === "INPUT" && input.type !== "number" ? "input" : "change", () => {
     state.dashboardFilters = { ...state.dashboardFilters, [input.dataset.dashboardFilter]: input.value };
@@ -1056,7 +1202,7 @@ function render() {
   document.querySelector("[data-add-line]")?.addEventListener("click", addDraftLineItem);
   document.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => removeDraftLineItem(Number(button.dataset.removeLine))));
   document.querySelectorAll("[data-line-row]").forEach((input) => input.addEventListener("input", () => updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, input.value)));
-  document.querySelector("[data-print-voucher]")?.addEventListener("click", () => window.print());
+  document.querySelectorAll("[data-print-voucher]").forEach((button) => button.addEventListener("click", () => window.print()));
   document.getElementById("unbudgeted")?.addEventListener("change", (event) => setState({ budgeted: !event.target.checked }));
   document.getElementById("liquidationAdvanceAmount")?.addEventListener("input", (event) => {
     state.liquidationAdvanceAmount = Number(event.target.value) || 0;
@@ -1064,6 +1210,13 @@ function render() {
     const output = document.getElementById("liquidationSettlement");
     if (output) output.textContent = settlementFor(state.liquidationAdvanceAmount, expenses);
   });
+  restoreDraftControls();
+  const draftForm = document.querySelector(".request-form-panel");
+  if (draftForm && state.activeDraftId) {
+    const autoSave = () => saveDraft({ silent: true });
+    draftForm.addEventListener("input", autoSave);
+    draftForm.addEventListener("change", autoSave);
+  }
 }
 
 window.addEventListener("hashchange", () => {
