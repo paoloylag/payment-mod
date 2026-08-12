@@ -43,6 +43,7 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - `src/App.jsx` contains the synchronized React implementation.
 - `src/styles.css` contains screen, responsive, and print styling.
 - `docs/database-design.md` defines the proposed PostgreSQL schema, workflow records, audit requirements, and Philippine Time timestamp policy.
+- `docs/database-design-readable.md` explains the proposed database and workflow in plain language.
 - `.github/workflows/pages.yml` defines the GitHub Pages deployment.
 
 ## Covered workflow
