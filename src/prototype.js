@@ -93,7 +93,14 @@ const emailTemplates = {
   13: ["Department Requestor and Vendor", "Payment available for pick-up: {{request_id}}", "Payment marked available for pick-up", "The payment is now available for pick-up.", "Payment for {{payee_name}} is available. The update date, time, and Finance personnel who recorded the status are included for reference.", "View Release Details"],
   14: ["Finance Associate", "Payment tracker updated", "Payment released", "The payment tracker has been updated automatically.", "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", "View Tracker"],
   15: ["Department Requestor and Vendor", "Payment completed: {{request_id}}", "Transaction completed", "Your payment transaction has been completed.", "Payment for {{payee_name}} has been completed. The payment date, amount, method, and reference are included below for your records.", "View Payment Record"],
+  returned: ["Requestor", "Action required: payment request returned", "Request returned for correction", "Your payment request needs changes", "The reviewer returned this request for correction. Open the request to review the comments, update the required information or documents, and resubmit it.", "View Request"],
+  declined: ["Requestor", "Payment request declined", "Request declined", "Your payment request was declined", "The reviewer declined this payment request. Open the request to review the decision, reviewer comments, and recorded approval history.", "View Request"],
 };
+
+const emailNotificationEvents = [
+  ["returned", "Request Returned", "Requestor"],
+  ["declined", "Request Declined", "Requestor"],
+];
 
 const uploadSamples = [
   ["RMB-2026-0161", "reimbursement", "Lia Dizon", "People Ops", "Training Center", 72300, [["Invoice", true, "training-invoice-1042.pdf", "248 KB"], ["Billing / Quotation / SOA", false, "training-quotation.pdf", "181 KB"], ["Proof of Payment", true, "proof-of-payment.png", "864 KB"], ["Receipt for Each Line Item", true], ["Cash Advance Form", false, "cash-advance-reference.pdf", "226 KB"]]],
@@ -261,7 +268,10 @@ function routeStateFromHash() {
   }
   if (parts[0] === "tracker") return { tab: "tracker", trackerRequestId: requests.some((r) => r.id === parts[1]) ? parts[1] : null, dashboardMetric: null, dashboardRequestId: null };
   if (parts[0] === "documents") return { tab: parts[1] === "rules" ? "documents" : "uploads", trackerRequestId: null, dashboardMetric: null };
-  if (parts[0] === "emails") return { tab: "emails", emailStep: steps.some(([id]) => String(id) === parts[1]) ? Number(parts[1]) : state.emailStep, trackerRequestId: null, dashboardMetric: null };
+  if (parts[0] === "emails") {
+    const emailId = [...steps, ...emailNotificationEvents].find(([id]) => String(id) === parts[1])?.[0];
+    return { tab: "emails", emailStep: emailId ?? state.emailStep, trackerRequestId: null, dashboardMetric: null };
+  }
   if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardRequestId: parts[1] === "request" && requests.some((r) => r.id === parts[2]) ? parts[2] : null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null };
   return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
 }
@@ -1066,32 +1076,50 @@ function documents() {
   return `<section class="doc-grid">${Object.entries(paymentTypes).map(([, type]) => `<article class="panel"><h3>${type.label}</h3><h4>Mandatory fields</h4><ul class="check-list">${type.required.map((item) => `<li><span class="ok">✓</span>${item}</li>`).join("")}</ul><h4>Upload documents</h4><div class="chip-row">${type.uploadDocuments.map((item) => `<span>${item}</span>`).join("")}</div></article>`).join("")}<article class="panel todo-panel"><h3>Future modules</h3><div class="chip-row"><span>Petty Cash</span><span>Credit Card Payments</span><span>Cash Advance Guidelines</span><span>Procurement alignment</span></div></article></section>`;
 }
 
+function emailRequestDestination(step, request) {
+  if (step === "returned" || step === "declined") return { persona: "requestor", route: `/dashboard/request/${request.id}` };
+  if (step === 4) return { persona: "financeAssociate", route: `/approvals/review/${request.id}` };
+  if (step === 5) return { persona: "financeManager", route: `/approvals/review/${request.id}` };
+  if (step === 7) return { persona: "coo", route: `/approvals/review/${request.id}` };
+  if (step === 8) return { persona: "president", route: `/approvals/review/${request.id}` };
+  if (step === 3 || step === 8.5) return { persona: "all", route: `/approvals/review/${request.id}` };
+  if (step >= 9 && step <= 14) return { persona: "financeAssociate", route: `/tracker/${request.id}` };
+  if (step === 15) return { persona: "requestor", route: `/tracker/${request.id}` };
+  return { persona: "all", route: `/dashboard/request/${request.id}` };
+}
+
 function emails() {
-  const step = steps.find(([id]) => id === state.emailStep);
-  const request = requests.find((item) => item.currentStep === state.emailStep) || requests[0];
-  const [recipient, subject, trigger, intro, message, action] = emailTemplates[state.emailStep];
+  const emailEntries = [...steps, ...emailNotificationEvents];
+  const step = emailEntries.find(([id]) => id === state.emailStep);
+  const decisionEmail = state.emailStep === "returned" || state.emailStep === "declined";
+  const request = decisionEmail ? requests.find((item) => item.id === "RMB-2026-0148") : requests.find((item) => item.currentStep === state.emailStep) || requests[0];
+  const [recipient, subject, trigger, intro, message] = emailTemplates[state.emailStep];
+  const destination = emailRequestDestination(state.emailStep, request);
   const completionEmail = state.emailStep === 15;
   const vendorEmail = state.emailStep === 12;
   const releaseEmail = state.emailStep === 13;
-  const backendEmail = vendorEmail || releaseEmail || completionEmail;
-  const recipientDisplay = vendorEmail ? `${request.vendor} <vendor@example.com>` : releaseEmail || completionEmail ? `${request.requestor} <requestor@example.com>; ${request.vendor} <vendor@example.com>` : recipient;
-  const greeting = vendorEmail ? request.vendor : releaseEmail || completionEmail ? `${request.requestor} and ${request.vendor}` : recipient;
-  const templateKey = vendorEmail ? "vendor_payment_processing_v1" : releaseEmail ? "payment_pickup_available_v1" : "payment_completion_v1";
-  const eventName = vendorEmail ? "payment.vendor_notification.ready" : releaseEmail ? "payment.pickup.available" : "payment.transaction.completed";
-  const recipientFields = vendorEmail ? "request.vendor.email" : "request.requestor.email, request.vendor.email";
+  const backendEmail = vendorEmail || releaseEmail || completionEmail || decisionEmail;
+  const recipientDisplay = vendorEmail ? `${request.vendor} <vendor@example.com>` : releaseEmail || completionEmail ? `${request.requestor} <requestor@example.com>; ${request.vendor} <vendor@example.com>` : decisionEmail ? `${request.requestor} <requestor@example.com>` : recipient;
+  const greeting = vendorEmail ? request.vendor : releaseEmail || completionEmail ? `${request.requestor} and ${request.vendor}` : decisionEmail ? request.requestor : recipient;
+  const templateKey = vendorEmail ? "vendor_payment_processing_v1" : releaseEmail ? "payment_pickup_available_v1" : completionEmail ? "payment_completion_v1" : state.emailStep === "returned" ? "payment_request_returned_v1" : "payment_request_declined_v1";
+  const eventName = vendorEmail ? "payment.vendor_notification.ready" : releaseEmail ? "payment.pickup.available" : completionEmail ? "payment.transaction.completed" : state.emailStep === "returned" ? "payment.request.returned" : "payment.request.declined";
+  const recipientFields = vendorEmail ? "request.vendor.email" : releaseEmail || completionEmail ? "request.requestor.email, request.vendor.email" : "request.requestor.email";
+  const decisionReason = state.emailStep === "returned" ? "Please replace the unreadable official receipt and confirm the expense account for the transportation line." : "The submitted expense is outside the approved reimbursement policy and cannot proceed for payment.";
+  const notificationLabel = state.emailStep === "returned" ? "Returned" : state.emailStep === "declined" ? "Declined" : `Step ${stepLabel(step[0])}`;
   return `<section class="email-layout">
-    <section class="panel email-stage-list"><div class="panel-header"><h3>Workflow stages</h3><span class="count">${steps.length}</span></div><div class="email-stage-buttons">
-      ${steps.map(([id, name]) => `<button data-email-step="${id}" class="${state.emailStep === id ? "active" : ""}"><span>${stepLabel(id)}</span><div><strong>${name}</strong><small>To: ${emailTemplates[id][0]}</small></div></button>`).join("")}
+    <section class="panel email-stage-list"><div class="panel-header"><h3>Email Notifications</h3><span class="count">${emailEntries.length}</span></div><div class="email-stage-buttons">
+      ${emailEntries.map(([id, name]) => `<button data-email-step="${id}" class="${state.emailStep === id ? "active" : ""}"><span>${id === "returned" ? "R" : id === "declined" ? "D" : stepLabel(id)}</span><div><strong>${name}</strong><small>To: ${emailTemplates[id][0]}</small></div></button>`).join("")}
     </div></section>
     <section class="email-preview-wrap"><div class="email-meta-panel">
       <div><span>To</span><strong>${recipientDisplay}</strong></div><div><span>Cc</span><strong>Finance Operations</strong></div>
       <div><span>Subject</span><strong>${subject.replace("{{request_id}}", request.id)}${subject.includes("{{request_id}}") ? "" : ` | ${request.id}`}</strong></div><div><span>Sent when</span><strong>${trigger}</strong></div>
     </div><article class="email-preview"><div class="email-brand"><span>AP</span><strong>Automated Payment System</strong></div><div class="email-body">
-      <span class="email-step-label">Step ${stepLabel(step[0])}: ${step[1]}</span><h3>${intro}</h3><p>Hello ${greeting},</p><p>${message.replace("{{payee_name}}", request.vendor)}</p>
+      <span class="email-step-label">${notificationLabel}: ${step[1]}</span><h3>${intro}</h3><p>Hello ${greeting},</p><p>${message.replace("{{payee_name}}", request.vendor)}</p>
+      ${decisionEmail ? `<div class="email-decision-reason"><span>Reviewer Comment</span><strong>${decisionReason}</strong><small>Decision recorded by the current approver · ${new Date().toLocaleDateString("en-PH", { dateStyle: "medium" })}</small></div>` : ""}
       <div class="email-request-summary"><div><span>Request</span><strong>${request.id}</strong></div><div><span>Requestor</span><strong>${request.requestor}</strong></div><div><span>Payee</span><strong>${request.vendor}</strong></div><div><span>Department</span><strong>${request.department}</strong></div><div><span>Type</span><strong>${paymentTypes[request.type].label}</strong></div><div><span>Amount</span><strong>${money(request.amount)}</strong></div></div>
-      <button class="email-action">${action}</button>${backendEmail ? `<p class="email-deadline">No reply is required. Keep this email for your records.</p>` : `<p class="email-deadline">Please complete this action within two business days.</p>`}<p class="email-fallback">If the button does not work, open: https://payments.example.local/requests/${request.id}</p>
+      <button type="button" class="email-action" data-email-view-request="${request.id}" data-email-target-persona="${destination.persona}" data-email-target-route="${destination.route}">View Request</button>${backendEmail ? `<p class="email-deadline">No reply is required. Keep this email for your records.</p>` : `<p class="email-deadline">Please complete this action within two business days.</p>`}<p class="email-fallback">If the button does not work, open: https://payments.example.local/#${destination.route}</p>
     </div><footer>This is an automated workflow notification. Replies are not monitored.</footer></article></section>
-    ${backendEmail ? `<section class="panel email-backend-contract"><div class="panel-header"><div><span class="eyebrow">Backend Email Contract</span><h3>${vendorEmail ? "Vendor Processing Notification" : releaseEmail ? "Payment Pick-up Notification" : "Transaction Completion Notification"}</h3></div><span class="count">Ready</span></div><dl><div><dt>Event</dt><dd>${eventName}</dd></div><div><dt>Template Key</dt><dd>${templateKey}</dd></div><div><dt>Recipients</dt><dd>${recipientFields}</dd></div><div><dt>Idempotency Key</dt><dd>${templateKey}:${request.id}</dd></div></dl><p>Required variables: request_id, requestor_name, requestor_email, vendor_name, vendor_email, update_date, update_time, updated_by, currency, amount, payment_method, payment_reference, and record_url.</p></section>` : ""}
+    ${backendEmail ? `<section class="panel email-backend-contract"><div class="panel-header"><div><span class="eyebrow">Backend Email Contract</span><h3>${vendorEmail ? "Vendor Processing Notification" : releaseEmail ? "Payment Pick-up Notification" : completionEmail ? "Transaction Completion Notification" : state.emailStep === "returned" ? "Request Returned Notification" : "Request Declined Notification"}</h3></div><span class="count">Ready</span></div><dl><div><dt>Event</dt><dd>${eventName}</dd></div><div><dt>Template Key</dt><dd>${templateKey}</dd></div><div><dt>Recipients</dt><dd>${recipientFields}</dd></div><div><dt>Idempotency Key</dt><dd>${templateKey}:${request.id}</dd></div></dl><p>Required variables: request_id, requestor_name, requestor_email, vendor_name, vendor_email, decision, decision_reason, decided_by, decision_at, currency, amount, and record_url.</p></section>` : ""}
   </section>`;
 }
 
@@ -1364,6 +1392,20 @@ function render() {
   document.querySelectorAll("[data-submit-draft]").forEach((button) => button.addEventListener("click", () => submitSavedDraft(button.dataset.submitDraft)));
   document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", () => setState({ drafts: state.drafts.filter((draft) => draft.id !== button.dataset.deleteDraft), activeDraftId: state.activeDraftId === button.dataset.deleteDraft ? null : state.activeDraftId })));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
+  document.querySelector("[data-email-view-request]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    const persona = button.dataset.emailTargetPersona;
+    const visible = personaRequests(persona);
+    state = {
+      ...state,
+      persona,
+      selectedId: button.dataset.emailViewRequest,
+      dashboardMetric: null,
+      dashboardWorkflow: false,
+    };
+    if (!visible.some((request) => request.id === state.selectedId) && persona !== "all") state.persona = "all";
+    navigate(button.dataset.emailTargetRoute);
+  });
   document.querySelectorAll("[data-dashboard-filter]").forEach((input) => input.addEventListener(input.tagName === "INPUT" && input.type !== "number" ? "input" : "change", () => {
     state.dashboardFilters = { ...state.dashboardFilters, [input.dataset.dashboardFilter]: input.value };
     render();

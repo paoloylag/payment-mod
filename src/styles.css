@@ -3513,6 +3513,22 @@ label {
   font-weight: 800;
 }
 
+.email-decision-reason {
+  display: grid;
+  gap: 5px;
+  margin: 18px 0;
+  border-left: 4px solid var(--primary);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: #fff5f5;
+}
+
+.email-decision-reason span { color: var(--primary); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.email-decision-reason strong { font-size: 13px; line-height: 1.5; }
+.email-decision-reason small { color: var(--muted); font-size: 10px; }
+:root[data-theme="dark"] .email-decision-reason { color: var(--ink); background: #342427; }
+
 .email-body .email-deadline { margin-top: 20px; color: #333; font-weight: 700; }
 .email-body .email-fallback { padding-top: 12px; border-top: 1px solid #ededed; color: #707070; font-size: 11px; overflow-wrap: anywhere; }
 .email-preview footer { padding: 14px 24px; color: #6a6a6a; background: var(--accent); font-size: 11px; text-align: center; }

@@ -79,6 +79,8 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
 - Adaptive full-page printable payment vouchers with payment details, amount summaries, and compact digital approval certification.
 - Workflow email samples, including a backend-ready completion notification for both the requestor and vendor.
+- Standardized View Request email calls to action that open the specific request in the recipient role's approval, validation, or tracking view.
+- Separate backend-ready Request Returned and Request Declined email notifications with reviewer comments and requestor-specific links.
 - Clickable bank-approval and signatory-approval statuses with recorded actors and timestamps.
 - Backend-ready vendor processing and payment pick-up emails, including Finance personnel audit details.
 - Payment Available for Pick-up actions with automatic requestor/vendor notification records.
