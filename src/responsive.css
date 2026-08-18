@@ -147,6 +147,12 @@
   margin-left: auto;
 }
 
+/* The tracker has a single header block, so it must not inherit the accessory auto-margin. */
+.tracker-panel-header > div:first-child:last-child {
+  margin-left: 0;
+  margin-right: auto;
+}
+
 .persona-banner > p:last-child {
   min-width: 0;
   width: auto;
