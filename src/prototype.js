@@ -195,7 +195,6 @@ let state = {
   dashboardRequestId: null,
   dashboardMetric: null,
   dashboardWorkflow: false,
-  dashboardLayout: localStorage.getItem("payment-dashboard-layout") || "cards",
   unlockRequestId: null,
   trackerRequestId: null,
   dashboardFilters: { voucher: "", department: "all", type: "all", status: "all", sortBy: "submitted", sortDirection: "desc" },
@@ -616,16 +615,46 @@ function requestTable(rows = requests, combineStepStatus = false) {
   </tbody></table></div></section>`;
 }
 
-function liveRequestCards(rows) {
-  const cards = `<div class="live-request-grid">${rows.length ? rows.map((r) => `<article class="live-request-card ${state.selectedId === r.id ? "selected" : ""}" data-request="${r.id}" tabindex="0" role="button" aria-label="Open ${r.id}">
-      <header><div><span>${paymentTypes[r.type].label}</span><strong>${r.id}</strong></div>${statusPill(r.status)}</header>
-      <div class="live-request-amount"><span>Transaction Amount</span><strong>${requestMoney(r)}</strong></div>
-      <dl><div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div><div><dt>Payee</dt><dd>${r.vendor}</dd></div><div><dt>Submitted</dt><dd>${r.submitted}</dd></div><div><dt>Aging</dt><dd><span class="aging-badge ${agingDays(r) > 30 ? "overdue" : ""}">${agingDays(r)} days</span></dd></div><div><dt>Documents</dt><dd>${r.documents} attached · ${r.missing} missing</dd></div></dl>
-      <div class="live-request-route"><span>Routing Threshold</span><strong>${route(r)}</strong></div>
-      <footer><span>${r.budgeted ? "Budgeted" : "Unbudgeted"}</span><strong>View complete record →</strong></footer>
-    </article>`).join("") : `<div class="empty-state live-request-empty">No requests match the selected filters.</div>`}</div>`;
-  const list = `<div class="table-wrap live-request-list"><table><thead><tr><th>Status</th><th>Submitted</th><th>Aging</th><th>Voucher</th><th>Type</th><th>Requestor</th><th>Department</th><th>Payee</th><th>Amount</th></tr></thead><tbody>${rows.length ? rows.map((r) => `<tr data-request="${r.id}" tabindex="0"><td>${statusPill(r.status)}</td><td>${r.submitted}</td><td><span class="aging-badge ${agingDays(r) > 30 ? "overdue" : ""}">${agingDays(r)}d</span></td><td><strong>${r.id}</strong></td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${r.vendor}</td><td>${requestMoney(r)}</td></tr>`).join("") : `<tr><td colspan="9" class="empty-state">No requests match the selected filters.</td></tr>`}</tbody></table></div>`;
-  return `<section class="panel live-request-panel"><div class="panel-header"><div><span class="eyebrow">Transaction Overview</span><h3>Live Requests</h3><p>${state.dashboardLayout === "cards" ? "Review key transaction details directly or select a card for the complete record." : "Scan requests in a compact list or select a row for the complete record."}</p></div><div class="live-request-header-actions"><span class="count">${rows.length}</span><div class="view-toggle" role="group" aria-label="Live Requests layout"><button type="button" data-dashboard-layout="cards" class="${state.dashboardLayout === "cards" ? "active" : ""}" aria-pressed="${state.dashboardLayout === "cards"}">▦ Cards</button><button type="button" data-dashboard-layout="list" class="${state.dashboardLayout === "list" ? "active" : ""}" aria-pressed="${state.dashboardLayout === "list"}">☷ List</button></div></div></div>${state.dashboardLayout === "list" ? list : cards}</section>`;
+function liveRequestList(rows) {
+  const list = `<div class="table-wrap live-request-list"><table><thead><tr><th>Status</th><th>Submitted</th><th>Aging</th><th>Voucher</th><th>Type</th><th>Requestor</th><th>Department</th><th>Payee</th><th>Amount</th></tr></thead><tbody>${rows.length ? rows.map((r) => `<tr data-request="${r.id}" class="${state.selectedId === r.id ? "selected" : ""}" tabindex="0"><td>${statusPill(r.status)}</td><td>${r.submitted}</td><td><span class="aging-badge ${agingDays(r) > 30 ? "overdue" : ""}">${agingDays(r)}d</span></td><td><strong>${r.id}</strong></td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${r.vendor}</td><td>${requestMoney(r)}</td></tr>`).join("") : `<tr><td colspan="9" class="empty-state">No requests match the selected filters.</td></tr>`}</tbody></table></div>`;
+  return `<section class="panel live-request-panel"><div class="panel-header"><div><span class="eyebrow">Transaction Overview</span><h3>Live Requests</h3><p>Select a request from the list to display it in the preview pane.</p></div><span class="count">${rows.length}</span></div>${list}</section>`;
+}
+
+function dashboardPreviewAction(request) {
+  if (state.persona === "requestor") return request.currentStep <= 2
+    ? { label: "Manage Request Documents", route: "/documents/uploads" }
+    : { label: "Track My Payment", route: `/tracker/${request.id}` };
+  if (state.persona === "financeAssociate") {
+    if (request.currentStep === 4) return { label: "Open Document Validation", route: `/approvals/review/${request.id}` };
+    if ([9, 10, 12, 13, 14].includes(request.currentStep)) return { label: "Open Finance Action", route: `/tracker/${request.id}` };
+    return { label: "Review Request", route: `/dashboard/request/${request.id}` };
+  }
+  if (state.persona === "financeManager") return request.currentStep === 5
+    ? { label: "Review and Approve", route: `/approvals/review/${request.id}` }
+    : { label: "Review Request", route: `/dashboard/request/${request.id}` };
+  if (state.persona === "coo") return request.currentStep === 7
+    ? { label: "Complete COO Approval", route: `/approvals/review/${request.id}` }
+    : { label: "Review Request", route: `/dashboard/request/${request.id}` };
+  if (state.persona === "president") return request.currentStep === 8
+    ? { label: "Complete President Approval", route: `/approvals/review/${request.id}` }
+    : { label: "Review Request", route: `/dashboard/request/${request.id}` };
+  const stageRoutes = [3, 4, 5, 7, 8, 8.5].includes(request.currentStep)
+    ? `/approvals/review/${request.id}`
+    : [10, 11, 12, 13, 14].includes(request.currentStep) ? `/tracker/${request.id}` : `/dashboard/request/${request.id}`;
+  return { label: "Open Current Action", route: stageRoutes };
+}
+
+function dashboardRequestPreview(request) {
+  if (!request) return `<aside class="panel dashboard-preview-pane empty-dashboard-preview"><span class="eyebrow">Request Preview</span><h3>No Request Selected</h3><p>Adjust the filters or select a request to preview its details.</p></aside>`;
+  const owner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
+  const roleAction = dashboardPreviewAction(request);
+  return `<aside class="panel dashboard-preview-pane" aria-live="polite">
+    <div class="panel-header"><div><span class="eyebrow">Request Preview</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department}</p></div>${statusPill(request.status)}</div>
+    <div class="preview-amount"><span>Transaction Amount</span><strong>${requestMoney(request)}</strong></div>
+    <dl class="preview-detail-list"><div><dt>Requestor</dt><dd>${request.requestor}</dd></div><div><dt>Payee</dt><dd>${request.vendor}</dd></div><div><dt>Submitted</dt><dd>${request.submitted}</dd></div><div><dt>Aging</dt><dd>${agingDays(request)} day${agingDays(request) === 1 ? "" : "s"}</dd></div><div><dt>Current Owner</dt><dd>${owner}</dd></div><div><dt>Documents</dt><dd>${request.documents} attached · ${request.missing} missing</dd></div></dl>
+    <div class="preview-route"><span>Routing Threshold</span><strong>${route(request)}</strong></div>
+    <div class="dashboard-preview-actions"><button type="button" class="confirmation-button preview-role-action" data-preview-action-route="${roleAction.route}">${roleAction.label}</button><button type="button" data-open-dashboard-full="${request.id}">Open Full Page</button><button type="button" data-view-workflow="${request.id}">View Workflow</button></div>
+  </aside>`;
 }
 
 function workflowSummary(r) {
@@ -713,7 +742,7 @@ function dashboardFilters(visibleRequests = requests) {
     <label>Status<select data-dashboard-filter="status"><option value="all">All Statuses</option>${statusOptions.map((status) => `<option value="${status}" ${filters.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
     <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
     <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
-  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="csv">Export Excel (CSV)</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</section>`;
+  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="excel">Export to Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</section>`;
 }
 
 function reportRows() {
@@ -727,17 +756,89 @@ function reportRows() {
   });
 }
 
+const excelXmlEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[character]));
+const excelColumnName = (index) => index < 26 ? String.fromCharCode(65 + index) : `${String.fromCharCode(64 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`;
+const excelDateNumber = (value) => (Date.UTC(...value.split("-").map((part, index) => Number(part) - (index === 1 ? 1 : 0))) - Date.UTC(1899, 11, 30)) / 86400000;
+
+function excelSheetXml(rows, options = {}) {
+  const columnCount = Math.max(...rows.map((row) => row.length), 1);
+  const widths = Array.from({ length: columnCount }, (_, columnIndex) => Math.min(48, Math.max(options.minimumWidths?.[columnIndex] || 12, ...rows.map((row) => String(row[columnIndex]?.value ?? "").length + 2))));
+  const rowXml = rows.map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((cell, columnIndex) => {
+    const reference = `${excelColumnName(columnIndex)}${rowIndex + 1}`;
+    const style = cell.style ? ` s="${cell.style}"` : "";
+    return cell.type === "number" ? `<c r="${reference}"${style}><v>${cell.value}</v></c>` : `<c r="${reference}" t="inlineStr"${style}><is><t xml:space="preserve">${excelXmlEscape(cell.value)}</t></is></c>`;
+  }).join("")}</row>`).join("");
+  const lastColumn = excelColumnName(columnCount - 1);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${lastColumn}${rows.length}"/><sheetViews><sheetView workbookViewId="0">${options.freezeRow ? `<pane ySplit="${options.freezeRow}" topLeftCell="A${options.freezeRow + 1}" activePane="bottomLeft" state="frozen"/>` : ""}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1" hidden="0"/>`).join("")}</cols><sheetData>${rowXml}</sheetData>${options.autoFilter ? `<autoFilter ref="A1:${lastColumn}${rows.length}"/>` : ""}${options.merge ? `<mergeCells count="1"><mergeCell ref="${options.merge}"/></mergeCells>` : ""}</worksheet>`;
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function zipExcelFiles(files) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const directory = [];
+  let offset = 0;
+  const u16 = (value) => new Uint8Array([value & 255, (value >>> 8) & 255]);
+  const u32 = (value) => new Uint8Array([value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255]);
+  const join = (chunks) => { const result = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0)); let position = 0; chunks.forEach((chunk) => { result.set(chunk, position); position += chunk.length; }); return result; };
+  Object.entries(files).forEach(([name, content]) => {
+    const nameBytes = encoder.encode(name);
+    const data = encoder.encode(content);
+    const checksum = crc32(data);
+    const local = join([u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0), u32(checksum), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0), nameBytes, data]);
+    parts.push(local);
+    directory.push(join([u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0), u32(checksum), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset), nameBytes]));
+    offset += local.length;
+  });
+  const directoryBytes = join(directory);
+  return join([...parts, directoryBytes, u32(0x06054b50), u16(0), u16(0), u16(directory.length), u16(directory.length), u32(directoryBytes.length), u32(offset), u16(0)]);
+}
+
+function buildDepartmentWorkbook(rows = reportRows()) {
+  const report = paymentReportData(rows);
+  const summaryRows = [
+    [{ value: report.title, style: 1 }, { value: "" }],
+    [{ value: "Automated Payment System", style: 3 }, { value: "" }],
+    [{ value: "Report Number", style: 3 }, { value: report.reportNumber }],
+    [{ value: "Generated", style: 3 }, { value: report.generatedAt }],
+    [{ value: "Generated By", style: 3 }, { value: report.generatedBy }],
+    [{ value: "Department", style: 3 }, { value: report.department }],
+    [{ value: "Applied Filters", style: 3 }, { value: report.filters.length ? report.filters.join(" | ") : "All request types and statuses" }],
+    [{ value: "Transaction Count", style: 3 }, { value: rows.length, type: "number", style: 5 }],
+    [{ value: "" }, { value: "" }],
+    [{ value: "Currency", style: 2 }, { value: "Total Amount", style: 2 }],
+    ...(report.totals.length ? report.totals.map((total) => [{ value: total.currency }, { value: total.amount, type: "number", style: 4 }]) : [[{ value: "No transactions" }, { value: 0, type: "number", style: 4 }]]),
+  ];
+  const headers = ["Request Number", "Submitted Date", "Department", "Requestor", "Payee / Vendor", "Payment Type", "Currency", "Amount", "Current Status", "Current Owner", "Aging Days"];
+  const details = [headers.map((value) => ({ value, style: 2 })), ...rows.map((request) => [
+    { value: request.id }, { value: excelDateNumber(request.submitted), type: "number", style: 6 }, { value: request.department }, { value: request.requestor }, { value: request.vendor }, { value: paymentTypes[request.type].label }, { value: request.currency || "PHP" }, { value: request.amount, type: "number", style: 4 }, { value: request.status }, { value: steps.find(([id]) => id === request.currentStep)?.[2] || "System" }, { value: agingDays(request), type: "number", style: 5 },
+  ])];
+  const files = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Transaction Details" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Aptos"/></font><font><b/><sz val="16"/><color rgb="FFFFFFFF"/><name val="Aptos Display"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF9E1D20"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border/><border><left style="thin"><color rgb="FFD9E0E5"/></left><right style="thin"><color rgb="FFD9E0E5"/></right><top style="thin"><color rgb="FFD9E0E5"/></top><bottom style="thin"><color rgb="FFD9E0E5"/></bottom></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="7"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    "xl/worksheets/sheet1.xml": excelSheetXml(summaryRows, { merge: "A1:B1", minimumWidths: [24, 48] }),
+    "xl/worksheets/sheet2.xml": excelSheetXml(details, { freezeRow: 1, autoFilter: true, minimumWidths: [20, 16, 18, 20, 28, 20, 12, 16, 24, 22, 12] }),
+  };
+  const workbook = zipExcelFiles(files);
+  return { workbook, files, report };
+}
+
 function downloadDepartmentReport() {
-  const report = paymentReportData(reportRows());
-  const columns = ["Request Number", "Submitted Date", "Department", "Requestor", "Payee / Vendor", "Payment Type", "Currency", "Amount", "Current Status", "Current Owner", "Aging Days"];
-  const transactionRows = reportRows().map((r) => [r.id, r.submitted, r.department, r.requestor, r.vendor, paymentTypes[r.type].label, r.currency || "PHP", r.amount.toFixed(2), r.status, steps.find(([id]) => id === r.currentStep)?.[2] || "System", agingDays(r)]);
-  const metadata = [[report.title], ["Report Number", report.reportNumber], ["Generated", report.generatedAt], ["Generated By", report.generatedBy], ["Department", report.department], ["Applied Filters", report.filters.length ? report.filters.join(" | ") : "All request types and statuses"], ["Transaction Count", transactionRows.length], []];
-  const totals = [[], ["TOTALS BY CURRENCY"], ...report.totals.map((total) => [total.currency, total.amount.toFixed(2)])];
-  const csvRows = [...metadata, columns, ...transactionRows, ...totals];
-  const csv = `\ufeff${csvRows.map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n")}`;
+  const { workbook } = buildDepartmentWorkbook();
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  link.download = `payment-requests-${state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-")}.csv`;
+  link.href = URL.createObjectURL(new Blob([workbook], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  link.download = `payment-requests-${state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-")}.xlsx`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
@@ -752,7 +853,7 @@ function paymentReportData(rows) {
     return result;
   }, {})).map(([currency, amount]) => ({ currency, amount, formatted: money(amount, currency) }));
   return {
-    reportNumber: `PTR-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${String(rows.length).padStart(3, "0")}`,
+    reportNumber: `PTR-${systemDate().replaceAll("-", "")}-${String(rows.length).padStart(3, "0")}`,
     title: "Payment Request Transaction Report",
     generatedAt: new Date().toLocaleString("en-PH", { dateStyle: "long", timeStyle: "short" }),
     generatedBy: personas[state.persona].name,
@@ -846,10 +947,11 @@ function dashboard() {
     return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
   }
   const workflowModal = state.dashboardWorkflow ? `<div class="workflow-modal-backdrop" data-workflow-modal="true"><section class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-modal-title"><div class="workflow-modal-header"><div><span class="eyebrow">Request Workflow</span><h3 id="workflow-modal-title">${selected.id}</h3><p>Complete approval and processing trail for this payment request.</p></div><button type="button" class="workflow-modal-close" data-close-workflow="true" aria-label="Close full workflow">×</button></div><div class="workflow-modal-body">${workflow(selected.currentStep)}</div></section></div>` : "";
+  const previewRequest = filteredRequests.find((request) => request.id === state.selectedId) || filteredRequests[0];
   const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   return `<section class="content-grid"><div class="persona-banner"><div><span class="eyebrow">Persona View</span><strong>${personas[state.persona].label}</strong></div><p>${state.persona === "all" ? "The original all-access prototype is retained in this view." : `Navigation, request visibility, and actions are scoped for ${personas[state.persona].label}.`}</p></div>
     <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${totalDisplay}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
-    ${dashboardFilters(visibleRequests)}${liveRequestCards(filteredRequests)}${workflowModal}
+    ${dashboardFilters(visibleRequests)}<div class="dashboard-request-workspace">${liveRequestList(filteredRequests)}${dashboardRequestPreview(previewRequest)}</div>${workflowModal}
   </section>`;
 }
 
@@ -1038,17 +1140,29 @@ function downloadValidationDocument(request, index) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function approvalQueuePreview(request) {
+  const labels = { financeAssociate: "Open Document Validation", financeManager: "Review Budget and Approve", coo: "Review COO Approval", president: "Review President Approval", all: "Open Approval Workspace" };
+  const owner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
+  return `<aside class="panel dashboard-preview-pane approval-preview-pane" aria-live="polite">
+    <div class="panel-header"><div><span class="eyebrow">Request Preview</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department}</p></div>${statusPill(request.status)}</div>
+    <div class="preview-amount"><span>Transaction Amount</span><strong>${requestMoney(request)}</strong></div>
+    <dl class="preview-detail-list"><div><dt>Requestor</dt><dd>${request.requestor}</dd></div><div><dt>Payee</dt><dd>${request.vendor}</dd></div><div><dt>Submitted</dt><dd>${request.submitted}</dd></div><div><dt>Aging</dt><dd>${agingDays(request)} day${agingDays(request) === 1 ? "" : "s"}</dd></div><div><dt>Current Owner</dt><dd>${owner}</dd></div><div><dt>Documents</dt><dd>${request.documents} attached · ${request.missing} missing</dd></div></dl>
+    <div class="preview-route"><span>Routing Threshold</span><strong>${route(request)}</strong></div>
+    <div class="approval-preview-actions"><button type="button" class="confirmation-button" data-open-approval-workspace="${request.id}">${labels[state.persona] || "Open Approval Workspace"}</button><button type="button" data-open-approval-full="${request.id}">Open Full Request Details</button></div>
+  </aside>`;
+}
+
 function approvals() {
   const queue = approvalRequests();
   if (!queue.length) return `<section class="panel empty-persona-view"><span class="eyebrow">Requestor View</span><h3>No Approval Queue</h3><p>Requestors can monitor progress and respond to returned requests from their dashboard.</p></section>`;
   const selected = queue.find((r) => r.id === state.selectedId) || queue[0];
-  if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">Approval Workspace</span><h3>Live Requests</h3><p>Select a request to review its submitted details.</p></div><span class="count">${queue.length} requests</span></div>${requestTable(queue)}</section>`;
+  if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">Approval Workspace</span><h3>Live Requests</h3><p>Select a request from the list to display it in the preview pane.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
   if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
   const actionTitle = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Document Validation" : "Approval Action";
   const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
   const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
   const showReadOnlyValidation = ["financeManager", "coo", "president"].includes(state.persona);
-  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button">${primaryAction}</button><button class="danger">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
+  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button><button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
 }
 
 function paymentOperationsPanel(request) {
@@ -1319,23 +1433,20 @@ function render() {
     const now = new Date();
     setState({ documentValidation: { ...state.documentValidation, completionDate: systemDate(now), completionTimestamp: now.toISOString() } });
   });
-  document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => navigate(state.tab === "approvals" ? `/approvals/request/${row.dataset.request}` : `/dashboard/request/${row.dataset.request}`)));
-  document.querySelectorAll(".live-request-card[data-request]").forEach((card) => card.addEventListener("keydown", (event) => {
-    if (["Enter", " "].includes(event.key)) { event.preventDefault(); card.click(); }
-  }));
+  document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => setState({ selectedId: row.dataset.request })));
   document.querySelectorAll(".live-request-list [data-request]").forEach((row) => row.addEventListener("keydown", (event) => {
     if (["Enter", " "].includes(event.key)) { event.preventDefault(); row.click(); }
   }));
-  document.querySelectorAll("[data-dashboard-layout]").forEach((button) => button.addEventListener("click", () => {
-    localStorage.setItem("payment-dashboard-layout", button.dataset.dashboardLayout);
-    setState({ dashboardLayout: button.dataset.dashboardLayout });
-  }));
   document.querySelector("[data-back-approval-list]")?.addEventListener("click", () => navigate("/approvals"));
+  document.querySelector("[data-open-approval-workspace]")?.addEventListener("click", (event) => navigate(`/approvals/review/${event.currentTarget.dataset.openApprovalWorkspace}`));
+  document.querySelector("[data-open-approval-full]")?.addEventListener("click", (event) => navigate(`/approvals/request/${event.currentTarget.dataset.openApprovalFull}`));
   document.querySelector("[data-start-approval]")?.addEventListener("click", (event) => navigate(`/approvals/review/${event.currentTarget.dataset.startApproval}`));
   document.querySelector("[data-back-approval-detail]")?.addEventListener("click", (event) => navigate(`/approvals/request/${event.currentTarget.dataset.backApprovalDetail}`));
   document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/${button.dataset.metric}`)));
   document.querySelector("[data-close-metric]")?.addEventListener("click", () => navigate("/dashboard"));
   document.querySelector("[data-close-dashboard-detail]")?.addEventListener("click", () => navigate("/dashboard"));
+  document.querySelector("[data-open-dashboard-full]")?.addEventListener("click", (event) => navigate(`/dashboard/request/${event.currentTarget.dataset.openDashboardFull}`));
+  document.querySelector("[data-preview-action-route]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.previewActionRoute));
   document.querySelectorAll("[data-all-role-action]").forEach((button) => button.addEventListener("click", () => {
     const request = requests.find((item) => item.id === button.dataset.actionRequest);
     if (!request) return;

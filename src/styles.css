@@ -206,7 +206,7 @@ button {
 :root[data-theme="dark"] .duplicate-check-summary { color: #ffb5b7; background: #321d20; }
 :root[data-theme="dark"] .independent-validation-notice { background: #1c2d3b; }
 :root[data-theme="dark"] .hard-copy-reminder,
-:root[data-theme="dark"] .automatic-rule { background: #3a2f1f; }
+:root[data-theme="dark"] .automatic-rule { color: #f0c678; background: #3a2f1f; }
 :root[data-theme="dark"] .readonly-review-note,
 :root[data-theme="dark"] .workflow-summary-heading button { background: #252f39; }
 
@@ -297,6 +297,96 @@ button {
 :root[data-theme="dark"] .document-status.complete {
   color: #8ed2b2;
   background: #19362b;
+}
+
+/* Finance document-validation workspace */
+:root[data-theme="dark"] .validation-section {
+  border-color: var(--line);
+  color: var(--ink);
+  background: #202831;
+}
+
+:root[data-theme="dark"] .validation-line-table select,
+:root[data-theme="dark"] .validation-line-table textarea,
+:root[data-theme="dark"] .accounting-entry-table input,
+:root[data-theme="dark"] .accounting-entry-table tfoot th {
+  border-color: var(--line);
+  color: var(--ink);
+  background: #252f39;
+}
+
+:root[data-theme="dark"] .line-review-counts span,
+:root[data-theme="dark"] .validation-outcome,
+:root[data-theme="dark"] .review-result,
+:root[data-theme="dark"] .system-generated-tag,
+:root[data-theme="dark"] .status-pill.pending {
+  color: #c8d1da;
+  background: #2a3540;
+}
+
+:root[data-theme="dark"] .line-review-counts .valid,
+:root[data-theme="dark"] .validation-outcome.complete,
+:root[data-theme="dark"] .review-result.valid,
+:root[data-theme="dark"] .balance-status.balanced {
+  color: #8ed2b2;
+  background: #19362b;
+}
+
+:root[data-theme="dark"] .line-review-counts .correction,
+:root[data-theme="dark"] .review-result.correction,
+:root[data-theme="dark"] .balance-status.unbalanced {
+  color: #ffb8ba;
+  background: #432528;
+}
+
+:root[data-theme="dark"] .validation-outcome.pending,
+:root[data-theme="dark"] .review-result.pending {
+  color: #f0c678;
+  background: #3a301f;
+}
+
+:root[data-theme="dark"] .approve-document-button {
+  border-color: #376d58;
+  color: #8ed2b2;
+  background: #19362b;
+}
+
+/* Shared dark-mode surfaces and semantic badges across every persona. */
+:root[data-theme="dark"] .accountability-box,
+:root[data-theme="dark"] .upload-row,
+:root[data-theme="dark"] .validation-readonly,
+:root[data-theme="dark"] .readonly-summary-grid > div {
+  border-color: var(--line);
+  color: var(--ink);
+  background: #202831;
+}
+
+:root[data-theme="dark"] .status-pill.neutral,
+:root[data-theme="dark"] .aging-badge {
+  color: #c8d1da;
+  background: #2a3540;
+}
+
+:root[data-theme="dark"] .status-pill.approved {
+  color: #8ed2b2;
+  background: #19362b;
+}
+
+:root[data-theme="dark"] .status-pill.rejected,
+:root[data-theme="dark"] .status-pill.returned,
+:root[data-theme="dark"] .aging-badge.overdue {
+  color: #ffb8ba;
+  background: #432528;
+}
+
+:root[data-theme="dark"] .status-pill.executive {
+  color: #f0c678;
+  background: #3a301f;
+}
+
+:root[data-theme="dark"] .status-pill.coo {
+  color: #a8c9e7;
+  background: #23394c;
 }
 
 :root[data-theme="dark"] .brand-mark,
@@ -1920,6 +2010,32 @@ main {
 
 .live-request-panel { display: grid; gap: 4px; }
 .live-request-panel .panel-header p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.dashboard-request-workspace,
+.approval-queue-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.dashboard-preview-pane { display: grid; gap: 14px; min-width: 0; }
+.dashboard-preview-pane .panel-header { margin-bottom: 0; }
+.dashboard-preview-pane .panel-header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.preview-amount { display: grid; gap: 4px; border-left: 5px solid var(--green); border-radius: 7px; padding: 12px 13px; background: var(--accent); }
+.preview-amount span, .preview-route span { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.preview-amount strong { font-size: 20px; }
+.preview-detail-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.preview-detail-list div { min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 9px 10px; background: var(--accent); }
+.preview-detail-list dt { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.preview-detail-list dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 11px; font-weight: 800; }
+.preview-route { display: grid; gap: 5px; border: 1px solid var(--line); border-left: 5px solid var(--primary); border-radius: 7px; padding: 11px 12px; }
+.preview-route strong { color: var(--primary); font-size: 12px; line-height: 1.45; }
+.dashboard-preview-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dashboard-preview-actions .preview-role-action { grid-column: 1 / -1; }
+.dashboard-preview-actions .primary-button { width: auto; margin-top: 0; }
+.approval-preview-actions { display: grid; gap: 8px; }
+.empty-dashboard-preview p { margin: 0; color: var(--muted); }
+
+@media (min-width: 981px) {
+  .dashboard-request-workspace,
+  .approval-queue-workspace { grid-template-columns: minmax(0, 1.65fr) minmax(310px, .75fr); }
+  .dashboard-preview-pane,
+  .approval-preview-pane { position: sticky; top: 16px; }
+}
 .live-request-header-actions { display: flex; align-items: center; gap: 10px; }
 .view-toggle { display: inline-grid; grid-template-columns: repeat(2, auto); gap: 3px; border: 1px solid var(--line); border-radius: 8px; padding: 3px; background: var(--accent); }
 .view-toggle button { border: 0; padding: 7px 10px; color: var(--muted); background: transparent; font-size: 11px; font-weight: 800; }
@@ -2850,6 +2966,34 @@ dd {
 .confirmation-button:hover {
   border-color: #225b46;
   background: #225b46;
+}
+
+.approval-actions .approve-notify-button {
+  border-color: var(--green);
+  color: #fff;
+  background: var(--green);
+}
+
+.approval-actions .request-info-button {
+  border-color: #c58c18;
+  color: #3d2a08;
+  background: #f2c45f;
+}
+
+.approval-actions .request-info-button:hover {
+  border-color: #a66f0d;
+  background: #dfaa38;
+}
+
+:root[data-theme="dark"] .approval-actions .request-info-button {
+  border-color: #d6a454;
+  color: #201607;
+  background: #d6a454;
+}
+
+:root[data-theme="dark"] .approval-actions .request-info-button:hover {
+  border-color: #edbd70;
+  background: #edbd70;
 }
 
 .danger {
