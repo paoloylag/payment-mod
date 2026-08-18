@@ -2858,6 +2858,10 @@ dd {
   font-weight: 700;
 }
 
+.voucher-table tbody tr { cursor: default; }
+.voucher-table tbody tr:hover { background: transparent; }
+:root[data-theme="dark"] .voucher-table tbody tr:hover td { background-color: transparent; }
+
 .amount-table {
   max-width: 380px;
   margin-left: auto;
@@ -3723,6 +3727,8 @@ label {
 .tracker-panel-header > div:first-child:last-child { margin-left: 0; margin-right: auto; }
 .tracker-panel-header h3,
 .tracker-panel-header p { text-align: left; }
+.tracker-freeze-note { margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.4; text-align: left; }
+.tracker-freeze-note strong { color: inherit; font-size: inherit; }
 .payment-tracker-table { min-width: 980px; margin: 0; border-collapse: separate; border-spacing: 0; }
 .payment-tracker-table th { position: sticky; top: 0; z-index: 3; background: var(--accent); box-shadow: inset 0 -1px var(--line); text-align: left; }
 .payment-tracker-table th:first-child, .payment-tracker-table td:first-child { position: sticky; left: 0; min-width: 155px; }
@@ -3933,6 +3939,10 @@ label {
 
   .print-button {
     display: none;
+  }
+
+  .voucher-payment-details {
+    display: none !important;
   }
 
   .voucher-heading {
