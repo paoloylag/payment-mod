@@ -44,7 +44,7 @@ Pending delivery:
 
 - Commit and push the staged frontend reconciliation.
 - Commit and push Phase 00 on `codex/backend-integration`.
-- Verify the stable Pages site at `/payment-mod/` and backend preview at `/payment-mod/backend-preview/`.
+- Preserve and verify the stable Pages site at `/payment-mod/`. The backend-branch Pages preview is deferred.
 
 ## Current baseline
 
