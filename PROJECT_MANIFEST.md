@@ -1,7 +1,7 @@
 # Automated Payment System Project Manifest
 
-Status: Approved future implementation scope  
-Manifest version: 1.0  
+Status: Reconciled frontend prototype and approved backend implementation scope
+Manifest version: 1.1
 Last updated: 2026-08-19  
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
@@ -9,14 +9,49 @@ Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
 This manifest records the intended implementation scope for the Automated Payment System. The current repository contains a comprehensive front-end prototype and a minimal FastAPI/PostgreSQL scaffold. The backend capabilities below are approved roadmap items and must be treated as requirements when the prototype is converted into a persistent, backend-enabled system.
 
-This file does not assert that an item is implemented. Completion status must be updated only after code, migrations, tests, and documentation have been reviewed.
+Roadmap items are not complete unless explicitly identified as implemented. Completion status must be updated only after code, migrations, tests, and documentation have been reviewed.
+
+## Frontend repository and handoff state
+
+- Canonical folder: `F:/My Files/Documents/ChatGPT/Automated Payment System/front-end development`.
+- Maintained branch: `codex/frontend-only-prototype`.
+- Published base: `3e4b30d` (`Synchronize frontend deployment shell`).
+- The earlier local branch was safely reconciled onto that published base; overlapping changes in `index.html`, `package.json`, `src/App.jsx`, and `src/prototype.js` were resolved.
+- A recovery stash named `reconcile-frontend-2026-08-19` remains available until the reconciliation commit is created and pushed.
+- Obsolete GitHub branches `codex/aps-feedback-phases-1-5` and `feature/payment-form-dashboard-updates` were deleted after verification that they contained no unique remote commits.
+- The only maintained development branches are `codex/frontend-only-prototype` and `codex/backend-integration`; `main` remains the stable release branch.
+
+## Frontend updates completed
+
+- Adopted the LifeOS boilerplate shell and dark-mode implementation while preserving the payment workflows and responsive behavior.
+- Added `src/boilerplate-shell.css` as the isolated shell/theme override layer.
+- Added `src/data-source.js` with `mock`, `hybrid`, and `api` modes; `hybrid` remains runnable when the backend is unavailable.
+- Added `.env.example` defaults for the data-source mode and API base URL.
+- Added a backend connection/fallback indicator to the deployed static runtime.
+- Preserved the synchronized React build entry and TypeScript/Vite configuration from the latest published frontend commit.
+- Added `*.tsbuildinfo` to `.gitignore` so incremental build output is not committed.
+- Synchronized the validated static runtime into `codex/backend-integration` for its GitHub Pages preview.
+
+Validation completed on 2026-08-19:
+
+- TypeScript project build passed.
+- Vite 7.0.7 production build passed.
+- The backend-branch embedded frontend passed the same production build.
+- Runtime files shared with the backend branch were verified byte-for-byte identical after synchronization.
+- No unresolved merge markers or Git index conflicts remain.
+
+Pending delivery:
+
+- Commit and push the staged frontend reconciliation.
+- Commit and push Phase 00 on `codex/backend-integration`.
+- Verify the stable Pages site at `/payment-mod/` and backend preview at `/payment-mod/backend-preview/`.
 
 ## Current baseline
 
 - Front end demonstrates role-based workflows, request forms, approvals, Finance validation, vouchers, notifications, dashboards, tracking, and reports using prototype data.
-- FastAPI currently exposes `/api` and `/healthz` only.
+- The backend Phase 00 working tree now includes `/healthz`, `/readyz`, `/api`, and `/api/v1/system/status`.
 - PostgreSQL connectivity, environment configuration, Alembic scaffolding, and Docker Compose are present.
-- Business entities, migrations, repositories, workflow services, authorization, uploads, notifications, reports, and business APIs remain to be implemented.
+- Phase 00 includes the reversible `system_settings` migration, seed command, standardized errors/logging/request IDs, tests, Docker startup, and CI/CD foundation. Business entities, authorization, uploads, workflow services, notifications, reports, and domain APIs remain to be implemented.
 
 ## Target architecture
 
