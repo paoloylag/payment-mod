@@ -1,13 +1,11 @@
-name: Publish stable and backend preview
+name: Publish stable prototype
 
 on:
   push:
-    branches: ["main", "codex/backend-integration"]
+    branches: ["main"]
     paths:
       - "index.html"
       - "src/**"
-      - "Back End/index.html"
-      - "Back End/src/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -29,32 +27,14 @@ jobs:
     steps:
       - name: Checkout stable prototype
         uses: actions/checkout@v4
-        with:
-          ref: main
-          path: source-main
-
-      - name: Checkout backend integration prototype
-        uses: actions/checkout@v4
-        with:
-          ref: codex/backend-integration
-          path: source-backend
-
-      - name: Assemble both static prototypes
-        shell: bash
-        run: |
-          mkdir -p public/backend-preview
-          rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' source-main/ public/
-          rsync -a source-backend/'Back End'/src/ public/backend-preview/src/
-          cp source-backend/'Back End'/index.html public/backend-preview/index.html
-          touch public/.nojekyll
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload combined Pages artifact
+      - name: Upload stable prototype
         uses: actions/upload-pages-artifact@v4
         with:
-          path: public
+          path: .
 
       - name: Deploy to GitHub Pages
         id: deployment

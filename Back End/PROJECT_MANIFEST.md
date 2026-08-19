@@ -97,12 +97,12 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 - Added the reversible `system_settings` migration, deterministic seed command, backend fixtures, and system endpoint tests.
 - Made Docker Compose the required local backend setup; application startup migrates and seeds before serving.
 - Added repository-level CI for lint, PostgreSQL migration, seed, rollback/replay, tests, Docker image build, and deployable artifact packaging.
-- Added combined GitHub Pages delivery: stable `main` remains at `/payment-mod/`, while `codex/backend-integration` is assembled under `/payment-mod/backend-preview/`.
+- Kept the stable `main` GitHub Pages workflow at `/payment-mod/`. The backend-branch preview was attempted and then deferred after its Pages environment rejected the branch deployment; this does not affect backend CI or local prototype operation.
 - Added frontend `mock`, `hybrid`, and `api` data-source modes. `hybrid` is the default and preserves the runnable static prototype when no backend is hosted.
 - Reconciled the canonical frontend against `3e4b30d`, resolved overlapping shell changes, and synchronized the validated static runtime into this backend branch.
 - Confirmed byte-identical synchronized copies of `index.html`, `prototype.js`, `styles.css`, `responsive.css`, `boilerplate-shell.css`, and `data-source.js`.
 - Passed Ruff checks, database-independent API smoke tests, YAML parsing, TypeScript validation, and Vite production builds in both frontend locations.
-- Docker/PostgreSQL integration, migration rollback/replay in a live container, and the first GitHub Actions runs remain pending before Phase 00 may be marked `Validated`.
+- GitHub CI passed lint, PostgreSQL migration, deterministic seed, rollback/replay, and backend tests. Docker image packaging failed on its first run and is being corrected; a successful packaging rerun remains required before Phase 00 may be marked `Validated`.
 
 ## Target architecture
 
@@ -536,7 +536,7 @@ When backend development resumes:
 5. Copy `.env.example` to a local ignored `.env` if one does not already exist.
 6. Start the stack and verify `/healthz`, `/readyz`, `/api`, `/api/v1/system/status`, and `/docs`.
 7. Commit and push `codex/frontend-only-prototype`, then commit and push `codex/backend-integration`.
-8. Verify backend CI, migration rollback/replay, Docker packaging, and both GitHub Pages URLs.
+8. Verify the Docker packaging rerun. Backend preview Pages validation is deferred; preserve the stable `main` Pages site.
 9. Record the workflow links and accepted limitations in `docs/phase-00-validation.md`.
 10. Mark Phase 00 `Validated` only after every required gate passes; otherwise leave it `Ready for validation`.
 11. Begin Phase 01 only after reviewing the Phase 00 API, migration, transaction, test, error, and seed conventions.

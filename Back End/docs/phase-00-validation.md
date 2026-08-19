@@ -15,8 +15,6 @@ Status: Ready for validation
 - Docker-first startup that migrates and seeds before serving.
 - CI checks for lint, migration upgrade, seed, rollback/replay, tests, Docker image build, and artifact packaging.
 - Frontend `mock`, `hybrid`, and `api` data-source modes; hybrid mode preserves the prototype when the backend is down.
-- Combined GitHub Pages workflow that preserves the stable main prototype and publishes this branch under
-  `/payment-mod/backend-preview/`.
 
 ## Validation evidence
 
@@ -27,6 +25,10 @@ Status: Ready for validation
 
 ## Pending environment validation
 
-Docker is required but was not installed or discoverable on the implementation workstation. The PostgreSQL migration,
-seed, rollback/replay, readiness test, full backend suite, and container build are therefore configured in CI but still
-need their first successful Docker/CI run before Phase 00 can be marked `Validated`.
+Docker is required but was not installed or discoverable on the implementation workstation. GitHub CI successfully ran
+PostgreSQL migration, deterministic seed, rollback/replay, readiness coverage, and the backend suite. Its first Docker
+packaging job failed during the image build; the Dockerfile package-manager setup was corrected and still needs a green
+rerun before Phase 00 can be marked `Validated`.
+
+The backend-branch GitHub Pages preview was deferred after GitHub rejected the branch deployment at the Pages
+environment gate. The stable `main` Pages workflow is retained, and hybrid/mock operation remains available locally.
