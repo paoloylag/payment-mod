@@ -41,7 +41,8 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - `index.html` loads the static browser prototype.
 - `src/prototype.js` is the runtime used by the deployed static preview.
 - `src/App.jsx` contains the synchronized React implementation.
-- `src/styles.css` contains screen, responsive, and print styling.
+- `src/styles.css` contains the shared screen, theme, component, and print styling.
+- `src/responsive.css` contains the final mobile, half-desktop, drawer-navigation, and desktop layout rules.
 - `docs/database-design.md` defines the proposed PostgreSQL schema, workflow records, audit requirements, and Philippine Time timestamp policy.
 - `docs/database-design-readable.md` explains the proposed database and workflow in plain language.
 - `.github/workflows/pages.yml` defines the GitHub Pages deployment.
@@ -49,6 +50,9 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 ## Covered workflow
 
 - Payment request creation for reimbursement, liquidation, cash advance, P.O. payment, and general payment requests.
+- A request-type landing page that protects form input from accidental type switching, plus a dedicated My Drafts workspace with seeded examples for every request type.
+- Draft saving, auto-save continuation, deletion, and submission to the Department Head, with the permanent request reference generated only after submission.
+- Dynamic validation previews that update from completed fields, line-item accounting details, acknowledgements, and document uploads.
 - Form structures based on the supplied LCI reimbursement, liquidation, and cash advance references.
 - Placeholder-based text inputs, calculated totals, multiple line items, and department/cost-center allocation.
 - PHP, USD, EUR, and custom currency selection with currency-aware request displays.
@@ -60,6 +64,8 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - Type-specific validation rules and required or conditional document uploads.
 - Grouped navigation for overview, requests, processing, and records.
 - Persona-based prototype views for Requestor, Finance Associate, Finance Manager, COO, and President, with the original all-access view retained.
+- Responsive persona views with overlay drawer navigation for mobile and compact desktop windows, while retaining the full desktop sidebar layout.
+- Accessible light and dark themes with consistent card contrast, theme-aware logos and icons, and standardized single-row page headers.
 - Clickable dashboard metrics with dedicated request lists and detail views.
 - Role-scoped dashboards, navigation, request visibility, and approval queues.
 - Finance department filters with Excel-compatible CSV export and print/PDF transaction reports.
@@ -73,6 +79,8 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
 - Adaptive full-page printable payment vouchers with payment details, amount summaries, and compact digital approval certification.
 - Workflow email samples, including a backend-ready completion notification for both the requestor and vendor.
+- Standardized View Request email calls to action that open the specific request in the recipient role's approval, validation, or tracking view.
+- Separate backend-ready Request Returned and Request Declined email notifications with reviewer comments and requestor-specific links.
 - Clickable bank-approval and signatory-approval statuses with recorded actors and timestamps.
 - Backend-ready vendor processing and payment pick-up emails, including Finance personnel audit details.
 - Payment Available for Pick-up actions with automatic requestor/vendor notification records.

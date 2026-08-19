@@ -1,0 +1,203 @@
+/* Final responsive layer: compact windows first, permanent sidebar at 1200px. */
+@media screen and (max-width: 1199px) {
+  html,body { max-width: 100%; overflow-x: hidden; }
+  .app-shell { display: block; min-height: 100vh; }
+  .sidebar { position: fixed; z-index: 1200; inset: 0 auto 0 0; display: block; width: min(84vw, 320px); height: 100dvh; overflow-y: auto; transform: translateX(-105%); transition: transform .22s ease; box-shadow: 18px 0 40px rgba(0,0,0,.22); }
+  .nav-open .sidebar { transform: translateX(0); }
+  .sidebar-backdrop { position: fixed; z-index: 1190; inset: 0; display: none; width: 100%; height: 100%; border: 0; border-radius: 0; background: rgba(10,15,20,.58); }
+  .nav-open .sidebar-backdrop { display: block; }
+  .sidebar-mobile-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: #fff; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+  .sidebar-mobile-header button { width: 38px; min-height: 38px; border-color: rgba(255,255,255,.35); color: #fff; background: transparent; font-size: 22px; }
+  main { padding: 14px; overflow-x: hidden; }
+  .topbar { align-items: stretch; flex-direction: column; }
+  .mobile-title-row { display: flex; align-items: center; gap: 12px; }
+  .hamburger-button { display: grid !important; width: 42px; min-width: 42px; height: 42px; place-content: center; gap: 4px; padding: 0; }
+  .hamburger-button span { display: block; width: 20px; height: 2px; border-radius: 2px; background: currentColor; }
+  .topbar h2 { font-size: clamp(21px, 6vw, 28px); }
+  .persona-control { display: grid; grid-template-columns: 40px minmax(0,1fr); align-items: center; }
+  .persona-control label { display: none; }
+  .persona-control select { width: 100%; min-width: 0; }
+  .persona-control .user-chip { grid-column: 1 / -1; width: fit-content; }
+  .content-grid,.form-layout,.metric-row,.field-grid,.validation-choice-grid,.tax-summary,.approval-actions,.readonly-summary-grid,.all-role-action-grid,.document-upload-layout,.email-layout,.email-meta-panel,.email-request-summary,.dashboard-filters,.report-summary-grid,.request-type-card-grid,.liquidation-summary { grid-template-columns: minmax(0,1fr) !important; }
+  .persona-banner,.metric-detail-header,.panel-header,.request-action-footer,.independent-validation-notice,.duplicate-check-summary,.upload-footer,.report-actions,.workflow-summary-heading { align-items: stretch; flex-direction: column; }
+  .metric-row { gap: 10px; }
+  .metric { min-height: 112px; }
+  .panel { padding: 14px; }
+  main,.content-grid,.form-layout,.approval-landing,.approval-request-page,.approval-review-page,.request-form-page,.line-items-section,.panel,.panel-header,.approval-page-intro,.table-wrap { min-width: 0; max-width: 100%; }
+  .content-grid > *,.form-layout > *,.approval-landing > *,.approval-request-page > *,.approval-review-page > *,.request-form-page > * { min-width: 0; width: 100%; }
+  .panel { overflow: hidden; }
+  .table-wrap { display: block; width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+  table { min-width: 680px; }
+  .validation-line-table { min-width: 1120px; }
+  .line-item-table { min-width: 980px; }
+  .request-type-card { grid-template-columns: 48px minmax(0,1fr); min-height: 0; padding: 16px; }
+  .request-type-card > strong { grid-column: 2; }
+  .request-submit-actions,.draft-row-actions { align-items: stretch; flex-direction: column; min-width: 0; width: 100%; }
+  .request-submit-actions button,.draft-row-actions button { width: 100%; }
+  .correction-modal { max-height: calc(100dvh - 28px); overflow-y: auto; padding: 18px; }
+  .correction-modal-actions,.duplicate-modal-actions { grid-template-columns: minmax(0,1fr); }
+  .workflow-modal,.document-viewer-modal { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }
+  .email-stage-buttons { grid-template-columns: minmax(0,1fr); max-height: none; }
+  .email-preview { margin-top: 12px; }
+  .email-body { padding: 20px 16px; }
+  .validation-preview-header { align-items: center; flex-direction: row; }
+  .request-details-header { align-items: center; flex-direction: row; }
+  .panel-header:has(> .count),
+  .panel-header:has(> button),
+  .panel-header:has(> .status-pill),
+  .panel-header:has(> .upload-progress),
+  .panel-header:has(> .eyebrow) { align-items: center; flex-direction: row; }
+}
+
+@media screen and (min-width: 640px) and (max-width: 1199px) {
+  main { padding: 20px; }
+  .persona-control { display: flex; }
+  .persona-control label { display: block; }
+  .persona-control .user-chip { width: auto; }
+  .metric-row,.request-type-card-grid,.tax-summary,.readonly-summary-grid,.field-grid,.email-meta-panel,.email-request-summary { grid-template-columns: repeat(2,minmax(0,1fr)) !important; }
+  .request-submit-actions,.draft-row-actions { align-items: center; flex-direction: row; width: auto; }
+  .request-submit-actions button,.draft-row-actions button { width: auto; }
+  .correction-modal-actions,.duplicate-modal-actions { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+/* Compact desktop: give every dashboard section the full available width. */
+@media screen and (min-width: 640px) and (max-width: 1199px) {
+  .topbar { align-items: center; flex-direction: row; }
+  .persona-control { display: flex; }
+  .content-grid > .persona-banner { align-items: center; flex-direction: row; }
+  .content-grid > .metric-row,
+  .content-grid > .two-column,
+  .content-grid .dashboard-filters { grid-template-columns: minmax(0,1fr) !important; }
+  .content-grid .metric { min-height: 0; }
+}
+
+@media screen and (max-width: 639px) {
+  .nav-open .app-shell,
+  .app-shell.nav-open { display: block; }
+  .sidebar {
+    position: relative;
+    inset: auto;
+    display: none;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    transform: none;
+    transition: none;
+    box-shadow: none;
+  }
+  .nav-open .sidebar { display: block; transform: none; }
+  .sidebar-backdrop,
+  .nav-open .sidebar-backdrop { display: none; }
+  .nav-open main { min-height: 100vh; }
+  .request-navigation-row { align-items: stretch; flex-direction: column; }
+  .request-navigation-row > span:empty { display: none; }
+  .request-navigation-row button { width: 100%; }
+}
+
+@media screen and (min-width: 1200px) {
+  .app-shell { display: grid; grid-template-columns: 292px minmax(0,1fr); }
+  .sidebar { position: sticky; inset: 0 auto auto 0; width: 292px; height: 100vh; transform: none; box-shadow: none; }
+  .sidebar-backdrop,.sidebar-mobile-header,.hamburger-button { display: none !important; }
+  .request-type-selection > .persona-banner {
+    align-items: flex-start;
+    justify-content: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+  }
+}
+
+/* All page and card headers keep their primary content and accessory on one row. */
+.panel-header,
+.approval-page-intro,
+.persona-banner,
+.validation-section-heading,
+.workflow-summary-heading {
+  align-items: center;
+  justify-content: space-between;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  text-align: left;
+}
+
+.metric-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  text-align: left;
+}
+
+.panel-header > :first-child,
+.approval-page-intro > :first-child,
+.persona-banner > :first-child,
+.validation-section-heading > :first-child,
+.workflow-summary-heading > :first-child,
+.metric-detail-header > :first-child {
+  min-width: 0;
+  text-align: left;
+}
+
+.panel-header > :last-child,
+.approval-page-intro > :last-child,
+.persona-banner > :last-child,
+.validation-section-heading > :last-child,
+.workflow-summary-heading > :last-child,
+.metric-detail-header > :last-child {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* The tracker has a single header block, so it must not inherit the accessory auto-margin. */
+.tracker-panel-header > div:first-child:last-child {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.persona-banner > p:last-child {
+  min-width: 0;
+  width: auto;
+  flex: 1 1 0;
+  overflow-wrap: anywhere;
+}
+
+.persona-banner > div:first-child { flex: 0 1 auto; }
+
+.panel-header > button,
+.workflow-summary-heading > button,
+.approval-page-intro > button {
+  width: auto;
+  max-width: 48%;
+  white-space: normal;
+}
+
+/* The request-type description is supporting copy, not a right-side accessory. */
+.request-type-selection > .persona-banner {
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.request-type-selection > .persona-banner > p:last-child {
+  width: 100%;
+  margin-left: 0;
+  flex: none;
+  text-align: left;
+}
+
+/* Executive and role dashboard descriptions are supporting copy beneath the title. */
+.content-grid > .persona-banner {
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.content-grid > .persona-banner > p:last-child {
+  width: 100%;
+  margin-left: 0;
+  flex: none;
+  text-align: left;
+}
