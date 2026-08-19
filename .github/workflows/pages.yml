@@ -1,0 +1,61 @@
+name: Publish stable and backend preview
+
+on:
+  push:
+    branches: ["main", "codex/backend-integration"]
+    paths:
+      - "index.html"
+      - "src/**"
+      - "Back End/index.html"
+      - "Back End/src/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout stable prototype
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: source-main
+
+      - name: Checkout backend integration prototype
+        uses: actions/checkout@v4
+        with:
+          ref: codex/backend-integration
+          path: source-backend
+
+      - name: Assemble both static prototypes
+        shell: bash
+        run: |
+          mkdir -p public/backend-preview
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='dist' source-main/ public/
+          rsync -a source-backend/'Back End'/src/ public/backend-preview/src/
+          cp source-backend/'Back End'/index.html public/backend-preview/index.html
+          touch public/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload combined Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

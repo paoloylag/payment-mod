@@ -1,0 +1,83 @@
+name: Backend CI and delivery package
+
+on:
+  push:
+    branches: ["codex/backend-integration", "main"]
+    paths:
+      - "Back End/**"
+      - ".github/workflows/backend-ci-cd.yml"
+  pull_request:
+    paths:
+      - "Back End/**"
+      - ".github/workflows/backend-ci-cd.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: "Back End"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: payment_module_test
+          POSTGRES_USER: payment_module
+          POSTGRES_PASSWORD: payment_module
+          TZ: Asia/Manila
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U payment_module -d payment_module_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://payment_module:payment_module@127.0.0.1:5432/payment_module_test
+      DATABASE_TIMEZONE: Asia/Manila
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: "Back End/requirements*.txt"
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint backend
+        run: ruff check api tests migrations
+      - name: Upgrade database
+        run: alembic upgrade head
+      - name: Seed database
+        run: python -m payment_module.seed
+        env:
+          PYTHONPATH: api
+      - name: Test migration rollback and replay
+        run: alembic downgrade base && alembic upgrade head && python -m payment_module.seed
+        env:
+          PYTHONPATH: api
+      - name: Run backend tests
+        run: pytest --cov=payment_module --cov-report=term-missing
+        env:
+          PYTHONPATH: api
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deployable Docker image
+        run: docker build --tag payment-module:${{ github.sha }} .
+      - name: Save delivery artifact
+        run: docker save payment-module:${{ github.sha }} | gzip > payment-module-image.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: payment-module-image-${{ github.sha }}
+          path: "Back End/payment-module-image.tar.gz"
+          retention-days: 7

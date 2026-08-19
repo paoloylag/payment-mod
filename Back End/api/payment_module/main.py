@@ -1,23 +1,45 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from fastapi.middleware.cors import CORSMiddleware
 
-from .database import engine
+from .config import get_settings
+from .errors import install_exception_handlers
+from .logging import configure_logging
+from .middleware import RequestContextMiddleware
+from .routers.system import router as system_router
 
-app = FastAPI(title="Payment Module API", version="0.1.0")
-
-
-@app.get("/healthz")
-def healthcheck() -> dict[str, str]:
-    database = "connected"
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-    except SQLAlchemyError:
-        database = "unavailable"
-    return {"status": "ok", "database": database}
+settings = get_settings()
 
 
-@app.get("/api")
-def api_root() -> dict[str, str]:
-    return {"name": "Payment Module API", "status": "ready"}
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    configure_logging(settings.log_level)
+    yield
+
+
+def create_app() -> FastAPI:
+    application = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url=f"{settings.api_prefix}/openapi.json",
+    )
+    application.add_middleware(RequestContextMiddleware)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
+    )
+    install_exception_handlers(application)
+    application.include_router(system_router)
+    return application
+
+
+app = create_app()

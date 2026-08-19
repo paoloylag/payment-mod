@@ -11,6 +11,7 @@ FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/api \
     PORT=8002
 
 WORKDIR /app
@@ -22,4 +23,4 @@ COPY alembic.ini ./
 COPY --from=web-build /app/dist ./dist
 
 EXPOSE 8002
-CMD ["sh", "-c", "uvicorn payment_module.main:app --app-dir api --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "alembic upgrade head && python -m payment_module.seed && uvicorn payment_module.main:app --app-dir api --host 0.0.0.0 --port ${PORT}"]

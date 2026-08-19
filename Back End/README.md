@@ -36,6 +36,23 @@ The repository publishes through the GitHub Actions Pages workflow when updates 
 
 Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloylag/payment-mod)
 
+## Phase 0 backend development
+
+Docker Compose is the required local environment. It starts PostgreSQL, applies all migrations, runs the deterministic
+foundation seed, and then starts the FastAPI service:
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://127.0.0.1:8002`. Use `/healthz` for process liveness, `/readyz` for database readiness,
+and `/api/v1/system/status` for the prototype's backend indicator. Stop the environment with `docker compose down`.
+Use `docker compose down -v` only when intentionally discarding the local database volume.
+
+CI runs linting, migrations, deterministic seeding, migration rollback/replay, backend tests, and a Docker image build
+for pushes to `codex/backend-integration` and `main`, and for pull requests that affect the backend. The image is
+packaged as a workflow artifact; deployment remains intentionally gated until a target environment is confirmed.
+
 ## Project structure
 
 - `index.html` loads the static browser prototype.

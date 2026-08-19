@@ -1,7 +1,7 @@
 # Automated Payment System Project Manifest
 
 Status: Approved phased backend implementation scope
-Manifest version: 2.0
+Manifest version: 2.1
 Last updated: 2026-08-19
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
@@ -25,10 +25,11 @@ Automated Payment System/
 
 Important repository context:
 
-- The parent repository is on `codex/backend-integration` at merge commit `505097a` and includes the latest `main` merged on 2026-08-19.
-- The backend project was moved under `Back End/`; the parent repository therefore currently reports the former root paths as deleted and `Back End/` as untracked. Do not reset or discard these changes without first deciding how the repository should permanently represent this directory move.
+- The parent repository is on `codex/backend-integration` at published commit `8736412`, with Phase 00 and deployment changes currently uncommitted.
+- The backend project is tracked under `Back End/`; repository-level CI and Pages workflows are stored in the workspace root `.github/workflows/` directory because GitHub does not discover nested workflows.
 - The canonical frontend is `../front-end development/`, relative to this manifest.
-- The frontend is a separate Git checkout on `codex/aps-feedback-phases-1-5` at commit `59d4bbd` with uncommitted prototype and boilerplate-shell changes.
+- The frontend is a separate Git checkout on `codex/frontend-only-prototype`, reconciled onto published commit `3e4b30d`, with the validated shell and Phase 00 adapter changes staged locally.
+- Obsolete remote branches `codex/aps-feedback-phases-1-5` and `feature/payment-form-dashboard-updates` were verified to contain no unique remote commits and deleted on 2026-08-19.
 - The obsolete `Back End/front-end development/` duplicate was removed after its valid Git checkout and project files were consolidated into the canonical root frontend folder.
 - The folders `tmp/` and `worktrees/` exist at the workspace root and must not be treated as application source without inspection.
 
@@ -46,7 +47,7 @@ Important repository context:
 - Verified a Vite 8.1.4 production build in the canonical frontend.
 - No local prototype server was running when the frontend folders were consolidated.
 
-Current frontend files with uncommitted changes include:
+Current frontend files staged after reconciliation include:
 
 ```text
 index.html
@@ -55,6 +56,9 @@ src/prototype.js
 src/responsive.css
 src/styles.css
 src/boilerplate-shell.css   # new
+src/data-source.js          # new hybrid/mock/API adapter
+.env.example                # new frontend mode and API URL defaults
+.gitignore                  # ignores TypeScript incremental build output
 ```
 
 The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for React parity but is not the current production entry point.
@@ -62,15 +66,17 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 ## Current baseline
 
 - Front end demonstrates role-based workflows, request forms, approvals, Finance validation, vouchers, notifications, dashboards, tracking, and reports using prototype data.
-- FastAPI currently exposes `/api` and `/healthz` only.
+- FastAPI now exposes liveness, readiness, API discovery, and versioned system-status routes.
 - PostgreSQL connectivity, environment configuration, Alembic scaffolding, and Docker Compose are present.
 - Business entities, migrations, repositories, workflow services, authorization, uploads, notifications, reports, and business APIs remain to be implemented.
 
-Current backend endpoints:
+Current Phase 00 backend endpoints:
 
 ```text
 GET /healthz
+GET /readyz
 GET /api
+GET /api/v1/system/status
 ```
 
 Current backend stack:
@@ -82,7 +88,21 @@ Current backend stack:
 - PostgreSQL through Docker Compose
 - Pydantic Settings 2.10.1
 
-There are no domain migrations under `migrations/versions/` yet.
+The reversible Phase 00 migration `20260819_0001` creates the plural `system_settings` table. Deterministic seed data is available through `python -m payment_module.seed`.
+
+## Updates completed through Phase 00
+
+- Added application settings, structured logging, request/correlation IDs, CORS, standardized problem responses, and transaction rollback conventions.
+- Added database readiness checks separately from process liveness.
+- Added the reversible `system_settings` migration, deterministic seed command, backend fixtures, and system endpoint tests.
+- Made Docker Compose the required local backend setup; application startup migrates and seeds before serving.
+- Added repository-level CI for lint, PostgreSQL migration, seed, rollback/replay, tests, Docker image build, and deployable artifact packaging.
+- Added combined GitHub Pages delivery: stable `main` remains at `/payment-mod/`, while `codex/backend-integration` is assembled under `/payment-mod/backend-preview/`.
+- Added frontend `mock`, `hybrid`, and `api` data-source modes. `hybrid` is the default and preserves the runnable static prototype when no backend is hosted.
+- Reconciled the canonical frontend against `3e4b30d`, resolved overlapping shell changes, and synchronized the validated static runtime into this backend branch.
+- Confirmed byte-identical synchronized copies of `index.html`, `prototype.js`, `styles.css`, `responsive.css`, `boilerplate-shell.css`, and `data-source.js`.
+- Passed Ruff checks, database-independent API smoke tests, YAML parsing, TypeScript validation, and Vite production builds in both frontend locations.
+- Docker/PostgreSQL integration, migration rollback/replay in a live container, and the first GitHub Actions runs remain pending before Phase 00 may be marked `Validated`.
 
 ## Target architecture
 
@@ -177,6 +197,14 @@ phase-09-admin-integrations
 ```
 
 ## Phased implementation roadmap
+
+### CI/CD across phases
+
+- Every phase extends the required lint, migration, seed, rollback, and automated test gates before merge.
+- Phase 00 establishes CI and produces a versioned Docker image artifact after tests pass.
+- Later phases add domain-specific tests, security checks, and release verification to the same pipeline.
+- Automated deployment is enabled only after the staging and production targets, secrets owner, approval gate, rollback
+  procedure, and environment promotion policy are confirmed. Until then, CD stops at a deployable image artifact.
 
 ### Phase 00 — Foundation
 
@@ -503,21 +531,21 @@ When backend development resumes:
 
 1. Read this manifest, `docs/database-design.md`, `docs/database-design-readable.md`, and `FSD-Automated-Payment-System-v1.2.docx`.
 2. Inspect both Git worktrees and preserve all uncommitted changes.
-3. Resolve the parent repository's intended `Back End/` directory move before committing unrelated backend code.
-4. Confirm Docker and PostgreSQL availability.
+3. Review the staged frontend reconciliation and the uncommitted Phase 00/backend-preview changes before committing each maintained branch.
+4. Confirm Docker Desktop and PostgreSQL container availability, or use the first GitHub CI run for environment validation.
 5. Copy `.env.example` to a local ignored `.env` if one does not already exist.
-6. Start PostgreSQL and verify `/healthz` reports `database: connected`.
-7. Create a dedicated branch for Phase 00 if the current branch should remain a consolidation branch.
-8. Implement Phase 00 only; do not begin business models until the API, migration, transaction, test, error, and seed conventions are reviewed.
-9. Add the frontend data-source adapter and `mock`, `hybrid`, and `api` configuration before connecting the first real domain.
-10. Run the canonical frontend from `../front-end development/` and preserve its existing prototype behavior.
-11. Update the status section below at the end of every phase.
+6. Start the stack and verify `/healthz`, `/readyz`, `/api`, `/api/v1/system/status`, and `/docs`.
+7. Commit and push `codex/frontend-only-prototype`, then commit and push `codex/backend-integration`.
+8. Verify backend CI, migration rollback/replay, Docker packaging, and both GitHub Pages URLs.
+9. Record the workflow links and accepted limitations in `docs/phase-00-validation.md`.
+10. Mark Phase 00 `Validated` only after every required gate passes; otherwise leave it `Ready for validation`.
+11. Begin Phase 01 only after reviewing the Phase 00 API, migration, transaction, test, error, and seed conventions.
 
 ## Phase status ledger
 
 | Phase | Status | Validation reference |
 |---|---|---|
-| 00 — Foundation | Not started | — |
+| 00 — Foundation | Ready for validation | `docs/phase-00-validation.md` (2026-08-19; Docker/CI run pending) |
 | 01 — Authentication and RBAC | Not started | — |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
