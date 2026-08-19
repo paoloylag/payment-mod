@@ -1,4 +1,4 @@
-const { useEffect, useMemo, useState } = React;
+import React, { useEffect, useMemo, useState } from "react";
 
 const paymentTypes = {
   reimbursement: {
@@ -266,7 +266,7 @@ function getVoucher(request) {
 
 function App() {
   const initialPath = (window.location.hash.slice(1) || "/dashboard").split("/").filter(Boolean);
-  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : ["dashboard", "approvals", "tracker", "emails"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
+  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : initialPath[0] === "admin" ? "admin" : ["dashboard", "approvals", "tracker", "emails"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedId, setSelectedId] = useState(seedRequests[0].id);
   const [trackerRequestId, setTrackerRequestId] = useState(initialTab === "tracker" ? initialPath[1] || null : null);
@@ -279,6 +279,8 @@ function App() {
   const [budgeted, setBudgeted] = useState(true);
   const [emailStep, setEmailStep] = useState(3);
   const [uploadId, setUploadId] = useState(uploadSamples[0].id);
+  const [theme, setTheme] = useState(() => localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const selected = seedRequests.find((request) => request.id === selectedId) || seedRequests[0];
   const draftLineItems = lineItemsByType[draftType];
   const draftAmount = draftLineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
@@ -292,6 +294,7 @@ function App() {
       else if (parts[0] === "documents") setActiveTab(parts[1] === "rules" ? "documents" : "uploads");
       else if (parts[0] === "tracker") { setActiveTab("tracker"); setTrackerRequestId(parts[1] || null); }
       else if (parts[0] === "dashboard") { setActiveTab("dashboard"); setDashboardMetric(["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null); setDashboardWorkflowId(parts[1] === "workflow" ? parts[2] || null : null); if (["request", "workflow"].includes(parts[1]) && seedRequests.some((request) => request.id === parts[2])) setSelectedId(parts[2]); }
+      else if (parts[0] === "admin") setActiveTab("admin");
       else if (["approvals", "emails"].includes(parts[0])) setActiveTab(parts[0]);
       else setActiveTab("dashboard");
     };
@@ -299,6 +302,11 @@ function App() {
     if (!window.location.hash) window.location.hash = "/dashboard";
     return () => window.removeEventListener("hashchange", syncRoute);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("payment-module-theme", theme);
+  }, [theme]);
 
   const updateLineItem = (rowIndex, column, value) => {
     setLineItemsByType((current) => ({
@@ -328,13 +336,15 @@ function App() {
   }, []);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell ${mobileNavOpen ? "nav-open" : ""}`}>
+      <button type="button" className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation" />
+      <aside className="sidebar" id="primarySidebar">
+        <div className="sidebar-mobile-header"><span>Navigation</span><button type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">×</button></div>
         <div className="brand-block">
           <div className="brand-mark">AP</div>
           <div>
             <h1>Automated Payment System</h1>
-            <p>Workflow prototype</p>
+            <p>Finance Operations</p>
           </div>
         </div>
         <nav className="nav-list" aria-label="Primary">
@@ -343,12 +353,13 @@ function App() {
             ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
             ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
             ["Records", [["emails", "Email Samples", "@"]]],
+            ["Administration", [["admin", "Users & Permissions", "⚙"]]],
           ].map(([group, links]) => (
             <div className="nav-group" key={group}>
               <span className="nav-group-label">{group}</span>
               <div className="nav-group-links">
                 {links.map(([id, label, icon]) => (
-                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails" })[id])}>
+                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails", admin: "/admin/users" })[id])}>
                     <span>{icon}</span>{label}
                   </button>
                 ))}
@@ -356,15 +367,21 @@ function App() {
             </div>
           ))}
         </nav>
+        <div className="sidebar-footer"><span className="sidebar-status-icon">✓</span><span>Prototype access enabled</span></div>
       </aside>
 
       <main>
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Finance operations</p>
-            <h2>{tabTitle(activeTab)}</h2>
+          <div className="mobile-title-row">
+            <button type="button" className="hamburger-button icon-button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation"><span /><span /><span /></button>
+            <div><h2>{tabTitle(activeTab)}</h2><p>Finance Operations</p></div>
           </div>
-          <div className="user-chip">Finance Associate</div>
+          <div className="topbar-actions">
+            <label className="shell-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search payment application" placeholder="Search" /></label>
+            <button type="button" className="icon-button" aria-label="Notifications" title="Notifications">◉</button>
+            <button type="button" className="theme-toggle icon-button" onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}>{theme === "dark" ? "☀" : "☾"}</button>
+            <div className="user-chip"><span className="user-chip-avatar">SA</span><span className="user-chip-copy"><strong>System Administrator</strong><small>Prototype Admin</small></span></div>
+          </div>
         </header>
 
         {activeTab === "dashboard" && <Dashboard metrics={metrics} selected={selected} onSelect={(id) => { setSelectedId(id); navigateTo(`/dashboard/request/${id}`); }} activeMetric={dashboardMetric} onMetric={(metric) => navigateTo(metric ? `/dashboard/${metric}` : "/dashboard")} workflowRequestId={dashboardWorkflowId} onWorkflow={(id) => navigateTo(id ? `/dashboard/workflow/${id}` : `/dashboard/request/${selected.id}`)} />}
@@ -387,6 +404,7 @@ function App() {
         {activeTab === "uploads" && <DocumentUploads selectedId={uploadId} onSelect={setUploadId} />}
         {activeTab === "documents" && <DocumentRules />}
         {activeTab === "emails" && <EmailSamples selectedStep={emailStep} onSelectStep={setEmailStep} />}
+        {activeTab === "admin" && <AdminAccess />}
       </main>
     </div>
   );
@@ -401,7 +419,75 @@ function tabTitle(tab) {
     uploads: "Upload Required Documents",
     documents: "Required Documents",
     emails: "Workflow Email Samples",
+    admin: "Users & Permissions",
   }[tab];
+}
+
+const accessRoles = {
+  requestor: { name: "Requestor", description: "Creates requests and tracks their own payments." },
+  departmentHead: { name: "Department Head", description: "Reviews requests for assigned departments." },
+  financeAssociate: { name: "Finance Associate", description: "Validates documents and processes payments." },
+  financeManager: { name: "Finance Manager", description: "Reviews budgets and manages finance operations." },
+  executiveApprover: { name: "Executive Approver", description: "Approves routed high-value requests." },
+  administrator: { name: "Administrator", description: "Manages users, roles, and system access." },
+};
+
+const accessPermissions = [
+  ["requests.create", "Create payment requests", "Requests"],
+  ["requests.view_all", "View requests across departments", "Requests"],
+  ["requests.unlock", "Unlock submitted requests", "Requests"],
+  ["documents.validate", "Validate supporting documents", "Processing"],
+  ["approvals.department", "Approve for assigned departments", "Approvals"],
+  ["approvals.finance", "Approve finance and budget reviews", "Approvals"],
+  ["approvals.executive", "Approve executive-level requests", "Approvals"],
+  ["payments.process", "Process and release payments", "Payments"],
+  ["reports.export", "Export transaction reports", "Reports"],
+  ["admin.manage_users", "Manage users and access", "Administration"],
+];
+
+const initialAccessUsers = [
+  { id: 1, name: "Paolo Ylag", email: "paolo.ylag@life.edu.ph", department: "Finance", status: "Active", roles: ["administrator"], permissions: ["requests.view_all", "requests.unlock", "reports.export", "admin.manage_users"], lastActive: "Today, 9:42 AM" },
+  { id: 2, name: "Mika Santos", email: "mika.santos@example.com", department: "Marketing", status: "Active", roles: ["requestor"], permissions: ["requests.create"], lastActive: "Today, 8:16 AM" },
+  { id: 3, name: "Ms. Rhee", email: "rhee@example.com", department: "Finance", status: "Active", roles: ["financeAssociate"], permissions: ["requests.view_all", "documents.validate", "payments.process", "reports.export"], lastActive: "Yesterday, 4:51 PM" },
+  { id: 4, name: "Alex Cruz", email: "alex.cruz@example.com", department: "Administration", status: "Active", roles: ["requestor", "departmentHead"], permissions: ["requests.create", "approvals.department"], lastActive: "Aug 15, 2026" },
+  { id: 5, name: "Finance Manager", email: "finance.manager@example.com", department: "Finance", status: "Active", roles: ["financeManager"], permissions: ["requests.view_all", "requests.unlock", "approvals.finance", "reports.export"], lastActive: "Aug 14, 2026" },
+  { id: 6, name: "Chief Operating Officer", email: "coo@example.com", department: "Executive", status: "Suspended", roles: ["executiveApprover"], permissions: ["requests.view_all", "approvals.executive"], lastActive: "Aug 8, 2026" },
+];
+
+function AdminAccess() {
+  const [users, setUsers] = useState(initialAccessUsers);
+  const [selectedId, setSelectedId] = useState(initialAccessUsers[0].id);
+  const [query, setQuery] = useState("");
+  const [saved, setSaved] = useState(false);
+  const selected = users.find((user) => user.id === selectedId) || users[0];
+  const visibleUsers = users.filter((user) => `${user.name} ${user.email} ${user.department}`.toLowerCase().includes(query.toLowerCase()));
+  const updateSelected = (patch) => { setSaved(false); setUsers((current) => current.map((user) => user.id === selected.id ? { ...user, ...patch } : user)); };
+  const toggleRole = (role) => updateSelected({ roles: selected.roles.includes(role) ? selected.roles.filter((item) => item !== role) : [...selected.roles, role] });
+  const togglePermission = (permission) => updateSelected({ permissions: selected.permissions.includes(permission) ? selected.permissions.filter((item) => item !== permission) : [...selected.permissions, permission] });
+  const groupedPermissions = Object.groupBy ? Object.groupBy(accessPermissions, (permission) => permission[2]) : accessPermissions.reduce((groups, permission) => ({ ...groups, [permission[2]]: [...(groups[permission[2]] || []), permission] }), {});
+
+  return <section className="admin-access-view">
+    <div className="admin-summary-row">
+      <article><span>Total users</span><strong>{users.length}</strong><small>{users.filter((user) => user.status === "Active").length} active accounts</small></article>
+      <article><span>Roles</span><strong>{Object.keys(accessRoles).length}</strong><small>Reusable access profiles</small></article>
+      <article><span>Administrators</span><strong>{users.filter((user) => user.roles.includes("administrator")).length}</strong><small>Full access managers</small></article>
+      <article><span>Suspended</span><strong>{users.filter((user) => user.status === "Suspended").length}</strong><small>Sign-in blocked</small></article>
+    </div>
+    {saved && <div className="admin-save-notice" role="status">✓ Access changes saved for {selected.name}. An audit record was created.</div>}
+    <div className="admin-access-layout">
+      <section className="panel admin-user-list">
+        <div className="panel-header"><div><span className="eyebrow">Directory</span><h3>System Users</h3></div><button type="button" className="primary-button" onClick={() => alert("Invite-user flow is ready for backend integration.")}>+ Invite User</button></div>
+        <label className="admin-user-search"><span>Search users</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, or department" /></label>
+        <div className="admin-user-rows">{visibleUsers.map((user) => <button type="button" key={user.id} className={selected.id === user.id ? "selected" : ""} onClick={() => { setSelectedId(user.id); setSaved(false); }}><span className="admin-avatar">{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span><span><strong>{user.name}</strong><small>{user.email}</small><small>{user.department}</small></span><i className={user.status.toLowerCase()}>{user.status}</i></button>)}</div>
+      </section>
+      <section className="panel admin-user-editor">
+        <div className="admin-user-heading"><div><span className="eyebrow">Access Profile</span><h3>{selected.name}</h3><p>{selected.email} · Last active {selected.lastActive}</p></div><label>Account status<select value={selected.status} onChange={(event) => updateSelected({ status: event.target.value })}><option>Active</option><option>Suspended</option></select></label></div>
+        <div className="admin-editor-section"><div className="admin-section-heading"><div><h4>Assigned roles</h4><p>Roles provide a baseline set of capabilities. A user may hold more than one role.</p></div><span>{selected.roles.length} assigned</span></div><div className="admin-role-grid">{Object.entries(accessRoles).map(([id, role]) => <label key={id} className={selected.roles.includes(id) ? "selected" : ""}><input type="checkbox" checked={selected.roles.includes(id)} onChange={() => toggleRole(id)} /><span><strong>{role.name}</strong><small>{role.description}</small></span></label>)}</div></div>
+        <div className="admin-editor-section"><div className="admin-section-heading"><div><h4>Permission overrides</h4><p>Fine-tune what this user can do beyond their assigned roles.</p></div><span>{selected.permissions.length} enabled</span></div><div className="admin-permission-groups">{Object.entries(groupedPermissions).map(([group, permissions]) => <div key={group}><h5>{group}</h5>{permissions.map(([id, label]) => <label key={id}><span><strong>{label}</strong><code>{id}</code></span><input type="checkbox" role="switch" checked={selected.permissions.includes(id)} onChange={() => togglePermission(id)} /></label>)}</div>)}</div></div>
+        <div className="admin-editor-actions"><p>Changes will apply the next time this user refreshes or signs in.</p><button type="button" className="primary-button" onClick={() => setSaved(true)}>Save Access Changes</button></div>
+      </section>
+    </div>
+  </section>;
 }
 
 function Dashboard({ metrics, selected, onSelect, activeMetric, onMetric, workflowRequestId, onWorkflow }) {
@@ -965,4 +1051,4 @@ function StatusPill({ status }) {
   return <span className={`status-pill ${tone}`}>{status}</span>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+export default App;
