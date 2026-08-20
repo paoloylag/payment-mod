@@ -146,6 +146,7 @@ const requests = [
   ["RMB-2026-0144", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 12350, true, "Draft Request", 1, "2026-06-25", "", "", 0, 3],
   ["CA-2026-0049", "cashAdvance", "Tara Lim", "Sales", "Internal", 35000, false, "Uploading Documents", 2, "2026-06-25", "", "", 1, 1],
   ["GEN-2026-0034", "general", "Alex Cruz", "Admin", "City Utilities", 18500, true, "Department Approval", 3, "2026-06-24", "", "", 3, 0],
+  ["GEN-2026-0200", "general", "Jonas Lee Baro", "Facilities", "TOJUST Construction", 200000, true, "Document Validation", 4, "2026-08-20", "", "", 2, 0],
   ["RMB-2026-0148", "reimbursement", "Mika Santos", "Marketing", "Hotel Benilde", 84350, true, "Document Validation", 4, "2026-06-21", "", "", 4, 0],
   ["RMB-2026-0158", "reimbursement", "Mika Santos", "Marketing", "Travel Desk", 84350, true, "Document Validation", 4, "2026-08-11", "", "", 2, 0],
   ["GEN-2026-0062", "general", "Ms. Rhee", "Finance", "Office Hub", 12600, true, "Document Validation", 4, "2026-08-12", "", "", 2, 0],
@@ -290,6 +291,15 @@ const money = (value, currency = "PHP") => {
   if (currency === "OTHER") return `${state.otherCurrency || "Currency"} ${new Intl.NumberFormat("en-PH", { maximumFractionDigits: 2 }).format(value)}`;
   return new Intl.NumberFormat("en-PH", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
 };
+const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const taxBreakdown = (grossAmount, ewtRate = 0, vatInclusive = true) => {
+  const gross = roundMoney(grossAmount);
+  const rawNetOfVat = vatInclusive ? gross / 1.12 : gross;
+  const netOfVat = roundMoney(rawNetOfVat);
+  const vatAmount = vatInclusive ? roundMoney(gross - rawNetOfVat) : 0;
+  const ewtAmount = roundMoney(rawNetOfVat * (Number(ewtRate) / 100));
+  return { gross, netOfVat, vatAmount, ewtRate: Number(ewtRate), ewtAmount, amountDue: roundMoney(gross - ewtAmount) };
+};
 const requestMoney = (request) => money(request.amount, request.currency || "PHP");
 const agingDays = (request) => request.currentStep === 15 ? 0 : Math.max(0, Math.floor((Date.now() - new Date(`${request.submitted}T00:00:00`).getTime()) / 86400000));
 const settlementFor = (advance, expenses) => advance >= expenses
@@ -318,8 +328,7 @@ const approvalCertificationFor = (r) => {
 const voucherFor = (r) => {
   if (r.currentStep < 9) return "";
   const typeLabel = paymentTypes[r.type].label;
-  const withholdingTax = Math.round(r.amount * 0.02);
-  const netPayment = r.amount - withholdingTax;
+  const taxes = taxBreakdown(r.amount, 2, true);
   const voucherNumber = `PV-${r.id.replace("-2026-", "-")}`;
   const checkNumber = r.currentStep >= 11 ? "CHK-004918" : "Pending bank processing";
   const certifications = approvalCertificationFor(r);
@@ -333,9 +342,11 @@ const voucherFor = (r) => {
       <tr><th>Bank Account</th><td>BDO Operating Account - 1284</td><th>Check No.</th><td>${checkNumber}</td></tr>
     </tbody></table>
     <table class="voucher-table amount-table"><tbody>
-      <tr><th>Gross Amount</th><td>${money(r.amount, r.currency || "PHP")}</td></tr>
-      <tr><th>Less: Withholding Tax</th><td>${money(withholdingTax, r.currency || "PHP")}</td></tr>
-      <tr class="net-row"><th>Net Payment</th><td>${money(netPayment, r.currency || "PHP")}</td></tr>
+      <tr><th>Gross Amount (VAT Inclusive)</th><td>${money(taxes.gross, r.currency || "PHP")}</td></tr>
+      <tr><th>12% VAT Component</th><td>${money(taxes.vatAmount, r.currency || "PHP")}</td></tr>
+      <tr><th>Net of VAT / EWT Base</th><td>${money(taxes.netOfVat, r.currency || "PHP")}</td></tr>
+      <tr><th>Less: 2% EWT</th><td>${money(taxes.ewtAmount, r.currency || "PHP")}</td></tr>
+      <tr class="net-row"><th>Total Amount Due</th><td>${money(taxes.amountDue, r.currency || "PHP")}</td></tr>
     </tbody></table>
     <section class="approval-certification"><div class="certification-heading"><div><span class="eyebrow">Digital Approval Certification</span><strong>System-verified approval trail</strong></div><small>No handwritten signature required</small></div>
       <div class="certification-list">${certifications.map(([stage, approver, decision, timestamp, id]) => `<div class="certification-record"><div><small>${stage}</small><strong>${approver}</strong></div><div><small>Decision</small><strong>${decision}</strong></div><div><small>Date and Time</small><strong>${timestamp}</strong></div><div><small>Approval ID</small><strong>${id}</strong></div></div>`).join("")}</div>
@@ -916,6 +927,18 @@ function requestBuilder() {
 }
 
 function validationReviewLines(request) {
+  if (request.id === "GEN-2026-0200") {
+    return [{
+      reference: "QUOTATION-TOJUST-200K",
+      date: "2026-08-20",
+      merchant: request.vendor,
+      particulars: "TOJUST Construction business-validation quotation",
+      expense: "Construction Expense",
+      department: request.department,
+      amount: request.amount,
+      attachment: "tojust-construction-quotation-200000.pdf",
+    }];
+  }
   const amounts = [Math.round(request.amount * 0.6), request.amount - Math.round(request.amount * 0.6)];
   const typeLines = {
     reimbursement: [
@@ -962,8 +985,7 @@ function documentValidationWorkspace(request) {
   const automaticNoEwt = request.amount <= 3000;
   const selectedEwt = automaticNoEwt ? "0" : validation.ewt;
   const ewtRate = selectedEwt === "other" ? Number(validation.otherEwt) || 0 : Number(selectedEwt) || 0;
-  const ewtAmount = request.amount * (ewtRate / 100);
-  const netAmount = request.amount - ewtAmount;
+  const taxes = taxBreakdown(request.amount, ewtRate, validation.vat === "subject");
   const debitTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.debit) || 0), 0);
   const creditTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.credit) || 0), 0);
   const balanced = debitTotal > 0 && Math.abs(debitTotal - creditTotal) < 0.01;
@@ -977,12 +999,12 @@ function documentValidationWorkspace(request) {
   const documentsRecorded = validation.hardCopy || validation.softCopy;
   const complete = Boolean(validation.vat && selectedEwt !== "" && documentsRecorded && balanced && allLinesValid);
   const documentStatus = validation.hardCopy ? "Complete" : validation.softCopy ? "Awaiting Hard Copy" : "Missing Documents";
-  const ewtOptions = [["0", "No EWT"], ["1", "1%"], ["2", "2%"], ["5", "5%"], ["10", "10%"], ["other", "Others"]];
+  const ewtOptions = [["0", "No EWT"], ["1", "1%"], ["2", "2%"], ["5", "5%"], ["10", "10%"], ["15", "15%"], ["other", "Others"]];
   return `<section class="document-validation-workspace">
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Tax Classification</span><h4>VAT and Expanded Withholding Tax</h4></div><span class="validation-status ${complete ? "complete" : "pending"}">${complete ? "Ready to Complete" : "In Progress"}</span></div>
       <div class="validation-choice-grid"><fieldset><legend>VAT Classification <span>*</span></legend><label><input type="radio" name="validationVat" value="subject" ${validation.vat === "subject" ? "checked" : ""}> Subject to VAT</label><label><input type="radio" name="validationVat" value="not-subject" ${validation.vat === "not-subject" ? "checked" : ""}> Not Subject to VAT</label></fieldset>
       <fieldset><legend>Expanded Withholding Tax <span>*</span></legend><div class="ewt-options">${ewtOptions.map(([value, label]) => `<label><input type="radio" name="validationEwt" value="${value}" ${selectedEwt === value ? "checked" : ""} ${automaticNoEwt && value !== "0" ? "disabled" : ""}> ${label}</label>`).join("")}</div>${selectedEwt === "other" ? `<label class="other-ewt">Other EWT Rate (%)<input type="number" min="0" max="100" step="0.01" data-validation-other-ewt value="${validation.otherEwt}" placeholder="Enter percentage"></label>` : ""}${automaticNoEwt ? `<p class="automatic-rule">No EWT automatically applied because the gross amount is ₱3,000 or below.</p>` : ""}</fieldset></div>
-      <div class="tax-summary"><div><span>Gross Amount</span><strong>${money(request.amount)}</strong></div><div><span>EWT Rate</span><strong>${ewtRate}%</strong></div><div><span>EWT Amount</span><strong>${money(ewtAmount)}</strong></div><div><span>Net Amount After EWT</span><strong>${money(netAmount)}</strong></div></div>
+      <div class="tax-summary"><div><span>Gross Amount${validation.vat === "subject" ? " (VAT Inclusive)" : ""}</span><strong>${money(taxes.gross)}</strong></div><div><span>12% VAT Component</span><strong>${money(taxes.vatAmount)}</strong></div><div><span>Net of VAT / EWT Base</span><strong>${money(taxes.netOfVat)}</strong></div><div><span>EWT Rate</span><strong>${ewtRate}%</strong></div><div><span>EWT Amount</span><strong>${money(taxes.ewtAmount)}</strong></div><div><span>Total Amount Due</span><strong>${money(taxes.amountDue)}</strong></div></div>
     </div>
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Submitted Documents</span><h4>Copy Receipt Status</h4></div><span class="document-status ${validation.hardCopy ? "complete" : "pending"}">${documentStatus}</span></div><div class="copy-options"><label><input type="checkbox" data-validation-copy="hardCopy" ${validation.hardCopy ? "checked" : ""}> Hard Copy Received</label><label><input type="checkbox" data-validation-copy="softCopy" ${validation.softCopy ? "checked" : ""}> Soft Copy Received</label></div>${validation.softCopy && !validation.hardCopy ? `<div class="hard-copy-reminder"><strong>Hard copies must still be submitted to Finance.</strong><span>This request can be reviewed, but the physical documents remain outstanding.</span></div>` : ""}</div>
     <div class="validation-section line-review-section"><div class="validation-section-heading"><div><span class="eyebrow">Line-Item Review</span><h4>Review Details and Attachments</h4></div><div class="line-review-counts"><span class="valid">${validCount} Validated</span><span class="correction">${correctionCount} Needs Correction</span><span>${pendingCount} Pending</span></div></div>${request.type === "reimbursement" && reviewLines.some((line) => line.duplicate) ? `<div class="duplicate-check-summary"><strong>Duplicate invoice check found ${reviewLines.filter((line) => line.duplicate).length} possible match.</strong><span>Flagged documents cannot be validated until Finance reviews the previous reimbursement.</span></div>` : ""}<div class="table-wrap"><table class="validation-line-table"><thead><tr><th>Reference</th><th>Date</th><th>Particulars</th><th>Expense Account</th><th>Department</th><th>Amount</th><th>Attachment</th><th>Review</th></tr></thead><tbody>${reviewLines.map((line, index) => { const review = reviews[index]; return `<tr class="review-${review.status} ${line.duplicate ? "duplicate-invoice-row" : ""}"><td><strong>${line.reference}</strong>${line.duplicate ? `<span class="duplicate-invoice-flag">Duplicate Match</span><small>Previously in ${line.duplicate.requestId}</small>` : ""}</td><td>${line.date}</td><td>${line.particulars}</td><td>${line.expense}</td><td>${line.department}</td><td>${money(line.amount)}</td><td>${attachmentMenu(line, index)}</td><td>${lineReviewControl(review, index, line)}</td></tr>`; }).join("")}</tbody></table></div>${validation.attachmentPreview ? `<div class="attachment-preview-notice">Preview opened: <strong>${validation.attachmentPreview}</strong><button type="button" data-close-attachment-preview aria-label="Close attachment preview">×</button></div>` : ""}</div>
@@ -999,14 +1021,14 @@ function validationReadOnlySummary(request) {
     ? validation.lineReviews[index] || { status: "valid", note: "Validated against the supporting attachment.", reviewer: "Ms. Rhee", reviewedAt: "2026-08-05 10:30" }
     : { status: "valid", note: "Validated against the supporting attachment.", reviewer: "Ms. Rhee", reviewedAt: "2026-07-25 10:30" });
   const rate = validation.ewt && savedResult ? (validation.ewt === "other" ? Number(validation.otherEwt) || 0 : Number(validation.ewt) || 0) : 2;
-  const tax = request.amount * rate / 100;
+  const taxes = taxBreakdown(request.amount, rate, validation.vat === "subject" || !savedResult);
   const debitTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.debit) || 0), 0);
   const creditTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.credit) || 0), 0);
   const validCount = reviews.filter((review) => review.status === "valid").length;
   const correctionCount = reviews.filter((review) => review.status === "correction").length;
   const pendingCount = reviews.filter((review) => review.status === "pending").length;
   const outcome = correctionCount ? "Returned for Correction" : pendingCount ? "In Review" : "Completed";
-  return `<section class="validation-readonly"><div class="validation-section-heading"><div><span class="eyebrow">Finance Validation Result</span><h4>Read-Only Document Validation Summary</h4></div><span class="validation-outcome ${outcome === "Completed" ? "complete" : "pending"}">${outcome}</span></div><div class="readonly-summary-grid"><div><span>Reviewed By</span><strong>Ms. Rhee</strong></div><div><span>Completion Date</span><strong>${validation.completionDate || "2026-07-25"}</strong></div><div><span>VAT Classification</span><strong>${validation.vat === "subject" ? "Subject to VAT" : "Not Subject to VAT"}</strong></div><div><span>EWT</span><strong>${rate}% · ${money(tax)}</strong></div><div><span>Net Amount</span><strong>${money(request.amount - tax)}</strong></div><div><span>Submitted Copies</span><strong>${savedResult ? `${validation.hardCopy ? "Hard Copy" : "Hard Copy Pending"} · ${validation.softCopy ? "Soft Copy" : "No Soft Copy"}` : "Hard Copy · Soft Copy"}</strong></div><div><span>Accounting Entries</span><strong>${Math.abs(debitTotal - creditTotal) < 0.01 ? "Balanced" : "Out of Balance"} · ${money(debitTotal)}</strong></div><div><span>Check Number</span><strong>${validation.checkNumber || "Not Yet Assigned"}</strong></div></div><div class="readonly-line-summary"><div class="line-review-counts"><span class="valid">${validCount} Valid</span><span class="correction">${correctionCount} Needs Correction</span><span>${pendingCount} Pending</span></div><div class="table-wrap"><table class="validation-line-table readonly"><thead><tr><th>Reference</th><th>Particulars</th><th>Expense Account</th><th>Department</th><th>Amount</th><th>Attachment</th><th>Review Result</th></tr></thead><tbody>${lines.map((line, index) => { const review = reviews[index]; return `<tr class="review-${review.status}"><td>${line.reference}</td><td>${line.particulars}</td><td>${line.expense}</td><td>${line.department}</td><td>${money(line.amount)}</td><td>${attachmentMenu(line, index)}</td><td><span class="review-result ${review.status}">${review.status === "valid" ? "Valid" : review.status === "correction" ? "Needs Correction" : "Pending Review"}</span><p>${review.note || "No review note."}</p><small>${review.reviewer || "Ms. Rhee"} · ${review.reviewedAt || "2026-07-25 10:30"}</small></td></tr>`; }).join("")}</tbody></table></div></div><div class="readonly-review-note"><span>General Reviewer Note</span><p>${validation.reviewerNote}</p></div></section>`;
+  return `<section class="validation-readonly"><div class="validation-section-heading"><div><span class="eyebrow">Finance Validation Result</span><h4>Read-Only Document Validation Summary</h4></div><span class="validation-outcome ${outcome === "Completed" ? "complete" : "pending"}">${outcome}</span></div><div class="readonly-summary-grid"><div><span>Reviewed By</span><strong>Ms. Rhee</strong></div><div><span>Completion Date</span><strong>${validation.completionDate || "2026-07-25"}</strong></div><div><span>VAT Classification</span><strong>${validation.vat === "subject" ? "Subject to VAT" : "Not Subject to VAT"}</strong></div><div><span>VAT Component</span><strong>${money(taxes.vatAmount)}</strong></div><div><span>Net of VAT / EWT Base</span><strong>${money(taxes.netOfVat)}</strong></div><div><span>EWT</span><strong>${rate}% · ${money(taxes.ewtAmount)}</strong></div><div><span>Total Amount Due</span><strong>${money(taxes.amountDue)}</strong></div><div><span>Submitted Copies</span><strong>${savedResult ? `${validation.hardCopy ? "Hard Copy" : "Hard Copy Pending"} · ${validation.softCopy ? "Soft Copy" : "No Soft Copy"}` : "Hard Copy · Soft Copy"}</strong></div><div><span>Accounting Entries</span><strong>${Math.abs(debitTotal - creditTotal) < 0.01 ? "Balanced" : "Out of Balance"} · ${money(debitTotal)}</strong></div></div><div class="readonly-line-summary"><div class="line-review-counts"><span class="valid">${validCount} Valid</span><span class="correction">${correctionCount} Needs Correction</span><span>${pendingCount} Pending</span></div><div class="table-wrap"><table class="validation-line-table readonly"><thead><tr><th>Reference</th><th>Vendor / Merchant</th><th>Particulars</th><th>Expense Account</th><th>Department</th><th>Amount</th><th>Attachment</th><th>Review Result</th></tr></thead><tbody>${lines.map((line, index) => { const review = reviews[index]; return `<tr class="review-${review.status}"><td>${line.reference}</td><td>${line.merchant || request.vendor}</td><td>${line.particulars}</td><td>${line.expense}</td><td>${line.department}</td><td>${money(line.amount)}</td><td>${attachmentMenu(line, index)}</td><td><span class="review-result ${review.status}">${review.status === "valid" ? "Valid" : review.status === "correction" ? "Needs Correction" : "Pending Review"}</span><p>${review.note || "No review note."}</p><small>${review.reviewer || "Ms. Rhee"} · ${review.reviewedAt || "2026-07-25 10:30"}</small></td></tr>`; }).join("")}</tbody></table></div></div><div class="readonly-review-note"><span>General Reviewer Note</span><p>${validation.reviewerNote}</p></div></section>`;
 }
 
 function documentViewerModal(request) {
