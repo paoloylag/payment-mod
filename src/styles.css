@@ -648,7 +648,7 @@ table { min-width: 680px; }
   .metric-row { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
   .form-layout { grid-template-columns: minmax(0, 1fr) 270px !important; }
   .validation-choice-grid { grid-template-columns: .8fr 1.2fr !important; }
-  .tax-summary { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+  .tax-summary { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .approval-actions { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .document-upload-layout { grid-template-columns: minmax(270px, .34fr) minmax(520px, .66fr) !important; }
   .email-layout { grid-template-columns: minmax(250px, .32fr) minmax(520px, .68fr) !important; }
@@ -1036,7 +1036,7 @@ main {
 
 .tax-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
