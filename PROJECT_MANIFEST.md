@@ -28,6 +28,8 @@ Roadmap items are not complete unless explicitly identified as implemented. Comp
 - Added `src/data-source.js` with `mock`, `hybrid`, and `api` modes; `hybrid` remains runnable when the backend is unavailable.
 - Added `.env.example` defaults for the data-source mode and API base URL.
 - Added a backend connection/fallback indicator to the deployed static runtime.
+- Corrected Philippine VAT/EWT calculations: divide VAT-inclusive gross by `1.12`, calculate EWT from the net-of-VAT base using the selected rate, and calculate total amount due as gross less EWT. Removed the unsupported automatic no-EWT rule for amounts at or below PHP 3,000.
+- Added business-validation request `GEN-2026-0200` for Jonas Lee Baro / TOJUST Construction at exactly PHP 200,000, preclassified as VAT-inclusive with 2% EWT in the Document Validation queue.
 - Preserved the synchronized React build entry and TypeScript/Vite configuration from the latest published frontend commit.
 - Added `*.tsbuildinfo` to `.gitignore` so incremental build output is not committed.
 - Synchronized the validated static runtime into `codex/backend-integration` for its GitHub Pages preview.

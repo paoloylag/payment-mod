@@ -265,7 +265,7 @@ The application may initially implement these rules in code. If Finance must adm
 - `reviewer_note`
 - `completed_at`
 
-Tax values are calculation snapshots. Historical requests must not be recalculated automatically when tax rules change. The current prototype's automatic no-EWT treatment for requests at or below PHP 3,000 should be represented by a versioned tax rule rather than an unexplained hard-coded value in stored records.
+Tax values are calculation snapshots. Historical requests must not be recalculated automatically when tax rules change. For VAT-inclusive payments, the net-of-VAT/EWT base is gross divided by 1.12, the VAT component is gross less that base, EWT is the base multiplied by the selected configured rate, and amount due is gross less EWT. No-EWT treatment requires an explicit configured classification or Finance decision; it is not inferred from a universal PHP 3,000 threshold.
 
 ### `accounting_entries`
 

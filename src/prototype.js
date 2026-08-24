@@ -243,8 +243,8 @@ let state = {
   correctionReviewIndex: null,
   duplicateInvoiceIndex: null,
   documentValidation: {
-    vat: "",
-    ewt: "",
+    vat: "subject",
+    ewt: "2",
     otherEwt: "",
     hardCopy: false,
     softCopy: true,
@@ -257,8 +257,8 @@ let state = {
       { status: "pending", note: "", reviewer: "", reviewedAt: "" },
     ],
     entries: [
-      { account: "Training Expense", debit: 84350, credit: 0 },
-      { account: "Accounts Payable", debit: 0, credit: 84350 },
+      { account: "Construction Expense", debit: 200000, credit: 0 },
+      { account: "Accounts Payable", debit: 0, credit: 200000 },
     ],
   },
   voucherDetails: { paymentMethod: "", checkNumber: "", transactionNumber: "", created: false },
@@ -1005,8 +1005,7 @@ const duplicateInvoiceModal = (lines) => {
 
 function documentValidationWorkspace(request) {
   const validation = state.documentValidation;
-  const automaticNoEwt = request.amount <= 3000;
-  const selectedEwt = automaticNoEwt ? "0" : validation.ewt;
+  const selectedEwt = validation.ewt;
   const ewtRate = selectedEwt === "other" ? Number(validation.otherEwt) || 0 : Number(selectedEwt) || 0;
   const taxes = taxBreakdown(request.amount, ewtRate, validation.vat === "subject");
   const debitTotal = validation.entries.reduce((sum, entry) => sum + (Number(entry.debit) || 0), 0);
@@ -1026,7 +1025,7 @@ function documentValidationWorkspace(request) {
   return `<section class="document-validation-workspace">
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Tax Classification</span><h4>VAT and Expanded Withholding Tax</h4></div><span class="validation-status ${complete ? "complete" : "pending"}">${complete ? "Ready to Complete" : "In Progress"}</span></div>
       <div class="validation-choice-grid"><fieldset><legend>VAT Classification <span>*</span></legend><label><input type="radio" name="validationVat" value="subject" ${validation.vat === "subject" ? "checked" : ""}> Subject to VAT</label><label><input type="radio" name="validationVat" value="not-subject" ${validation.vat === "not-subject" ? "checked" : ""}> Not Subject to VAT</label></fieldset>
-      <fieldset><legend>Expanded Withholding Tax <span>*</span></legend><div class="ewt-options">${ewtOptions.map(([value, label]) => `<label><input type="radio" name="validationEwt" value="${value}" ${selectedEwt === value ? "checked" : ""} ${automaticNoEwt && value !== "0" ? "disabled" : ""}> ${label}</label>`).join("")}</div>${selectedEwt === "other" ? `<label class="other-ewt">Other EWT Rate (%)<input type="number" min="0" max="100" step="0.01" data-validation-other-ewt value="${validation.otherEwt}" placeholder="Enter percentage"></label>` : ""}${automaticNoEwt ? `<p class="automatic-rule">No EWT automatically applied because the gross amount is ₱3,000 or below.</p>` : ""}</fieldset></div>
+      <fieldset><legend>Expanded Withholding Tax <span>*</span></legend><div class="ewt-options">${ewtOptions.map(([value, label]) => `<label><input type="radio" name="validationEwt" value="${value}" ${selectedEwt === value ? "checked" : ""}> ${label}</label>`).join("")}</div>${selectedEwt === "other" ? `<label class="other-ewt">Other EWT Rate (%)<input type="number" min="0" max="100" step="0.01" data-validation-other-ewt value="${validation.otherEwt}" placeholder="Enter percentage"></label>` : ""}</fieldset></div>
       <div class="tax-summary"><div><span>Gross Amount${validation.vat === "subject" ? " (VAT Inclusive)" : ""}</span><strong>${money(taxes.gross)}</strong></div><div><span>12% VAT Component</span><strong>${money(taxes.vatAmount)}</strong></div><div><span>Net of VAT / EWT Base</span><strong>${money(taxes.netOfVat)}</strong></div><div><span>EWT Rate</span><strong>${ewtRate}%</strong></div><div><span>EWT Amount</span><strong>${money(taxes.ewtAmount)}</strong></div><div><span>Total Amount Due</span><strong>${money(taxes.amountDue)}</strong></div></div>
     </div>
     <div class="validation-section"><div class="validation-section-heading"><div><span class="eyebrow">Submitted Documents</span><h4>Copy Receipt Status</h4></div><span class="document-status ${validation.hardCopy ? "complete" : "pending"}">${documentStatus}</span></div><div class="copy-options"><label><input type="checkbox" data-validation-copy="hardCopy" ${validation.hardCopy ? "checked" : ""}> Hard Copy Received</label><label><input type="checkbox" data-validation-copy="softCopy" ${validation.softCopy ? "checked" : ""}> Soft Copy Received</label></div>${validation.softCopy && !validation.hardCopy ? `<div class="hard-copy-reminder"><strong>Hard copies must still be submitted to Finance.</strong><span>This request can be reviewed, but the physical documents remain outstanding.</span></div>` : ""}</div>

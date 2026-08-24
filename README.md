@@ -74,7 +74,7 @@ Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloy
 - A modal full-workflow view that preserves the selected request and dashboard context.
 - Department Head, Finance Associate, Finance Manager, COO, President, and Board Member review paths.
 - Finance Associate document validation with VAT and EWT classification, copy receipt status, hard-copy reminders, accounting entries, completion date, and optional check number.
-- Automatic No EWT handling for requests at or below PHP 3,000, calculated tax summaries, and balanced-entry completion controls.
+- Philippine VAT-inclusive breakdowns using gross ÷ 1.12, selected EWT applied to the net-of-VAT base, calculated amount due, and balanced-entry completion controls.
 - Standardized approval actions for consistent approver views.
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
 - Adaptive full-page printable payment vouchers with payment details, amount summaries, and compact digital approval certification.
