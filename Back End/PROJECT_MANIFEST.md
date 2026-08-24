@@ -403,7 +403,7 @@ Acceptance gate: budgeted and unbudgeted threshold routes—including Board appr
 
 ### BE-08 — Finance validation
 
-Implement document and line decisions, VAT classification, EWT code/rate/amount, Total Sales, VAT, Net of VAT, EWT, final payable amount, No EWT rules, receipt-copy status, tax snapshots, debit/credit entries, balanced-entry enforcement, reviewer notes, and system completion timestamp.
+Implement document and line decisions, VAT classification, EWT code/rate/amount, VAT-inclusive gross, net-of-VAT/EWT base (`gross / 1.12`), VAT component (`gross - base`), EWT (`base * selected rate`), amount due (`gross - EWT`), explicit No EWT classification, receipt-copy status, tax snapshots, debit/credit entries, balanced-entry enforcement, reviewer notes, and system completion timestamp. Preserve the PHP 200,000.00 TOJUST Construction request as a business-validation fixture.
 
 Acceptance gate: validation cannot complete with missing documents, invalid tax data, or unbalanced entries.
 

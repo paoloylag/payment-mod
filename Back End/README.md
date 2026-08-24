@@ -91,7 +91,8 @@ packaged as a workflow artifact; deployment remains intentionally gated until a 
 - A modal full-workflow view that preserves the selected request and dashboard context.
 - Department Head, Finance Associate, Finance Manager, COO, President, and Board Member review paths.
 - Finance Associate document validation with VAT and EWT classification, copy receipt status, hard-copy reminders, accounting entries, completion date, and optional check number.
-- Automatic No EWT handling for requests at or below PHP 3,000, calculated tax summaries, and balanced-entry completion controls.
+- Philippine VAT-inclusive computation using gross / 1.12 for the net-of-VAT/EWT base, selected EWT applied to that base, and amount due calculated as gross less EWT. No EWT remains an explicit classification.
+- Business validation samples for TOJUST Construction at PHP 200,000.00 and its PHP 100,000.00 50% downpayment.
 - Standardized approval actions for consistent approver views.
 - Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
 - Adaptive full-page printable payment vouchers with payment details, amount summaries, and compact digital approval certification.

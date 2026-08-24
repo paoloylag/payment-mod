@@ -145,7 +145,7 @@ new_requirements = [
     ("APS-FR-017", "Validation preview", "Preview updates from completed fields, line items, acknowledgements, and uploaded documents."),
     ("APS-FR-018", "Currency handling", "System supports PHP, USD, EUR, and a custom currency while preserving currency context in totals and displays."),
     ("APS-FR-019", "Controlled request editing", "Requestor may edit before Document Validation; later edits require an authorized unlock with reason and audit record."),
-    ("APS-FR-020", "Tax computation", "Finance validation follows Total Sales -> 12% VAT -> Net of VAT -> EWT -> Total Amount; transactions at or below PHP 3,000 default to No EWT."),
+    ("APS-FR-020", "Tax computation", "For VAT-inclusive payments, Finance divides gross by 1.12 for the net-of-VAT/EWT base, calculates the VAT component, applies the selected EWT rate to that base, and calculates amount due as gross less EWT. No EWT requires an explicit classification."),
     ("APS-FR-021", "Line-item validation", "Validation includes Vendor/Merchant, expense account, department/cost center, amount, attachment, and review status per line."),
     ("APS-FR-022", "Validation completion", "The system records the Document Validation Completion Date automatically when all validation controls pass."),
     ("APS-FR-023", "Voucher payment method", "Voucher supports Check, Bank Transfer (DigiBanker), and Cash; Check Number is optional and available only after required approvals."),
@@ -189,7 +189,7 @@ field_rows = [
     (13, "Currency", "Dropdown/custom entry", "Yes", "Yes", "Text", "PHP; USD; EUR; Custom", "PHP", "USD", "User entry"),
     (14, "Vendor/Merchant", "Text per line item", "Conditional", "Yes", "Text", "None", "None", "Metro Repairs", "User entry"),
     (15, "VAT Classification", "Dropdown", "Conditional", "Yes", "Text", "VAT; Non-VAT; Zero-rated", "None", "VAT", "Finance Associate"),
-    (16, "EWT Classification", "Dropdown", "Conditional", "Yes", "Text", "No EWT; configured rates", "No EWT when amount <= PHP 3,000", "2%", "Finance Associate/system rule"),
+    (16, "EWT Classification", "Dropdown", "Conditional", "Yes", "Text", "No EWT; configured rates", "Explicit classification required; no universal amount threshold", "2%", "Finance Associate/system rule"),
     (17, "Validation Completion Date", "System date/time", "Conditional", "No", "DateTime", "Philippine Time", "None", "08/19/2026 14:30", "System generated"),
     (18, "Payment Method", "Dropdown", "Yes before payment", "Yes", "Text", "Check; Bank Transfer (DigiBanker); Cash", "None", "Bank Transfer (DigiBanker)", "Finance Associate"),
     (19, "Check Number", "Text input", "No", "Yes", "Text", "None", "Blank", "CHK-001245", "Finance Associate"),
@@ -203,7 +203,7 @@ for row in field_rows:
 rules = doc.tables[9]
 rule_rows = [
     ("Draft submission", "Permanent reference is generated only when the completed request is submitted.", "Complete all required fields and documents before submission.", "Draft and validation state", "Auto-save does not submit the request."),
-    ("Tax calculation", "Compute Total Sales, 12% VAT, Net of VAT, EWT, then Total Amount.", "Review the VAT/EWT classification and computation.", "Amount and tax classification", "No EWT applies automatically at or below PHP 3,000."),
+    ("Tax calculation", "For VAT-inclusive payments, divide gross by 1.12, calculate the VAT component, apply selected EWT to the net-of-VAT base, then subtract EWT from gross for amount due.", "Review the VAT/EWT classification and computation.", "Amount and tax classification", "No EWT requires an explicit configured classification or Finance decision."),
     ("Accounting entries", "Total debits must equal total credits before validation can be completed.", "Accounting entries must be balanced.", "Line items and tax calculation", "Completion date is recorded automatically after validation passes."),
     ("Check Number", "May be entered only after required approvals and only when Payment Method is Check.", "Complete required approvals before entering a check number.", "Approval trail and payment method", "Optional for DigiBanker and Cash transactions."),
     ("Cash Advance liquidation", "Date to Liquidate equals event end date plus 15 calendar days.", "Enter a valid event end date.", "Event dates", "Cash Advance Date equals Event Date."),

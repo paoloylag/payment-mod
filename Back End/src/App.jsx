@@ -179,6 +179,8 @@ const seedRequests = [
   ["RMB-2026-0144", "reimbursement", "Mika Santos", "Marketing", "Event Registration", 12350, true, "Draft Request", 1, "2026-06-25", "", "", 0, 3, "Requestor is filling out mandatory request fields."],
   ["CA-2026-0049", "cashAdvance", "Tara Lim", "Sales", "Internal", 35000, false, "Uploading Documents", 2, "2026-06-25", "", "", 1, 1, "Requestor is attaching cash advance support and cost center details."],
   ["GEN-2026-0034", "general", "Alex Cruz", "Admin", "City Utilities", 18500, true, "Department Approval", 3, "2026-06-24", "", "", 3, 0, "Department Head is reviewing purpose, amount, and attachments."],
+  ["GEN-2026-0200", "general", "Jonas Lee Baro", "Facilities", "TOJUST Construction", 200000, true, "Document Validation", 4, "2026-08-20", "", "", 2, 0, "Business validation sample: VAT-inclusive gross PHP 200,000.00, VAT PHP 21,428.57, net-of-VAT/EWT base PHP 178,571.43, 2% EWT PHP 3,571.43, and amount due PHP 196,428.57."],
+  ["GEN-2026-0201", "general", "Jonas Lee Baro", "Facilities", "TOJUST Construction", 100000, true, "Document Validation", 4, "2026-08-20", "", "", 1, 0, "50% downpayment sample: VAT-inclusive gross PHP 100,000.00, VAT PHP 10,714.29, net-of-VAT/EWT base PHP 89,285.71, 2% EWT PHP 1,785.71, and amount due PHP 98,214.29."],
   ["RMB-2026-0148", "reimbursement", "Mika Santos", "Marketing", "Hotel Benilde", 84350, true, "Document Validation", 4, "2026-06-21", "", "", 4, 0, "Finance Associate added withholding tax computation."],
   ["PO-2026-0088", "poPayment", "Jon Reyes", "Operations", "Northstar Supplies", 98000, true, "Finance Budget Review", 5, "2026-06-20", "", "", 5, 0, "Finance Manager is checking budget availability and accounting entry."],
   ["PO-2026-0092", "poPayment", "Jon Reyes", "Operations", "Northstar Supplies", 248900, true, "COO Approval", 7, "2026-06-19", "2026-06-20", "2026-06-22", 5, 0, "Department Head approved after receiving revised SOA."],
@@ -187,6 +189,7 @@ const seedRequests = [
   ["RMB-2026-0150", "reimbursement", "Lia Dizon", "People Ops", "Training Center", 72300, true, "Voucher Creation", 9, "2026-06-17", "", "", 4, 0, "System is generating the payment voucher with approval signatures."],
   ["GEN-2026-0041", "general", "Nico Ramos", "Facilities", "Metro Repairs", 66200, true, "Bank Payment Processing", 10, "2026-06-16", "", "", 3, 0, "Finance Associate is preparing the check payment."],
   ["PO-2026-0098", "poPayment", "Bea Tan", "Procurement", "Atlas Office Systems", 141750, true, "Bank Authorization", 11, "2026-06-15", "", "", 5, 0, "Authorized signatories need to complete bank authorization."],
+  ["PO-2026-0120", "poPayment", "Bea Tan", "Procurement", "Multiple Vendors (3)", 287500, true, "Vendor Notification", 12, "2026-08-20", "", "", 6, 0, "Three P.O. line-item groups are ready for separate vendor notifications: Atlas Office Systems, Northstar Supplies, and TechSource Solutions."],
   ["GEN-2026-0044", "general", "Carlo Uy", "IT", "CloudWorks", 88400, true, "Vendor Notification", 12, "2026-06-14", "", "", 3, 0, "Check is available and vendor notification is ready."],
   ["RMB-2026-0154", "reimbursement", "Sam Lee", "Legal", "Travel Desk", 30750, true, "Payment Release", 13, "2026-06-13", "", "", 4, 0, "Finance Associate is recording check release to the payee."],
   ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Payment Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0, "System is updating turnaround dates and tracker reporting."],
@@ -210,7 +213,16 @@ const seedRequests = [
 }));
 
 const formatCurrency = (value) =>
-  new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(value);
+  new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+const roundMoney = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const calculateTaxes = (grossAmount, ewtRate = 0, vatInclusive = true) => {
+  const gross = roundMoney(grossAmount);
+  const rawNetOfVat = vatInclusive ? gross / 1.12 : gross;
+  const netOfVat = roundMoney(rawNetOfVat);
+  const vatAmount = vatInclusive ? roundMoney(gross - rawNetOfVat) : 0;
+  const ewtAmount = roundMoney(rawNetOfVat * (Number(ewtRate) / 100));
+  return { gross, netOfVat, vatAmount, ewtRate: Number(ewtRate), ewtAmount, amountDue: roundMoney(gross - ewtAmount) };
+};
 const formatStep = (value) => value === 8.5 ? "8B" : value;
 
 function getRoute(request) {
@@ -241,8 +253,7 @@ function getApprovalCertification(request) {
 function getVoucher(request) {
   if (request.currentStep < 9) return null;
 
-  const withholdingTax = Math.round(request.amount * 0.02);
-  const netPayment = request.amount - withholdingTax;
+  const taxes = calculateTaxes(request.amount, 2, true);
   const typeLabel = paymentTypes[request.type].label;
 
   return {
@@ -251,9 +262,7 @@ function getVoucher(request) {
     paymentMethod: "Check payment",
     bank: "BDO Operating Account - 1284",
     checkNumber: request.currentStep >= 11 ? "CHK-004918" : "Pending bank processing",
-    grossAmount: request.amount,
-    withholdingTax,
-    netPayment,
+    ...taxes,
     purpose: `${typeLabel} payment for ${request.vendor}`,
     attachments: [
       `${typeLabel} request form`,
@@ -696,9 +705,11 @@ function VoucherCard({ voucher, request }) {
       </table>
       <table className="voucher-table amount-table">
         <tbody>
-          <tr><th>Gross Amount</th><td>{formatCurrency(voucher.grossAmount)}</td></tr>
-          <tr><th>Less: Withholding Tax</th><td>{formatCurrency(voucher.withholdingTax)}</td></tr>
-          <tr className="net-row"><th>Net Payment</th><td>{formatCurrency(voucher.netPayment)}</td></tr>
+          <tr><th>Gross Amount (VAT Inclusive)</th><td>{formatCurrency(voucher.gross)}</td></tr>
+          <tr><th>12% VAT Component</th><td>{formatCurrency(voucher.vatAmount)}</td></tr>
+          <tr><th>Net of VAT / EWT Base</th><td>{formatCurrency(voucher.netOfVat)}</td></tr>
+          <tr><th>Less: 2% EWT</th><td>{formatCurrency(voucher.ewtAmount)}</td></tr>
+          <tr className="net-row"><th>Total Amount Due</th><td>{formatCurrency(voucher.amountDue)}</td></tr>
         </tbody>
       </table>
       <section className="approval-certification">
