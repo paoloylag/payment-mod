@@ -1,8 +1,8 @@
 # Automated Payment System Project Manifest
 
 Status: Approved phased backend implementation scope
-Manifest version: 2.1
-Last updated: 2026-08-19
+Manifest version: 2.2
+Last updated: 2026-08-25
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
 ## Purpose
@@ -15,20 +15,20 @@ This manifest is also the handoff document for continuing the work in a later Co
 
 ## Workspace and repository layout
 
-The workspace currently contains two distinct working areas:
+The local workspace currently contains two distinct Git worktrees:
 
 ```text
-Automated Payment System/
-├── Back End/                  # FastAPI/PostgreSQL scaffold and backend design
-└── front-end development/     # Canonical runnable prototype and separate Git checkout
+Payment Module/                                      # codex/frontend-only-prototype
+└── .worktrees/backend-integration/                  # codex/backend-integration
+    └── Back End/                                    # FastAPI/PostgreSQL app and synchronized prototype
 ```
 
 Important repository context:
 
-- The parent repository is on `codex/backend-integration` at published commit `8736412`, with Phase 00 and deployment changes currently uncommitted.
+- The backend worktree is on `codex/backend-integration` at published commit `4ddd199` and tracks `origin/codex/backend-integration`.
 - The backend project is tracked under `Back End/`; repository-level CI and Pages workflows are stored in the workspace root `.github/workflows/` directory because GitHub does not discover nested workflows.
-- The canonical frontend is `../front-end development/`, relative to this manifest.
-- The frontend is a separate Git checkout on `codex/frontend-only-prototype`, reconciled onto published commit `3e4b30d`, with the validated shell and Phase 00 adapter changes staged locally.
+- The canonical frontend is the main `Payment Module/` worktree.
+- The frontend is a separate Git checkout on `codex/frontend-only-prototype`, currently at published commit `57e7f3c`.
 - Obsolete remote branches `codex/aps-feedback-phases-1-5` and `feature/payment-form-dashboard-updates` were verified to contain no unique remote commits and deleted on 2026-08-19.
 - The obsolete `Back End/front-end development/` duplicate was removed after its valid Git checkout and project files were consolidated into the canonical root frontend folder.
 - The folders `tmp/` and `worktrees/` exist at the workspace root and must not be treated as application source without inspection.
@@ -44,7 +44,7 @@ Important repository context:
 - Preserved the existing payment request, approval, document, voucher, tracker, reporting, email, and persona simulations.
 - Corrected the prototype entry to use an ES module so Vite bundles the JavaScript in production.
 - Added `src/boilerplate-shell.css` to the canonical frontend as an isolated final override layer so existing feedback-phase styles remain intact.
-- Verified a Vite 8.1.4 production build in the canonical frontend.
+- Verified the synchronized backend-branch prototype with TypeScript and Vite 7.0.7 production builds.
 - No local prototype server was running when the frontend folders were consolidated.
 
 Current frontend files staged after reconciliation include:
@@ -102,7 +102,9 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 - Reconciled the canonical frontend against `3e4b30d`, resolved overlapping shell changes, and synchronized the validated static runtime into this backend branch.
 - Confirmed byte-identical synchronized copies of `index.html`, `prototype.js`, `styles.css`, `responsive.css`, `boilerplate-shell.css`, and `data-source.js`.
 - Passed Ruff checks, database-independent API smoke tests, YAML parsing, TypeScript validation, and Vite production builds in both frontend locations.
-- GitHub CI passed lint, PostgreSQL migration, deterministic seed, rollback/replay, and backend tests. Docker image packaging failed on its first run and is being corrected; a successful packaging rerun remains required before Phase 00 may be marked `Validated`.
+- GitHub Actions run `32719293106` passed lint, PostgreSQL migration, deterministic seed, rollback/replay, backend tests, Docker image build, and deployable artifact packaging for commit `4ddd199` on 2026-08-24.
+- A local audit on 2026-08-25 passed Ruff, Python compilation, database-independent API tests, Alembic head/history checks, JavaScript syntax checks, TypeScript validation, and the Vite production build.
+- Phase 00 is validated. Local WSL 2, Docker Desktop 29.6.2, PostgreSQL 16, migrations, deterministic seed, rollback/replay, API readiness, backend tests, and the hybrid frontend connection were verified on 2026-08-25 in addition to the successful GitHub CI gates.
 
 ## Target architecture
 
@@ -531,21 +533,21 @@ When backend development resumes:
 
 1. Read this manifest, `docs/database-design.md`, `docs/database-design-readable.md`, and `FSD-Automated-Payment-System-v1.2.docx`.
 2. Inspect both Git worktrees and preserve all uncommitted changes.
-3. Review the staged frontend reconciliation and the uncommitted Phase 00/backend-preview changes before committing each maintained branch.
-4. Confirm Docker Desktop and PostgreSQL container availability, or use the first GitHub CI run for environment validation.
+3. Preserve uncommitted work and generated local directories before changing either maintained branch.
+4. Start Docker Desktop and confirm the PostgreSQL and API containers are healthy before local end-to-end work.
 5. Copy `.env.example` to a local ignored `.env` if one does not already exist.
 6. Start the stack and verify `/healthz`, `/readyz`, `/api`, `/api/v1/system/status`, and `/docs`.
-7. Commit and push `codex/frontend-only-prototype`, then commit and push `codex/backend-integration`.
-8. Verify the Docker packaging rerun. Backend preview Pages validation is deferred; preserve the stable `main` Pages site.
-9. Record the workflow links and accepted limitations in `docs/phase-00-validation.md`.
-10. Mark Phase 00 `Validated` only after every required gate passes; otherwise leave it `Ready for validation`.
-11. Begin Phase 01 only after reviewing the Phase 00 API, migration, transaction, test, error, and seed conventions.
+7. Keep `codex/frontend-only-prototype` and `codex/backend-integration` synchronized only through reviewed frontend asset updates.
+8. Preserve the stable `main` Pages site; backend preview Pages validation remains deferred.
+9. Retain workflow links and accepted limitations in `docs/phase-00-validation.md`.
+10. Re-run the Phase 00 gates after any foundation change.
+11. Phase 01 may begin after reviewing the Phase 00 API, migration, transaction, test, error, and seed conventions.
 
 ## Phase status ledger
 
 | Phase | Status | Validation reference |
 |---|---|---|
-| 00 — Foundation | Ready for validation | `docs/phase-00-validation.md` (2026-08-19; Docker/CI run pending) |
+| 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Not started | — |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
