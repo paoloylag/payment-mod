@@ -1,8 +1,8 @@
 # Automated Payment System Project Manifest
 
 Status: Approved phased backend implementation scope
-Manifest version: 2.2
-Last updated: 2026-08-25
+Manifest version: 2.3
+Last updated: 2026-08-26
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
 ## Purpose
@@ -25,7 +25,8 @@ Payment Module/                                      # codex/frontend-only-proto
 
 Important repository context:
 
-- The backend worktree is on `codex/backend-integration` at published commit `4ddd199` and tracks `origin/codex/backend-integration`.
+- The backend worktree is on `codex/backend-integration` at published Phase 01 commit `a796a43` and tracks
+  `origin/codex/backend-integration`.
 - The backend project is tracked under `Back End/`; repository-level CI and Pages workflows are stored in the workspace root `.github/workflows/` directory because GitHub does not discover nested workflows.
 - The canonical frontend is the main `Payment Module/` worktree.
 - The frontend is a separate Git checkout on `codex/frontend-only-prototype`, currently at published commit `57e7f3c`.
@@ -37,7 +38,8 @@ Important repository context:
 
 - Fetched and checked out `codex/backend-integration` from `paoloylag/payment-mod`.
 - Merged the latest `origin/main` into the backend branch.
-- Confirmed that the backend currently has no implemented authentication, user management, role enforcement, business models, or business APIs.
+- Implemented Phase 01 local authentication, sessions, user administration, requestor-manager relationships,
+  departments, roles, permissions, RBAC enforcement, and append-only audit events.
 - Audited `dcbj-lai/lifeos-tenant-boilerplate` for reusable UI and authentication patterns.
 - Adopted the LifeOS boilerplate as the prototype shell and dark-mode basis where practical.
 - Added a gradient application sidebar, sticky translucent topbar, search placeholder, notification placeholder, theme control, avatar-based user chip, mobile navigation behavior, and system-theme detection.
@@ -66,9 +68,11 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 ## Current baseline
 
 - Front end demonstrates role-based workflows, request forms, approvals, Finance validation, vouchers, notifications, dashboards, tracking, and reports using prototype data.
-- FastAPI now exposes liveness, readiness, API discovery, and versioned system-status routes.
+- FastAPI exposes liveness, readiness, API discovery, system status, local authentication, current-session, user,
+  department, role, and permission routes.
 - PostgreSQL connectivity, environment configuration, Alembic scaffolding, and Docker Compose are present.
-- Business entities, migrations, repositories, workflow services, authorization, uploads, notifications, reports, and business APIs remain to be implemented.
+- Phase 01 identity/RBAC persistence and authorization are implemented. Payment-request, document, workflow, finance,
+  payment, notification, and reporting persistence remain roadmap work.
 
 Current Phase 00 backend endpoints:
 
@@ -105,6 +109,21 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 - GitHub Actions run `32719293106` passed lint, PostgreSQL migration, deterministic seed, rollback/replay, backend tests, Docker image build, and deployable artifact packaging for commit `4ddd199` on 2026-08-24.
 - A local audit on 2026-08-25 passed Ruff, Python compilation, database-independent API tests, Alembic head/history checks, JavaScript syntax checks, TypeScript validation, and the Vite production build.
 - Phase 00 is validated. Local WSL 2, Docker Desktop 29.6.2, PostgreSQL 16, migrations, deterministic seed, rollback/replay, API readiness, backend tests, and the hybrid frontend connection were verified on 2026-08-25 in addition to the successful GitHub CI gates.
+
+## Phase 01 release and validation
+
+- Status: locally validated on 2026-08-26; GitHub CI for the published commit remains to be observed.
+- Reviewed by the project owner with Codex-assisted execution.
+- Published branch/commit: `codex/backend-integration` at `a796a43a8654a6992ae1a423b87b18f15479da80`.
+- Local release archive: `release-artifacts/payment-module-phase-01-a796a43.zip` (generated from the commit and
+  intentionally ignored by Git).
+- Archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
+- Validation passed: Ruff, 23 backend tests, 90.46% statement coverage (85% minimum), PostgreSQL migration
+  upgrade/downgrade/replay, deterministic seed, authenticated administration walkthrough, desktop overflow audit,
+  production frontend build, retained-session cleanup, test session teardown, and staging/production cleanup refusal.
+- Accepted release-readiness limitations: GitHub CI status has not yet been observed; dedicated test-database,
+  multi-browser/mobile-device, accessibility, load/concurrency, penetration, and production proxy/HTTPS validation
+  remain follow-up work. These are not known Phase 01 functional failures.
 
 ## Target architecture
 
@@ -543,14 +562,15 @@ When backend development resumes:
 8. Preserve the stable `main` Pages site; backend preview Pages validation remains deferred.
 9. Retain workflow links and accepted limitations in `docs/phase-00-validation.md`.
 10. Re-run the Phase 00 gates after any foundation change.
-11. Phase 01 may begin after reviewing the Phase 00 API, migration, transaction, test, error, and seed conventions.
+11. Use reviewed Phase 01 commit `a796a43` as the baseline for Phase 02; do not enable the retained-session cleanup
+    command in staging or production.
 
 ## Phase status ledger
 
 | Phase | Status | Validation reference |
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
-| 01 — Authentication and RBAC | In progress | `docs/phase-01-plan.md` (2026-08-25) |
+| 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (local validation 2026-08-26; commit `a796a43`; GitHub CI observation pending) |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
 | 04 — Documents | Not started | — |

@@ -1,8 +1,9 @@
 # Phase 01 — Authentication and RBAC plan
 
-Date: 2026-08-25
+Date: 2026-08-26
 Branch: `codex/backend-integration`
 Status: Complete
+Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
 
 ## Confirmed decisions
 
@@ -69,12 +70,19 @@ Status: Complete
 - Login page DOM, visual layout, and console: passed.
 - Session cleanup dry run, active-session preservation, batching, audit event, test teardown, and production refusal:
   passed.
+- Authenticated administration walkthrough, list/menu/modal alignment, and desktop horizontal-overflow audit: passed.
+- Reviewed release archive generated from the exact commit: `payment-module-phase-01-a796a43.zip`.
+- Release archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
+- Commit published to `origin/codex/backend-integration`: passed.
 
-## Remaining acceptance work
+## Accepted limitations and follow-up validation
 
-- Complete the authenticated browser walkthrough for Users, Roles & Permissions, and Departments.
-- Run mock, hybrid-unavailable, hybrid-connected, and API-only frontend regression checks.
-- Run GitHub CI and Docker packaging on the reviewed Phase 01 commit.
+- Observe and record GitHub CI and Docker packaging for reviewed commit `a796a43`.
+- Provision and exercise a dedicated database through `TEST_DATABASE_URL`; per-test session teardown already prevents
+  additional session accumulation in the current local database.
+- Complete physical mobile-device, cross-browser, accessibility, load/concurrency, penetration, and production
+  proxy/HTTPS validation before production promotion.
 - Record every execution and acceptance decision in the development and QA workbook.
 
-Phase 01 must remain `In Progress` until all required tests pass and every Phase 01 acceptance gate is accepted.
+Phase 01 is locally validated. No automatic staging or production deployment is enabled, and retained-session cleanup
+hard-refuses both environments.
