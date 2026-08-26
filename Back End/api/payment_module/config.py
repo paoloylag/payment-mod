@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://payment_module:payment_module@127.0.0.1:5434/payment_module"
     database_timezone: str = "Asia/Manila"
     cors_origins: str = "http://127.0.0.1:5175,http://localhost:5175"
+    session_cookie_name: str = "aps_session"
+    session_idle_minutes: int = 60
+    session_absolute_hours: int = 8
+    session_cookie_secure: bool = False
+    session_cleanup_enabled: bool = False
+    session_cleanup_retention_days: int = 30
+    session_cleanup_batch_size: int = 1000
+    development_demo_password: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

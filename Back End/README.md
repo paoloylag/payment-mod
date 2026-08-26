@@ -49,6 +49,21 @@ The API is available at `http://127.0.0.1:8002`. Use `/healthz` for process live
 and `/api/v1/system/status` for the prototype's backend indicator. Stop the environment with `docker compose down`.
 Use `docker compose down -v` only when intentionally discarding the local database volume.
 
+### Development/test session cleanup
+
+Automated tests remove only the authentication sessions they create. Set `TEST_DATABASE_URL` to route the suite to a
+dedicated test database; when it is present, it replaces `DATABASE_URL` before the application is imported.
+
+Old invalid sessions can be previewed and removed locally after the 30-day retention window:
+
+```bash
+docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_module.maintenance cleanup-sessions --dry-run
+docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_module.maintenance cleanup-sessions
+```
+
+The command is disabled by default and hard-refuses `APP_ENV=staging` and `APP_ENV=production`. It is intentionally not
+scheduled by the API or Docker Compose, so enabling local cleanup cannot introduce a production background job.
+
 CI runs linting, migrations, deterministic seeding, migration rollback/replay, backend tests, and a Docker image build
 for pushes to `codex/backend-integration` and `main`, and for pull requests that affect the backend. The image is
 packaged as a workflow artifact; deployment remains intentionally gated until a target environment is confirmed.

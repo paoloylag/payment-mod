@@ -8,6 +8,8 @@ from .config import get_settings
 from .errors import install_exception_handlers
 from .logging import configure_logging
 from .middleware import RequestContextMiddleware
+from .routers.auth import router as auth_router
+from .routers.identity import router as identity_router
 from .routers.system import router as system_router
 
 settings = get_settings()
@@ -39,6 +41,8 @@ def create_app() -> FastAPI:
     )
     install_exception_handlers(application)
     application.include_router(system_router)
+    application.include_router(auth_router)
+    application.include_router(identity_router)
     return application
 
 

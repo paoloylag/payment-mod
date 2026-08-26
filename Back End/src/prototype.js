@@ -198,6 +198,15 @@ let state = {
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
   backendStatus: { state: dataSource.mode === "mock" ? "mock" : "checking", label: dataSource.mode === "mock" ? "Mock data" : "Checking API" },
+  authStatus: dataSource.mode === "mock" ? "mock" : "checking",
+  authUser: null,
+  csrfToken: null,
+  authError: "",
+  authSubmitting: false,
+  identityData: { users: [], roles: [], permissions: [], departments: [] },
+  identityLoading: false,
+  identityError: "",
+  identityEdit: null,
   persona: "all",
   tab: "dashboard",
   approvalView: "list",
@@ -272,6 +281,9 @@ const tabRoutes = {
   uploads: "/documents/uploads",
   documents: "/documents/rules",
   emails: "/emails",
+  users: "/administration/users",
+  roles: "/administration/roles",
+  departments: "/administration/departments",
 };
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
@@ -291,6 +303,7 @@ function routeStateFromHash() {
     const emailId = [...steps, ...emailNotificationEvents].find(([id]) => String(id) === parts[1])?.[0];
     return { tab: "emails", emailStep: emailId ?? state.emailStep, trackerRequestId: null, dashboardMetric: null };
   }
+  if (parts[0] === "administration") return { tab: ["users", "roles", "departments"].includes(parts[1]) ? parts[1] : "users" };
   if (parts[0] === "dashboard" && parts[1] === "request" && requests.some((r) => r.id === parts[2])) return { tab: "requestDetail", requestDetailId: parts[2], selectedId: parts[2], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
   if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardRequestId: null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null, requestDetailId: null };
   return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
@@ -435,6 +448,147 @@ function refreshValidationPreview() {
 function setState(patch) {
   state = { ...state, ...patch };
   render();
+}
+
+function loginView() {
+  const checking = state.authStatus === "checking";
+  const busy = checking || state.authSubmitting;
+  const buttonLabel = state.authSubmitting ? "Signing in…" : checking ? "Checking session…" : "Sign in";
+  return `<main class="signed-out"><section class="login-panel" aria-label="Automated Payment System sign in">
+    <div class="login-intro"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">AP</span><span><strong>Automated Payment System</strong><small>Finance Operations</small></span></div></div>
+    <div class="login-copy"><h1>Sign in</h1><p>Sign in to continue.</p></div>
+    <form class="login-form" data-login-form><label>Email<input name="email" type="email" autocomplete="username" required ${busy ? "disabled" : ""}></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required ${busy ? "disabled" : ""}></label>${state.authError ? `<p class="login-error" role="alert">${state.authError}</p>` : ""}<button class="primary-button login-submit-button" type="submit" ${busy ? "disabled" : ""} aria-busy="${busy}">${busy ? `<span class="login-button-spinner" aria-hidden="true"></span>` : ""}<span>${buttonLabel}</span></button></form>
+  </section></main>`;
+}
+
+function bindLogin() {
+  document.querySelector("[data-login-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setState({ authSubmitting: true, authError: "" });
+    try {
+      const session = await dataSource.login(form.get("email"), form.get("password"));
+      const rolePersona = { requestor: "requestor", finance_associate: "financeAssociate", finance_manager: "financeManager", coo: "coo", president: "president" };
+      const persona = session.user.roles.map((role) => rolePersona[role]).find(Boolean) || "all";
+      setState({ authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false });
+    } catch (error) {
+      setState({ authStatus: "unauthenticated", authError: error.message || "Sign-in failed", authSubmitting: false });
+    }
+  });
+}
+
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+
+async function loadIdentityData() {
+  if (state.identityLoading || !state.authUser) return;
+  state.identityLoading = true;
+  state.identityError = "";
+  render();
+  try {
+    const [users, roles, permissions, departments] = await Promise.all([dataSource.listUsers(), dataSource.listRoles(), dataSource.listPermissions(), dataSource.listDepartments()]);
+    setState({ identityData: { users, roles, permissions, departments }, identityLoading: false });
+  } catch (error) {
+    setState({ identityLoading: false, identityError: error.status === 403 ? "You do not have permission to administer identity data." : error.message });
+  }
+}
+
+function identityActionMenu(kind, id, label) {
+  const safeLabel = escapeHtml(label);
+  return `<div class="identity-action-menu"><button type="button" class="identity-action-trigger" data-identity-action-menu aria-label="Actions for ${safeLabel}" aria-expanded="false">⋮</button><div class="identity-action-popover" data-identity-action-popover hidden><button type="button" data-edit-${kind}="${id}">Edit</button><button type="button" class="danger" data-delete-${kind}="${id}">Delete</button></div></div>`;
+}
+
+function identityEditorModal() {
+  const edit = state.identityEdit;
+  if (!edit) return "";
+  const { users, roles, permissions, departments } = state.identityData;
+  const item = ({ user: users, role: roles, permission: permissions, department: departments }[edit.kind] || []).find((entry) => entry.id === edit.id);
+  const isEdit = Boolean(item);
+  const titles = { user: "User", department: "Department", role: "Role", permission: "Permission" };
+  let form = "";
+  if (edit.kind === "user") form = isEdit ? `<form data-edit-user-form="${item.id}"><label>Display name<input name="display_name" value="${escapeHtml(item.display_name)}" required maxlength="160"></label><label>Email<input name="email" type="email" value="${escapeHtml(item.email)}" required></label><label>Department<select name="department_id"><option value="">Unassigned</option>${departments.map((department) => `<option value="${department.id}" ${department.id === item.department_id ? "selected" : ""}>${escapeHtml(department.name)}</option>`).join("")}</select></label><label>Manager<select name="manager_id"><option value="">No manager</option>${users.filter((manager) => manager.id !== item.id).map((manager) => `<option value="${manager.id}" ${manager.id === item.manager_id ? "selected" : ""}>${escapeHtml(manager.display_name)}</option>`).join("")}</select></label><label class="identity-checkbox"><input name="is_active" type="checkbox" ${item.is_active ? "checked" : ""}> Active account</label><label class="identity-checkbox"><input name="is_suspended" type="checkbox" ${item.is_suspended ? "checked" : ""}> Suspended</label><div class="identity-form-actions"><button type="button" data-cancel-identity-edit>Cancel</button><button class="primary-button" type="submit">Save changes</button></div></form>` : `<form data-create-user><label>Display name<input name="display_name" required maxlength="160"></label><label>Email<input name="email" type="email" required></label><label>Temporary password<input name="password" type="password" minlength="12" required autocomplete="new-password"></label><label>Department<select name="department_id"><option value="">Unassigned</option>${departments.map((department) => `<option value="${department.id}">${escapeHtml(department.name)}</option>`).join("")}</select></label><label>Manager<select name="manager_id"><option value="">No manager</option>${users.map((manager) => `<option value="${manager.id}">${escapeHtml(manager.display_name)}</option>`).join("")}</select></label><div class="identity-form-actions"><button type="button" data-cancel-identity-edit>Cancel</button><button class="primary-button" type="submit">Create user</button></div></form>`;
+  if (edit.kind === "department") form = `<form ${isEdit ? `data-edit-department-form="${item.id}"` : "data-create-department"}><label>Code<input name="code" value="${escapeHtml(item?.code || "")}" required maxlength="30" pattern="[A-Z][A-Z0-9&_\\-]*"></label><label>Name<input name="name" value="${escapeHtml(item?.name || "")}" required maxlength="120"></label>${isEdit ? `<label class="identity-checkbox"><input name="is_active" type="checkbox" ${item.is_active ? "checked" : ""}> Active department</label>` : ""}<div class="identity-form-actions"><button type="button" data-cancel-identity-edit>Cancel</button><button class="primary-button" type="submit">${isEdit ? "Save changes" : "Add department"}</button></div></form>`;
+  if (edit.kind === "role") form = `<form ${isEdit ? `data-edit-role-form="${item.id}"` : "data-create-role"}><label>Code<input name="code" value="${escapeHtml(item?.code || "")}" pattern="[a-z][a-z0-9_]*" required></label><label>Name<input name="name" value="${escapeHtml(item?.name || "")}" required></label><label>Description<textarea name="description">${escapeHtml(item?.description || "")}</textarea></label><div class="identity-form-actions"><button type="button" data-cancel-identity-edit>Cancel</button><button class="primary-button" type="submit">${isEdit ? "Save role" : "Add role"}</button></div></form>`;
+  if (edit.kind === "permission") form = `<form ${isEdit ? `data-edit-permission-form="${item.id}"` : "data-create-permission"}><label>Code<input name="code" value="${escapeHtml(item?.code || "")}" pattern="[a-z][a-z0-9_.]*" required></label><label>Description<textarea name="description" required>${escapeHtml(item?.description || "")}</textarea></label><div class="identity-form-actions"><button type="button" data-cancel-identity-edit>Cancel</button><button class="primary-button" type="submit">${isEdit ? "Save permission" : "Add permission"}</button></div></form>`;
+  return `<div class="identity-modal-backdrop" data-identity-modal-backdrop><section class="identity-modal" role="dialog" aria-modal="true" aria-labelledby="identity-modal-title"><div class="identity-modal-header"><div><span class="eyebrow">Administration</span><h3 id="identity-modal-title">${isEdit ? "Edit" : "Add"} ${titles[edit.kind]}</h3><p>${isEdit ? "Update the selected record. Changes are audited." : "Complete the details below. The new record will be audited."}</p></div><button type="button" class="identity-modal-close" data-cancel-identity-edit aria-label="Close">×</button></div>${form}</section></div>`;
+}
+
+function identityPage(kind) {
+  const labels = { users: "User Administration", roles: "Roles & Permissions", departments: "Departments" };
+  const tabs = ["users", "roles", "departments"].map((id) => `<button type="button" data-tab="${id}" class="${kind === id ? "active" : ""}">${labels[id]}</button>`).join("");
+  if (state.identityLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading administration data"></div></section>`;
+  if (state.identityError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.identityError)}</p></section>`;
+  const { users, roles, permissions, departments } = state.identityData;
+  const departmentName = (id) => departments.find((item) => item.id === id)?.name || "Unassigned";
+  const roleName = (id) => roles.find((item) => item.id === id)?.name || "Unknown role";
+  let content = "";
+  if (kind === "users") {
+    content = `<section class="panel"><div class="panel-header"><div><h3>Users</h3><p>Maintain accounts and requestor-manager associations.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-identity="user">+ User</button></div></div><div class="identity-list">${users.map((user) => `<article><div><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email)}</small></div><div><span>${escapeHtml(departmentName(user.department_id))}</span><small>${user.role_ids.map(roleName).map(escapeHtml).join(", ") || "No role"}</small></div><span class="status-pill ${user.is_suspended || !user.is_active ? "danger" : "success"}">${user.is_suspended ? "Suspended" : user.is_active ? "Active" : "Inactive"}</span>${identityActionMenu("user", user.id, user.display_name)}</article>`).join("")}</div></section>`;
+  }
+  if (kind === "roles") {
+    content = `<div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>Roles</h3><p>Role deletion is blocked while assigned to users.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-identity="role">+ Role</button></div></div><div class="identity-list identity-role-list">${roles.map((role) => `<article><div><strong>${escapeHtml(role.name)}</strong><small>${escapeHtml(role.description)}</small></div><div><span>${escapeHtml(role.code)}</span><small>Role code</small></div><span class="status-pill success">${role.permission_ids?.length || 0} permissions</span>${identityActionMenu("role", role.id, role.name)}</article>`).join("")}</div></section><section class="panel"><div class="panel-header"><div><h3>Permissions</h3><p>Permission deletion is blocked while assigned.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-identity="permission">+ Permission</button></div></div><div class="identity-list identity-permission-list">${permissions.map((permission) => `<article><div><strong>${escapeHtml(permission.code)}</strong><small>${escapeHtml(permission.description)}</small></div><div><span>Access rule</span><small>Permission</small></div><span class="status-pill success">Active</span>${identityActionMenu("permission", permission.id, permission.code)}</article>`).join("")}</div></section></div>`;
+  }
+  if (kind === "departments") {
+    content = `<section class="panel"><div class="panel-header"><div><h3>Department directory</h3><p>Delete is blocked until all users are reassigned.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-identity="department">+ Department</button></div></div><div class="identity-list identity-department-list">${departments.map((department) => `<article><div><strong>${escapeHtml(department.name)}</strong><small>Department</small></div><div><span>${escapeHtml(department.code)}</span><small>Department code</small></div><span class="status-pill ${department.is_active ? "success" : "danger"}">${department.is_active ? "Active" : "Inactive"}</span>${identityActionMenu("department", department.id, department.name)}</article>`).join("")}</div></section>`;
+  }
+  return `<section class="identity-page"><nav class="identity-tabs" aria-label="Identity administration">${tabs}</nav>${content}</section>${identityEditorModal()}`;
+}
+
+async function refreshIdentityData() {
+  state.identityData = { users: [], roles: [], permissions: [], departments: [] };
+  state.identityEdit = null;
+  await loadIdentityData();
+}
+
+function bindIdentityForms() {
+  document.querySelectorAll("[data-add-identity]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: button.dataset.addIdentity, id: null } })));
+  document.querySelectorAll("[data-identity-action-menu]").forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const panel = button.nextElementSibling;
+    const willOpen = panel?.hidden;
+    document.querySelectorAll("[data-identity-action-popover]").forEach((menu) => { menu.hidden = true; });
+    document.querySelectorAll("[data-identity-action-menu]").forEach((trigger) => trigger.setAttribute("aria-expanded", "false"));
+    if (panel && willOpen) {
+      panel.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+    }
+  }));
+  document.querySelector("[data-create-department]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await dataSource.createDepartment({ code: String(form.get("code")).toUpperCase(), name: form.get("name") }, state.csrfToken);
+      await refreshIdentityData();
+    } catch (error) { setState({ identityError: error.message }); }
+  });
+  document.querySelector("[data-create-user]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await dataSource.createUser({ email: form.get("email"), display_name: form.get("display_name"), password: form.get("password"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null }, state.csrfToken);
+      await refreshIdentityData();
+    } catch (error) { setState({ identityError: error.message }); }
+  });
+  document.querySelectorAll("[data-edit-user]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "user", id: button.dataset.editUser } })));
+  document.querySelectorAll("[data-edit-department]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "department", id: button.dataset.editDepartment } })));
+  document.querySelectorAll("[data-edit-role]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "role", id: button.dataset.editRole } })));
+  document.querySelectorAll("[data-edit-permission]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "permission", id: button.dataset.editPermission } })));
+  document.querySelectorAll("[data-cancel-identity-edit]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: null })));
+  document.querySelector("[data-identity-modal-backdrop]")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) setState({ identityEdit: null });
+  });
+  const bindSubmit = (selector, action) => document.querySelector(selector)?.addEventListener("submit", async (event) => { event.preventDefault(); try { await action(new FormData(event.currentTarget), event.currentTarget); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } });
+  const editUserForm = document.querySelector("form[data-edit-user-form]");
+  editUserForm?.addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await dataSource.updateUser(event.currentTarget.dataset.editUserForm, { display_name: form.get("display_name"), email: form.get("email"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null, is_active: form.get("is_active") === "on", is_suspended: form.get("is_suspended") === "on" }, state.csrfToken); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } });
+  bindSubmit("[data-edit-department-form]", (form, element) => dataSource.updateDepartment(element.dataset.editDepartmentForm, { code: String(form.get("code")).toUpperCase(), name: form.get("name"), is_active: form.get("is_active") === "on" }, state.csrfToken));
+  bindSubmit("[data-create-role]", (form) => dataSource.createRole({ code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
+  bindSubmit("[data-edit-role-form]", (form, element) => dataSource.updateRole(element.dataset.editRoleForm, { code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
+  bindSubmit("[data-create-permission]", (form) => dataSource.createPermission({ code: form.get("code"), description: form.get("description") }, state.csrfToken));
+  bindSubmit("[data-edit-permission-form]", (form, element) => dataSource.updatePermission(element.dataset.editPermissionForm, { code: form.get("code"), description: form.get("description") }, state.csrfToken));
+  const bindDelete = (selector, label, action) => document.querySelectorAll(selector).forEach((button) => button.addEventListener("click", async () => { if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return; try { await action(button); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } }));
+  bindDelete("[data-delete-user]", "this user", (button) => dataSource.deleteUser(button.dataset.deleteUser, state.csrfToken));
+  bindDelete("[data-delete-department]", "this department", (button) => dataSource.deleteDepartment(button.dataset.deleteDepartment, state.csrfToken));
+  bindDelete("[data-delete-role]", "this role", (button) => dataSource.deleteRole(button.dataset.deleteRole, state.csrfToken));
+  bindDelete("[data-delete-permission]", "this permission", (button) => dataSource.deletePermission(button.dataset.deletePermission, state.csrfToken));
 }
 
 function updateDraftLineItem(rowIndex, column, value) {
@@ -596,6 +750,7 @@ function shell(content) {
     ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
     ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
     ["Records", [["emails", "Email Samples", "@"]]],
+    ["Administration", [["users", "Users", "◎"], ["roles", "Roles & Permissions", "◇"], ["departments", "Departments", "▤"]]],
   ];
   const personaNav = {
     requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]]],
@@ -606,18 +761,23 @@ function shell(content) {
   };
   const navGroups = personaNav[state.persona] || allNavGroups;
   const persona = personas[state.persona];
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples" };
+  const displayName = state.authUser?.display_name || persona.name;
+  const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
+  const initials = displayName.split(" ").map((part) => part[0]).slice(0, 2).join("");
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", users: "User Administration", roles: "Roles & Permissions", departments: "Departments" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>
       <aside class="sidebar" id="primarySidebar" aria-hidden="${!state.mobileNavOpen}">
         <div class="sidebar-mobile-header"><span>Navigation</span><button type="button" data-close-mobile-nav aria-label="Close navigation">×</button></div>
-        <div class="brand-block"><div class="brand-mark" aria-hidden="true">AP</div><div><h1>Automated Payment System</h1><p>Finance Operations</p></div></div>
+        <div class="brand-block"><div class="brand-mark" aria-hidden="true">AP</div><div><h1>Automated Payment System</h1><p>Finance Operations</p><div class="brand-api-status backend-${state.backendStatus.state}"><span class="sidebar-status-icon" aria-hidden="true">${state.backendStatus.state === "connected" ? "✓" : state.backendStatus.state === "unavailable" ? "!" : "•"}</span><span>${state.backendStatus.label}</span></div></div></div>
         <nav class="nav-list" aria-label="Primary">${navGroups.map(([group, links]) => `<div class="nav-group"><span class="nav-group-label">${group}</span><div class="nav-group-links">${links.map(([id, label, icon]) => `<button data-tab="${id}" class="${state.tab === id ? "active" : ""}"><span>${icon}</span>${label}</button>`).join("")}</div></div>`).join("")}</nav>
-        <div class="sidebar-footer backend-${state.backendStatus.state}"><span class="sidebar-status-icon" aria-hidden="true">${state.backendStatus.state === "connected" ? "✓" : state.backendStatus.state === "unavailable" ? "!" : "•"}</span><span>${state.backendStatus.label}</span></div>
+        <div class="sidebar-footer-stack">
+          ${state.authUser ? `<div class="sidebar-account"><button type="button" class="sidebar-account-trigger" data-account-menu aria-expanded="false" aria-controls="sidebarAccountMenu"><span class="sidebar-account-avatar">${initials}</span><span class="sidebar-account-copy"><strong>${displayName}</strong><small>${displayRole}</small></span><span class="sidebar-account-chevron" aria-hidden="true">⌃</span></button><div class="sidebar-account-menu" id="sidebarAccountMenu" data-account-menu-panel hidden><button type="button" data-logout>Sign out</button></div></div>` : ""}
+        </div>
       </aside>
       <main>
-        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button><div class="persona-control"><label for="personaSwitcher">View As</label><select id="personaSwitcher">${Object.entries(personas).map(([id, option]) => `<option value="${id}" ${state.persona === id ? "selected" : ""}>${option.label}</option>`).join("")}</select></div><div class="user-chip" aria-label="Current prototype user"><span class="user-chip-avatar">${persona.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span><span class="user-chip-copy"><strong>${persona.name}</strong><small>${persona.label}</small></span></div></div></header>
+        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button><div class="persona-control"><label for="personaSwitcher">View As</label><select id="personaSwitcher">${Object.entries(personas).map(([id, option]) => `<option value="${id}" ${state.persona === id ? "selected" : ""}>${option.label}</option>`).join("")}</select></div></div></header>
         ${content}
         ${unlockRequestModal()}
       </main>
@@ -769,7 +929,7 @@ function dashboardFilters(visibleRequests = requests) {
     <label>Maximum Amount<input data-dashboard-filter="maxAmount" type="number" min="0" placeholder="No limit" value="${filters.maxAmount}"></label>
     <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
     <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
-  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="csv">Export Excel (CSV)</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</section>`;
+  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="xlsx">Export Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</section>`;
 }
 
 function reportRows() {
@@ -785,15 +945,41 @@ function reportRows() {
   });
 }
 
-function downloadDepartmentReport() {
+async function downloadDepartmentReport() {
+  const XLSX = await import("xlsx");
   const columns = ["Request Number", "Submitted", "Department", "Requestor", "Payee", "Type", "Currency", "Amount", "Status", "Current Owner", "Aging Days"];
   const rows = reportRows().map((r) => [r.id, r.submitted, r.department, r.requestor, r.vendor, paymentTypes[r.type].label, r.currency || "PHP", r.amount, r.status, steps.find(([id]) => id === r.currentStep)?.[2] || "System", agingDays(r)]);
-  const csv = [columns, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  link.download = `payment-requests-${state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-")}.csv`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  const report = paymentReportData(reportRows());
+  const summaryRows = [
+    ["Department Transaction Report"],
+    ["Report Number", report.reportNumber],
+    ["Department", report.department],
+    ["Generated", report.generatedAt],
+    ["Generated By", report.generatedBy],
+    ["Transactions", rows.length],
+    ["Applied Filters", report.filters.join(" | ") || "All request types and statuses"],
+    [],
+    ["Currency", "Total"],
+    ...report.totals.map((total) => [total.currency, total.amount]),
+  ];
+  const workbook = XLSX.utils.book_new();
+  const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+  const transactionSheet = XLSX.utils.aoa_to_sheet([columns, ...rows]);
+  summarySheet["!cols"] = [{ wch: 24 }, { wch: 48 }];
+  transactionSheet["!cols"] = [14, 13, 18, 22, 24, 20, 10, 15, 24, 22, 12].map((wch) => ({ wch }));
+  transactionSheet["!autofilter"] = { ref: `A1:K${Math.max(rows.length + 1, 1)}` };
+  for (let rowIndex = 2; rowIndex <= rows.length + 1; rowIndex += 1) {
+    if (transactionSheet[`H${rowIndex}`]) transactionSheet[`H${rowIndex}`].z = "#,##0.00";
+    if (transactionSheet[`K${rowIndex}`]) transactionSheet[`K${rowIndex}`].z = "0";
+  }
+  for (let rowIndex = 10; rowIndex <= summaryRows.length; rowIndex += 1) {
+    if (summarySheet[`B${rowIndex}`]) summarySheet[`B${rowIndex}`].z = "#,##0.00";
+  }
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+  XLSX.utils.book_append_sheet(workbook, transactionSheet, "Transactions");
+  workbook.Props = { Title: "Department Transaction Report", Subject: report.department, Author: report.generatedBy, CreatedDate: new Date() };
+  const departmentSlug = state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-").replaceAll("&", "and");
+  XLSX.writeFile(workbook, `payment-requests-${departmentSlug}-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
 }
 
 const reportEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -1259,8 +1445,20 @@ function emails() {
 
 function render() {
   document.documentElement.dataset.theme = state.theme;
-  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails };
+  if (!["mock", "authenticated"].includes(state.authStatus)) {
+    document.getElementById("root").innerHTML = loginView();
+    bindLogin();
+    return;
+  }
+  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments") };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  if (state.authUser && !state.authUser.roles.includes("system_administrator")) {
+    document.querySelector(".persona-control")?.remove();
+  }
+  if (["users", "roles", "departments"].includes(state.tab) && state.authUser && !state.identityLoading && !state.identityData.departments.length && !state.identityError) {
+    queueMicrotask(loadIdentityData);
+  }
+  bindIdentityForms();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -1279,6 +1477,16 @@ function render() {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem("payment-module-theme", state.theme);
     render();
+  });
+  document.querySelector("[data-account-menu]")?.addEventListener("click", (event) => {
+    const panel = document.querySelector("[data-account-menu-panel]");
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    event.currentTarget.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+  document.querySelector("[data-logout]")?.addEventListener("click", async () => {
+    await dataSource.logout(state.csrfToken).catch(() => undefined);
+    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false });
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);
@@ -1656,7 +1864,8 @@ window.addEventListener("hashchange", () => {
   render();
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
+  if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
+  else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
   else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);
   else if (event.key === "Escape" && state.documentValidation.attachmentPreview) setState({ documentValidation: { ...state.documentValidation, attachmentPreview: "" } });
 });
@@ -1664,3 +1873,14 @@ if (!window.location.hash) window.location.replace(`${window.location.pathname}$
 state = { ...state, ...routeStateFromHash() };
 render();
 dataSource.getSystemStatus().then((backendStatus) => setState({ backendStatus }));
+if (dataSource.mode !== "mock") {
+  dataSource.getSession()
+    .then((session) => setState({ authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, authSubmitting: false }))
+    .catch((error) => {
+      if (dataSource.mode === "hybrid" && error.status !== 401) {
+        setState({ authStatus: "mock", authUser: null, csrfToken: null, authError: "", authSubmitting: false });
+      } else {
+        setState({ authStatus: "unauthenticated", authError: error.status === 401 ? "" : "Authentication service is unavailable.", authSubmitting: false });
+      }
+    });
+}

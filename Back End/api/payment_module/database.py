@@ -18,7 +18,10 @@ class Base(DeclarativeBase):
 def get_db() -> Generator[Session, None, None]:
     with SessionLocal() as session:
         try:
-            session.execute(text("SET TIME ZONE :timezone"), {"timezone": settings.database_timezone})
+            session.execute(
+                text("SELECT set_config('TimeZone', :timezone, false)"),
+                {"timezone": settings.database_timezone},
+            )
             yield session
         except Exception:
             session.rollback()

@@ -222,6 +222,8 @@ Prototype validation: show API/database status without blocking mock workflows.
 - Local development login, logout, and session endpoint.
 - Users, roles, permissions, user roles, permission overrides, departments, activation, and suspension.
 - Server-side authorization dependencies and audited permission changes.
+- Development/test-only retained-session cleanup with test teardown isolation, 30-day retention, supporting indexes,
+  and hard refusal in staging and production.
 - Initial roles: Requestor, Department Head, Finance Associate, Finance Manager, COO, President, Board Member, Authorized Signatory, and System Administrator.
 
 Prototype validation: login screen, authenticated user chip, role-driven navigation, and unauthorized states. Keep a safe development-login path until Life OS SAML is ready.
@@ -548,7 +550,7 @@ When backend development resumes:
 | Phase | Status | Validation reference |
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
-| 01 — Authentication and RBAC | Not started | — |
+| 01 — Authentication and RBAC | In progress | `docs/phase-01-plan.md` (2026-08-25) |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
 | 04 — Documents | Not started | — |
