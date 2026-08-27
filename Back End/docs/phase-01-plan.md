@@ -82,7 +82,8 @@ Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
   additional session accumulation in the current local database.
 - Complete physical mobile-device, cross-browser, accessibility, load/concurrency, penetration, and production
   proxy/HTTPS validation before production promotion.
-- Record every execution and acceptance decision in the development and QA workbook.
+- Phase 01 development items, 22 repeatable test scripts, 22 execution records, and eight acceptance gates are
+  recorded in `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`.
 
 Phase 01 is locally validated. No automatic staging or production deployment is enabled, and retained-session cleanup
 hard-refuses both environments.

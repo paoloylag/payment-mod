@@ -121,6 +121,8 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 - Validation passed: Ruff, 23 backend tests, 90.46% statement coverage (85% minimum), PostgreSQL migration
   upgrade/downgrade/replay, deterministic seed, authenticated administration walkthrough, desktop overflow audit,
   production frontend build, retained-session cleanup, test session teardown, and staging/production cleanup refusal.
+- Development and QA evidence: `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`
+  records 14 Phase 01 development items, 22 repeatable test scripts and executions, and eight accepted gates.
 - Accepted release-readiness limitations: GitHub CI status has not yet been observed; dedicated test-database,
   multi-browser/mobile-device, accessibility, load/concurrency, penetration, and production proxy/HTTPS validation
   remain follow-up work. These are not known Phase 01 functional failures.
