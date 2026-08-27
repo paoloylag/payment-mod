@@ -78,3 +78,25 @@ def test_cleanup_must_be_explicitly_enabled() -> None:
     with SessionLocal() as db:
         with pytest.raises(MaintenanceRefusedError, match="disabled"):
             cleanup_sessions(db, cleanup_settings(session_cleanup_enabled=False), dry_run=True)
+
+
+def test_cleanup_batches_thousands_without_removing_active_sessions() -> None:
+    seed()
+    now = datetime.now(UTC)
+    expired_count = 2005
+    with SessionLocal.begin() as db:
+        user = db.scalar(select(User).where(User.email == "admin@payment.local"))
+        active = make_session(user.id, now)
+        expired = [make_session(user.id, now, expires_at=now - timedelta(days=31)) for _ in range(expired_count)]
+        db.add_all([active, *expired])
+        db.flush()
+        active_id = active.id
+
+    with SessionLocal() as db:
+        result = cleanup_sessions(db, cleanup_settings(session_cleanup_batch_size=500), now=now)
+        assert result.matched == expired_count
+        assert result.deleted == expired_count
+        assert db.get(AuthSession, active_id) is not None
+
+    with SessionLocal.begin() as db:
+        db.query(AuthSession).filter(AuthSession.id == active_id).delete(synchronize_session=False)

@@ -112,20 +112,25 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 
 ## Phase 01 release and validation
 
-- Status: locally validated on 2026-08-26; GitHub CI for the published commit remains to be observed.
+- Status: functional scope locally validated; production release approval blocked on 2026-08-27 by dependency
+  vulnerabilities and incomplete interactive browser coverage. GitHub CI for the current working tree remains to be observed.
 - Reviewed by the project owner with Codex-assisted execution.
 - Published branch/commit: `codex/backend-integration` at `a796a43a8654a6992ae1a423b87b18f15479da80`.
 - Local release archive: `release-artifacts/payment-module-phase-01-a796a43.zip` (generated from the commit and
   intentionally ignored by Git).
 - Archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
-- Validation passed: Ruff, 23 backend tests, 90.46% statement coverage (85% minimum), PostgreSQL migration
-  upgrade/downgrade/replay, deterministic seed, authenticated administration walkthrough, desktop overflow audit,
-  production frontend build, retained-session cleanup, test session teardown, and staging/production cleanup refusal.
+- Validation passed: Ruff, 27 backend tests, 90.59% statement coverage (85% minimum), isolated PostgreSQL migration
+  upgrade/downgrade/replay, deterministic seed, concurrent login/session revocation, 2,005-row cleanup batching,
+  backup/restore comparison, API restart session continuity, Bandit static analysis, production frontend build,
+  frontend/API proxy login/logout, test session teardown, and staging/production cleanup refusal.
 - Development and QA evidence: `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`
-  records 14 Phase 01 development items, 22 repeatable test scripts and executions, and eight accepted gates.
-- Accepted release-readiness limitations: GitHub CI status has not yet been observed; dedicated test-database,
-  multi-browser/mobile-device, accessibility, load/concurrency, penetration, and production proxy/HTTPS validation
-  remain follow-up work. These are not known Phase 01 functional failures.
+  records 14 Phase 01 development items, 36 repeatable test scripts and executions, and eight acceptance gates.
+- Release blockers: `pip-audit` reports vulnerable runtime dependencies including `python-multipart==0.0.20` and
+  `starlette==0.47.3`; `pnpm audit` reports nine advisories (five high, four moderate), including `xlsx`, Vite,
+  Nano ID, and PostCSS. Dependency updates and regression testing are required before production promotion.
+- Remaining execution gaps: GitHub CI status for the current working tree, an actual downloaded-XLSX integrity check,
+  interactive responsive/accessibility testing, Chrome/Firefox/Safari coverage, penetration testing, and production
+  proxy/HTTPS validation. The in-app browser automation runtime failed to load during the 2026-08-27 local audit.
 
 ## Target architecture
 
@@ -564,15 +569,16 @@ When backend development resumes:
 8. Preserve the stable `main` Pages site; backend preview Pages validation remains deferred.
 9. Retain workflow links and accepted limitations in `docs/phase-00-validation.md`.
 10. Re-run the Phase 00 gates after any foundation change.
-11. Use reviewed Phase 01 commit `a796a43` as the baseline for Phase 02; do not enable the retained-session cleanup
-    command in staging or production.
+11. Do not start production promotion or use the current Phase 01 working tree as a Phase 02 release baseline until
+    dependency findings are remediated, the blocked browser checks are executed, and a new reviewed commit is published.
+12. Never enable the retained-session cleanup command in staging or production.
 
 ## Phase status ledger
 
 | Phase | Status | Validation reference |
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
-| 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (local validation 2026-08-26; commit `a796a43`; GitHub CI observation pending) |
+| 01 — Authentication and RBAC | Blocked | `docs/phase-01-plan.md` (functional suite passed 2026-08-27; dependency and browser release blockers recorded) |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
 | 04 — Documents | Not started | — |

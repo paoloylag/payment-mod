@@ -62,7 +62,8 @@ Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
 ## Current verification
 
 - Ruff: passed.
-- Backend suite: 23 passed; 90.46% statement coverage (85% required).
+- Backend suite: 27 passed; 90.59% statement coverage (85% required) against the isolated
+  `payment_module_test` PostgreSQL database.
 - Migration downgrade/replay: passed against PostgreSQL 16.
 - Deterministic identity seed: passed.
 - Live Docker login, session, six-department listing, and logout: passed.
@@ -74,16 +75,24 @@ Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
 - Reviewed release archive generated from the exact commit: `payment-module-phase-01-a796a43.zip`.
 - Release archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
 - Commit published to `origin/codex/backend-integration`: passed.
+- Concurrent logins, fresh cookie issuance, multi-session suspension revocation, and restart continuity: passed.
+- Cleanup of 2,005 expired sessions in 500-row batches while retaining an active session: passed.
+- PostgreSQL custom-format backup/restore with migration and sampled table-count comparison: passed.
+- Bandit API static scan: passed with zero findings across 1,269 lines of code.
+- Integrated frontend build and Vite-proxy login/logout smoke test on port 5176: passed; port 5175 was not used.
 
 ## Accepted limitations and follow-up validation
 
-- Observe and record GitHub CI and Docker packaging for reviewed commit `a796a43`.
-- Provision and exercise a dedicated database through `TEST_DATABASE_URL`; per-test session teardown already prevents
-  additional session accumulation in the current local database.
-- Complete physical mobile-device, cross-browser, accessibility, load/concurrency, penetration, and production
-  proxy/HTTPS validation before production promotion.
-- Phase 01 development items, 22 repeatable test scripts, 22 execution records, and eight acceptance gates are
+- Observe and record GitHub CI for the next reviewed commit. Local Docker packaging and restart continuity pass after
+  rebuilding the previously stale local image from the current source.
+- Remediate the runtime dependency findings from `pip-audit` (`python-multipart` and Starlette among the production
+  chain) and the nine `pnpm audit` advisories (five high, four moderate), then rerun all regression gates.
+- Capture and reopen a real Department Transaction Report download to validate workbook sheets and active-filter data.
+- Complete interactive responsive/accessibility, Chrome/Firefox/Safari, penetration, and production proxy/HTTPS
+  validation before production promotion. Browser automation was blocked by a local runtime loading failure.
+- Phase 01 development items, 36 repeatable test scripts/executions, and eight acceptance gates are
   recorded in `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`.
 
-Phase 01 is locally validated. No automatic staging or production deployment is enabled, and retained-session cleanup
-hard-refuses both environments.
+Phase 01 functional behavior is locally validated, but production release approval is blocked by dependency findings
+and incomplete interactive browser validation. No automatic staging or production deployment is enabled, and
+retained-session cleanup hard-refuses both environments.
