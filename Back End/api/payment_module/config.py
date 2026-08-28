@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://payment_module:payment_module@127.0.0.1:5434/payment_module"
     database_timezone: str = "Asia/Manila"
-    cors_origins: str = "http://127.0.0.1:5175,http://localhost:5175"
+    cors_origins: str = (
+        "http://127.0.0.1:5175,http://localhost:5175,"
+        "http://127.0.0.1:5176,http://localhost:5176"
+    )
     session_cookie_name: str = "aps_session"
     session_idle_minutes: int = 60
     session_absolute_hours: int = 8

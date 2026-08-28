@@ -3,7 +3,7 @@ const allowedModes = new Set(["mock", "hybrid", "api"]);
 export function createDataSource() {
   const configuredMode = String(import.meta.env.VITE_DATA_SOURCE || "hybrid").toLowerCase();
   const mode = allowedModes.has(configuredMode) ? configuredMode : "hybrid";
-  const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8002").replace(/\/$/, "");
+  const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 
   async function apiRequest(path, options = {}) {
     const response = await fetch(`${apiBaseUrl}${path}`, {

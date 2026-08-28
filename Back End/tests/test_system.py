@@ -38,3 +38,17 @@ def test_not_found_uses_problem_details(client) -> None:
     assert response.headers["content-type"].startswith("application/problem+json")
     assert response.json()["code"] == "http_error"
     assert response.json()["request_id"]
+
+
+def test_local_frontend_origins_are_allowed(client) -> None:
+    for port in (5175, 5176):
+        origin = f"http://127.0.0.1:{port}"
+        response = client.options(
+            "/api/v1/system/status",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == origin
