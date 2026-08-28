@@ -25,7 +25,7 @@ Payment Module/                                      # codex/frontend-only-proto
 
 Important repository context:
 
-- The backend worktree is on `codex/backend-integration` at published Phase 01 commit `a796a43` and tracks
+- The backend worktree is on `codex/backend-integration` with Phase 01 remediation commit `44e876e` and tracks
   `origin/codex/backend-integration`.
 - The backend project is tracked under `Back End/`; repository-level CI and Pages workflows are stored in the workspace root `.github/workflows/` directory because GitHub does not discover nested workflows.
 - The canonical frontend is the main `Payment Module/` worktree.
@@ -46,7 +46,7 @@ Important repository context:
 - Preserved the existing payment request, approval, document, voucher, tracker, reporting, email, and persona simulations.
 - Corrected the prototype entry to use an ES module so Vite bundles the JavaScript in production.
 - Added `src/boilerplate-shell.css` to the canonical frontend as an isolated final override layer so existing feedback-phase styles remain intact.
-- Verified the synchronized backend-branch prototype with TypeScript and Vite 7.0.7 production builds.
+- Verified the synchronized backend-branch prototype with TypeScript and Vite 7.3.6 production builds.
 - No local prototype server was running when the frontend folders were consolidated.
 
 Current frontend files staged after reconciliation include:
@@ -112,25 +112,28 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 
 ## Phase 01 release and validation
 
-- Status: functional scope locally validated; production release approval blocked on 2026-08-27 by dependency
-  vulnerabilities and incomplete interactive browser coverage. GitHub CI for the current working tree remains to be observed.
+- Status: Phase 01 validated locally on 2026-08-28. Production promotion remains a separate controlled activity and
+  still requires environment-specific proxy/HTTPS, penetration, Firefox, and Safari validation.
 - Reviewed by the project owner with Codex-assisted execution.
-- Published branch/commit: `codex/backend-integration` at `a796a43a8654a6992ae1a423b87b18f15479da80`.
-- Local release archive: `release-artifacts/payment-module-phase-01-a796a43.zip` (generated from the commit and
+- Reviewed implementation commit: `codex/backend-integration` at `44e876e`.
+- Local release archive: `release-artifacts/payment-module-phase-01-44e876e.zip` (generated from the commit and
   intentionally ignored by Git).
-- Archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
-- Validation passed: Ruff, 27 backend tests, 90.59% statement coverage (85% minimum), isolated PostgreSQL migration
+- Archive SHA-256: `62391B98303C4AD9AE8732C896B77DC2F5CDDDFA0A58F43FE4B2E40E678B0952`.
+- Validation passed: Ruff, 28 backend tests, 90.59% statement coverage (85% minimum), isolated PostgreSQL migration
   upgrade/downgrade/replay, deterministic seed, concurrent login/session revocation, 2,005-row cleanup batching,
   backup/restore comparison, API restart session continuity, Bandit static analysis, production frontend build,
-  frontend/API proxy login/logout, test session teardown, and staging/production cleanup refusal.
+  frontend/API proxy login/logout, CORS coverage for ports 5175/5176, test session teardown, and
+  staging/production cleanup refusal.
 - Development and QA evidence: `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`
   records 14 Phase 01 development items, 36 repeatable test scripts and executions, and eight acceptance gates.
-- Release blockers: `pip-audit` reports vulnerable runtime dependencies including `python-multipart==0.0.20` and
-  `starlette==0.47.3`; `pnpm audit` reports nine advisories (five high, four moderate), including `xlsx`, Vite,
-  Nano ID, and PostCSS. Dependency updates and regression testing are required before production promotion.
-- Remaining execution gaps: GitHub CI status for the current working tree, an actual downloaded-XLSX integrity check,
-  interactive responsive/accessibility testing, Chrome/Firefox/Safari coverage, penetration testing, and production
-  proxy/HTTPS validation. The in-app browser automation runtime failed to load during the 2026-08-27 local audit.
+- Dependency remediation: FastAPI/Starlette/python-multipart, pytest, Vite, Nano ID, and PostCSS were upgraded; SheetJS
+  0.20.3 is vendored from its official distribution. Both `pip-audit` and `pnpm audit` report no known vulnerabilities.
+- Interactive validation: integrated and standalone modes passed in the in-app Chromium browser; standalone mode also
+  passed in desktop Chrome with no console errors, overflow, unnamed buttons, or unlabeled controls. A Finance-filtered
+  report downloaded as a valid XLSX containing Summary and Transactions sheets with two matching rows totaling
+  PHP 113,850.
+- Accepted limitations: Firefox and Safari are unavailable on this Windows validation host. They, penetration testing,
+  production proxy/HTTPS validation, and CI observation for the evidence commit remain production-promotion gates.
 
 ## Target architecture
 
@@ -569,8 +572,8 @@ When backend development resumes:
 8. Preserve the stable `main` Pages site; backend preview Pages validation remains deferred.
 9. Retain workflow links and accepted limitations in `docs/phase-00-validation.md`.
 10. Re-run the Phase 00 gates after any foundation change.
-11. Do not start production promotion or use the current Phase 01 working tree as a Phase 02 release baseline until
-    dependency findings are remediated, the blocked browser checks are executed, and a new reviewed commit is published.
+11. Phase 02 may use the reviewed Phase 01 baseline. Do not start production promotion until the external Firefox,
+    Safari, penetration, and production proxy/HTTPS checks are recorded and approved.
 12. Never enable the retained-session cleanup command in staging or production.
 
 ## Phase status ledger
@@ -578,7 +581,7 @@ When backend development resumes:
 | Phase | Status | Validation reference |
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
-| 01 — Authentication and RBAC | Blocked | `docs/phase-01-plan.md` (functional suite passed 2026-08-27; dependency and browser release blockers recorded) |
+| 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
 | 02 — Master data | Not started | — |
 | 03 — Payment requests | Not started | — |
 | 04 — Documents | Not started | — |

@@ -3,7 +3,7 @@
 Date: 2026-08-26
 Branch: `codex/backend-integration`
 Status: Complete
-Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
+Reviewed implementation commit: `44e876e`
 
 ## Confirmed decisions
 
@@ -62,37 +62,38 @@ Reviewed commit: `a796a43a8654a6992ae1a423b87b18f15479da80`
 ## Current verification
 
 - Ruff: passed.
-- Backend suite: 27 passed; 90.59% statement coverage (85% required) against the isolated
+- Backend suite: 28 passed; 90.59% statement coverage (85% required) against the isolated
   `payment_module_test` PostgreSQL database.
 - Migration downgrade/replay: passed against PostgreSQL 16.
 - Deterministic identity seed: passed.
 - Live Docker login, session, six-department listing, and logout: passed.
-- Vite 7.0.7 production build: passed.
+- Vite 7.3.6 production build: passed.
 - Login page DOM, visual layout, and console: passed.
 - Session cleanup dry run, active-session preservation, batching, audit event, test teardown, and production refusal:
   passed.
 - Authenticated administration walkthrough, list/menu/modal alignment, and desktop horizontal-overflow audit: passed.
-- Reviewed release archive generated from the exact commit: `payment-module-phase-01-a796a43.zip`.
-- Release archive SHA-256: `1504EDA3258F646A9D92A4ECAA42B664EBA872223987A31441A36AD0B33F7172`.
-- Commit published to `origin/codex/backend-integration`: passed.
+- Reviewed release archive generated from the exact implementation commit: `payment-module-phase-01-44e876e.zip`.
+- Release archive SHA-256: `62391B98303C4AD9AE8732C896B77DC2F5CDDDFA0A58F43FE4B2E40E678B0952`.
 - Concurrent logins, fresh cookie issuance, multi-session suspension revocation, and restart continuity: passed.
 - Cleanup of 2,005 expired sessions in 500-row batches while retaining an active session: passed.
 - PostgreSQL custom-format backup/restore with migration and sampled table-count comparison: passed.
 - Bandit API static scan: passed with zero findings across 1,269 lines of code.
 - Integrated frontend build and Vite-proxy login/logout smoke test on port 5176: passed; port 5175 was not used.
+- `pip-audit` and `pnpm audit`: passed with no known vulnerabilities after dependency remediation.
+- Interactive administration, responsive/modal containment, accessible labels, standalone Chrome rendering, and
+  console-error checks: passed.
+- Finance-filtered Excel download: passed; Summary and Transactions sheets contained two Finance rows totaling
+  PHP 113,850 with no workbook formula errors.
 
 ## Accepted limitations and follow-up validation
 
-- Observe and record GitHub CI for the next reviewed commit. Local Docker packaging and restart continuity pass after
-  rebuilding the previously stale local image from the current source.
-- Remediate the runtime dependency findings from `pip-audit` (`python-multipart` and Starlette among the production
-  chain) and the nine `pnpm audit` advisories (five high, four moderate), then rerun all regression gates.
-- Capture and reopen a real Department Transaction Report download to validate workbook sheets and active-filter data.
-- Complete interactive responsive/accessibility, Chrome/Firefox/Safari, penetration, and production proxy/HTTPS
-  validation before production promotion. Browser automation was blocked by a local runtime loading failure.
+- Observe and record GitHub CI for the evidence commit. Local Docker packaging and restart continuity pass after
+  rebuilding the local image from the remediated source.
+- Firefox and Safari are not installed on the Windows validation host. Complete those browser checks, penetration
+  testing, and production proxy/HTTPS validation before production promotion.
 - Phase 01 development items, 36 repeatable test scripts/executions, and eight acceptance gates are
   recorded in `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`.
 
-Phase 01 functional behavior is locally validated, but production release approval is blocked by dependency findings
-and incomplete interactive browser validation. No automatic staging or production deployment is enabled, and
-retained-session cleanup hard-refuses both environments.
+Phase 01 is locally validated with the external browser and production-environment checks above recorded as accepted
+limitations. No automatic staging or production deployment is enabled, and retained-session cleanup hard-refuses both
+environments.
