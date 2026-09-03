@@ -272,7 +272,7 @@ Detailed plan: `docs/phase-02-plan.md`.
 
 Prototype validation: replace form dropdown mocks and administration reference lists with API data.
 
-Implementation status (2026-09-03): reversible migration `20260903_0005`, master-data models/services/APIs, deterministic reference seeds, external-vendor adapter contract, protected bank-data handling, Finance-controlled bank-access administration, eight administration pages, and API-backed request dropdowns with standalone mock fallback are implemented locally. Static migration generation, lint, frontend production build, and browser mock-mode walkthrough pass. Live PostgreSQL migration and database-dependent pytest validation remain open because the installed Docker Desktop currently exits during startup in its inference component.
+Implementation status (2026-09-03): reversible migration `20260903_0005`, master-data models/services/APIs, deterministic reference seeds, external-vendor adapter contract, protected bank-data handling, Finance-controlled bank-access administration, eight administration pages, and API-backed request dropdowns with standalone mock fallback are implemented locally. Static migration generation, lint, frontend production build, and browser mock-mode walkthrough pass. Live PostgreSQL 17 migrations reached head on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 continues to encounter a host-level Windows Unix-socket error; local validation therefore uses a loopback-only native PostgreSQL service on port `5434` without changing production configuration.
 
 ### Phase 03 — Payment requests
 

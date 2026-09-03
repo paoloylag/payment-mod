@@ -17,7 +17,7 @@ Implemented locally:
 - API-backed department/cost-center, vendor, account, currency, and payment-method sources with hybrid/mock fallback.
 - Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, vendor masking, encryption, and Finance Manager revocation of System Administrator bank access.
 
-Passed so far: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, encryption/redaction checks, and browser walkthrough of all Master Data routes and request dropdown fallbacks. Live migration and database-dependent pytest execution remain pending because Docker Desktop 4.83 exits before starting PostgreSQL due to its local inference socket error.
+Passed on 2026-09-03: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, encryption/redaction checks, and browser walkthrough of all Master Data routes and request dropdown fallbacks. Live PostgreSQL 17 migrations reached `20260903_0005` on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 still encounters a host-level Windows Unix-socket error, so local database validation uses the loopback-only native PostgreSQL service on port `5434`; this does not alter production configuration.
 
 ## Confirmed decisions
 
