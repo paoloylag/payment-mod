@@ -207,6 +207,11 @@ let state = {
   identityLoading: false,
   identityError: "",
   identityEdit: null,
+  masterData: {},
+  masterDataLoading: false,
+  masterDataError: "",
+  masterDataEdit: null,
+  bankAccessUsers: null,
   persona: "all",
   tab: "dashboard",
   approvalView: "list",
@@ -284,6 +289,14 @@ const tabRoutes = {
   users: "/administration/users",
   roles: "/administration/roles",
   departments: "/administration/departments",
+  costCenters: "/master-data/cost-centers",
+  vendors: "/master-data/vendors",
+  accounts: "/master-data/chart-of-accounts",
+  taxCodes: "/master-data/tax-codes",
+  currencies: "/master-data/currencies",
+  paymentMethods: "/master-data/payment-methods",
+  bankAccounts: "/master-data/company-bank-accounts",
+  documentTypes: "/master-data/document-types",
 };
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
@@ -304,6 +317,10 @@ function routeStateFromHash() {
     return { tab: "emails", emailStep: emailId ?? state.emailStep, trackerRequestId: null, dashboardMetric: null };
   }
   if (parts[0] === "administration") return { tab: ["users", "roles", "departments"].includes(parts[1]) ? parts[1] : "users" };
+  if (parts[0] === "master-data") {
+    const resourceTabs = { "cost-centers": "costCenters", vendors: "vendors", "chart-of-accounts": "accounts", "tax-codes": "taxCodes", currencies: "currencies", "payment-methods": "paymentMethods", "company-bank-accounts": "bankAccounts", "document-types": "documentTypes" };
+    return { tab: resourceTabs[parts[1]] || "costCenters" };
+  }
   if (parts[0] === "dashboard" && parts[1] === "request" && requests.some((r) => r.id === parts[2])) return { tab: "requestDetail", requestDetailId: parts[2], selectedId: parts[2], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
   if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardRequestId: null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null, requestDetailId: null };
   return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
@@ -389,9 +406,15 @@ const voucherFor = (r, allowCreation = false) => {
     </section>
   ${collapsibleVoucher ? `</div></details>` : `</div>`}`;
 };
-const fieldInput = (field) => field.kind === "textarea"
-  ? `<label class="full">${field.label}<textarea placeholder="${field.value}"></textarea></label>`
-  : `<label>${field.label}<input type="${field.kind === "date" ? "date" : "text"}" ${field.label === "Last Day of the Event" ? "data-event-end-date" : ""} ${field.kind === "date" ? `value="${field.label === "Last Day of the Event" && state.draftType === "cashAdvance" ? state.cashAdvanceEventEnd : field.value}"` : `placeholder="${field.value}"`}></label>`;
+const fieldInput = (field) => {
+  if (field.label === "Department") {
+    const costCenters = state.masterData["cost-centers"] || [];
+    return `<label>Department / Cost Center<select data-department-cost-center><option value="">Select department</option>${costCenters.filter((item) => item.is_active !== false).map((item) => `<option value="${item.id}">${escapeHtml(item.name)} (${escapeHtml(item.code)})</option>`).join("")}</select></label>`;
+  }
+  return field.kind === "textarea"
+    ? `<label class="full">${field.label}<textarea placeholder="${field.value}"></textarea></label>`
+    : `<label>${field.label}<input type="${field.kind === "date" ? "date" : "text"}" ${field.label === "Last Day of the Event" ? "data-event-end-date" : ""} ${field.kind === "date" ? `value="${field.label === "Last Day of the Event" && state.draftType === "cashAdvance" ? state.cashAdvanceEventEnd : field.value}"` : `placeholder="${field.value}"`}></label>`;
+};
 const uploadInput = (documentName) => `<label class="upload-row"><span>${documentName}</span><input type="file" ${documentName.includes("Billing / Quotation / SOA") ? "multiple" : ""}></label>`;
 
 function validationRequirementComplete(requirement) {
@@ -591,6 +614,126 @@ function bindIdentityForms() {
   bindDelete("[data-delete-permission]", "this permission", (button) => dataSource.deletePermission(button.dataset.deletePermission, state.csrfToken));
 }
 
+const masterDataConfig = {
+  costCenters: { resource: "cost-centers", title: "Cost Centers", description: "One synchronized cost center for each department.", readonly: true },
+  vendors: { resource: "vendors", title: "Vendors", description: "Read-only vendor records supplied through the external-system adapter.", readonly: true },
+  accounts: { resource: "chart-of-accounts", title: "Chart of Accounts", description: "Hierarchical posting and summary accounts." },
+  taxCodes: { resource: "tax-codes", title: "Tax Codes", description: "Finance-approved VAT and EWT definitions." },
+  currencies: { resource: "currencies", title: "Currencies", description: "Supported transaction currencies." },
+  paymentMethods: { resource: "payment-methods", title: "Payment Methods", description: "Supported payment channels and reference rules." },
+  bankAccounts: { resource: "company-bank-accounts", title: "Company Bank Accounts", description: "Masked bank references protected by separate Finance access." },
+  documentTypes: { resource: "document-types", title: "Document Types", description: "Reusable request-document definitions." },
+};
+
+async function loadMasterData(tab = state.tab) {
+  const config = masterDataConfig[tab];
+  if (!config || state.masterDataLoading) return;
+  state.masterDataLoading = true;
+  state.masterDataError = "";
+  render();
+  try {
+    const [items, bankAccessUsers] = await Promise.all([
+      dataSource.listMasterData(config.resource),
+      tab === "bankAccounts" ? dataSource.listBankAccess().catch(() => []) : Promise.resolve(state.bankAccessUsers),
+    ]);
+    setState({ masterData: { ...state.masterData, [config.resource]: items }, bankAccessUsers, masterDataLoading: false });
+  } catch (error) {
+    setState({ masterDataLoading: false, masterDataError: error.status === 403 ? "You do not have permission to view this master data." : error.message });
+  }
+}
+
+async function loadRequestReferenceData() {
+  if (state.masterDataLoading) return;
+  state.masterDataLoading = true;
+  try {
+    const resources = ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"];
+    const results = await Promise.all(resources.map((resource) => dataSource.listMasterData(resource)));
+    setState({ masterData: { ...state.masterData, ...Object.fromEntries(resources.map((resource, index) => [resource, results[index]])) }, masterDataLoading: false });
+  } catch (error) {
+    setState({ masterDataLoading: false, masterDataError: error.message });
+  }
+}
+
+function masterDataModal() {
+  const edit = state.masterDataEdit;
+  if (!edit) return "";
+  const config = masterDataConfig[edit.tab];
+  const items = state.masterData[config.resource] || [];
+  const item = items.find((candidate) => String(candidate.id || candidate.code) === String(edit.id));
+  const isEdit = Boolean(item);
+  const common = `<label>Code<input name="code" value="${escapeHtml(item?.code || "")}" ${isEdit && edit.tab === "currencies" ? "readonly" : ""} required maxlength="40"></label><label>Display name<input name="name" value="${escapeHtml(item?.name || "")}" required maxlength="160"></label>`;
+  let fields = common;
+  if (edit.tab === "accounts") fields += `<label>Account type<select name="account_type"><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option><option value="income">Income</option><option value="expense">Expense</option></select></label><label>Normal balance<select name="normal_balance"><option value="debit">Debit</option><option value="credit">Credit</option></select></label><label class="identity-checkbox"><input name="is_posting" type="checkbox" ${item?.is_posting !== false ? "checked" : ""}> Posting account</label>`;
+  if (edit.tab === "taxCodes") fields += `<label>VAT classification<input name="vat_classification" value="${escapeHtml(item?.vat_classification || "")}" required></label><label>VAT rate<input name="vat_rate" type="number" min="0" max="100" step="0.0001" value="${item?.vat_rate ?? 0}" required></label><label>EWT classification<input name="ewt_classification" value="${escapeHtml(item?.ewt_classification || "")}" required></label><label>EWT rate<input name="ewt_rate" type="number" min="0" max="100" step="0.0001" value="${item?.ewt_rate ?? 0}" required></label>`;
+  if (edit.tab === "currencies") fields = `${common}<label>Symbol<input name="symbol" value="${escapeHtml(item?.symbol || "")}" required maxlength="8"></label><label>Decimal precision<input name="decimal_precision" type="number" min="0" max="6" value="${item?.decimal_precision ?? 2}" required></label>`;
+  if (edit.tab === "paymentMethods") fields += `<label>Category<input name="category" value="${escapeHtml(item?.category || "")}" required></label><label class="identity-checkbox"><input name="requires_reference" type="checkbox" ${item?.requires_reference ? "checked" : ""}> Requires transaction reference</label>`;
+  if (edit.tab === "bankAccounts") fields = `${isEdit ? `<input type="hidden" name="code" value="${escapeHtml(item.code)}">` : `<label>Code<input name="code" required maxlength="40"></label>`}<label>Bank name<input name="bank_name" value="${escapeHtml(item?.bank_name || "")}" required></label><label>Account name<input name="account_name" value="${escapeHtml(item?.account_name || "")}" required></label><label>Account number<input name="account_number" ${isEdit ? "placeholder=\"Leave blank to keep the current value\"" : "required"} minlength="4"></label><label>Currency<select name="currency_code">${["PHP", "USD", "EUR"].map((code) => `<option ${item?.currency_code === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Branch<input name="branch" value="${escapeHtml(item?.branch || "")}"></label>`;
+  if (edit.tab === "documentTypes") fields += `<label>Copy requirement<select name="copy_requirement"><option value="soft">Soft copy</option><option value="hard">Hard copy</option><option value="both">Both</option></select></label>`;
+  if (!isEdit && !["currencies", "bankAccounts"].includes(edit.tab)) fields += `<label>Description<textarea name="description"></textarea></label>`;
+  if (isEdit) fields += `<label class="identity-checkbox"><input name="is_active" type="checkbox" ${item.is_active !== false ? "checked" : ""}> Active</label>`;
+  return `<div class="identity-modal-backdrop" data-master-modal-backdrop><section class="identity-modal" role="dialog" aria-modal="true" aria-labelledby="master-modal-title"><div class="identity-modal-header"><div><span class="eyebrow">Master Data</span><h3 id="master-modal-title">${isEdit ? "Edit" : "Add"} ${config.title.replace(/s$/, "")}</h3><p>Changes are validated and recorded in the audit trail.</p></div><button type="button" class="identity-modal-close" data-cancel-master-edit aria-label="Close">×</button></div><form data-master-form>${fields}<div class="identity-form-actions"><button type="button" data-cancel-master-edit>Cancel</button><button type="submit" class="primary-button">${isEdit ? "Save changes" : "Add record"}</button></div></form></section></div>`;
+}
+
+function masterDataPage(tab) {
+  const config = masterDataConfig[tab];
+  if (state.masterDataLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading master data"></div></section>`;
+  if (state.masterDataError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.masterDataError)}</p></section>`;
+  const items = state.masterData[config.resource] || [];
+  const rows = items.length ? items.map((item) => {
+    const id = item.id || item.code;
+    const secondary = item.masked_account_number || item.default_currency || item.account_type || item.category || item.copy_requirement || "Reference data";
+    const active = item.status ? item.status === "active" : item.is_active !== false;
+    const actions = config.readonly ? "" : `<div class="identity-action-menu"><button type="button" class="identity-action-trigger" data-master-edit="${escapeHtml(id)}" aria-label="Edit ${escapeHtml(item.name)}">⋮</button></div>`;
+    return `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(secondary)}</small></div><div><span>${escapeHtml(item.code)}</span><small>Official code</small></div><span class="status-pill ${active ? "success" : "danger"}">${active ? "Active" : "Inactive"}</span>${actions}</article>`;
+  }).join("") : `<div class="empty-state">No records are configured yet.</div>`;
+  const accessPanel = tab === "bankAccounts" ? `<section class="panel"><div class="panel-header"><div><h3>Sensitive Bank Access</h3><p>Finance Managers can grant or revoke protected bank access independently of other administrator permissions.</p></div></div><div class="identity-list">${(state.bankAccessUsers || []).map((user) => `<article><div><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email)}</small></div><div><span>Sensitive account values</span><small>Separate permission</small></div><span class="status-pill ${user.has_sensitive_access ? "success" : "danger"}">${user.has_sensitive_access ? "Allowed" : "Denied"}</span><button type="button" data-bank-access-user="${user.user_id}" data-bank-access-allowed="${user.has_sensitive_access ? "false" : "true"}">${user.has_sensitive_access ? "Revoke" : "Grant"}</button></article>`).join("") || `<div class="empty-state">No eligible users are available.</div>`}</div></section>` : "";
+  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${accessPanel}</div></section>${masterDataModal()}`;
+}
+
+function masterPayload(tab, form) {
+  const text = (name) => String(form.get(name) || "").trim();
+  if (tab === "currencies") return { code: text("code").toUpperCase(), name: text("name"), symbol: text("symbol"), decimal_precision: Number(text("decimal_precision")) };
+  if (tab === "accounts") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), account_type: text("account_type"), normal_balance: text("normal_balance"), is_posting: form.get("is_posting") === "on" };
+  if (tab === "taxCodes") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), vat_classification: text("vat_classification"), vat_rate: Number(text("vat_rate")), ewt_classification: text("ewt_classification"), ewt_rate: Number(text("ewt_rate")) };
+  if (tab === "paymentMethods") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), category: text("category"), requires_reference: form.get("requires_reference") === "on" };
+  if (tab === "bankAccounts") return Object.fromEntries(Object.entries({ code: text("code").toUpperCase(), bank_name: text("bank_name"), account_name: text("account_name"), account_number: text("account_number"), currency_code: text("currency_code"), branch: text("branch") }).filter(([, value]) => value !== ""));
+  if (tab === "documentTypes") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), allowed_request_types: [], copy_requirement: text("copy_requirement") };
+  return { code: text("code").toUpperCase(), name: text("name"), description: text("description") };
+}
+
+function bindMasterData() {
+  const config = masterDataConfig[state.tab];
+  if (!config) return;
+  document.querySelector("[data-add-master]")?.addEventListener("click", () => setState({ masterDataEdit: { tab: state.tab, id: null } }));
+  document.querySelectorAll("[data-master-edit]").forEach((button) => button.addEventListener("click", () => setState({ masterDataEdit: { tab: state.tab, id: button.dataset.masterEdit } })));
+  document.querySelectorAll("[data-cancel-master-edit]").forEach((button) => button.addEventListener("click", () => setState({ masterDataEdit: null })));
+  document.querySelector("[data-master-modal-backdrop]")?.addEventListener("click", (event) => { if (event.target === event.currentTarget) setState({ masterDataEdit: null }); });
+  document.querySelector("[data-master-form]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const edit = state.masterDataEdit;
+    const payload = masterPayload(edit.tab, new FormData(event.currentTarget));
+    const isEdit = Boolean(edit.id);
+    if (isEdit) payload.is_active = event.currentTarget.elements.is_active?.checked ?? undefined;
+    try {
+      if (isEdit) await dataSource.updateMasterData(config.resource, edit.id, payload, state.csrfToken);
+      else await dataSource.createMasterData(config.resource, payload, state.csrfToken);
+      state.masterDataEdit = null;
+      state.masterData[config.resource] = [];
+      await loadMasterData(state.tab);
+    } catch (error) { setState({ masterDataError: error.message }); }
+  });
+  document.querySelectorAll("[data-bank-access-user]").forEach((button) => button.addEventListener("click", async () => {
+    const allowed = button.dataset.bankAccessAllowed === "true";
+    const reason = window.prompt(`${allowed ? "Grant" : "Revoke"} sensitive bank access. Enter the audit reason:`);
+    if (!reason || reason.trim().length < 5) return;
+    try {
+      await dataSource.changeBankAccess({ user_id: button.dataset.bankAccessUser, allowed, reason: reason.trim() }, state.csrfToken);
+      state.masterData[config.resource] = [];
+      await loadMasterData(state.tab);
+    } catch (error) { setState({ masterDataError: error.message }); }
+  }));
+}
+
 function updateDraftLineItem(rowIndex, column, value) {
   const lineItemsByType = { ...state.lineItemsByType };
   lineItemsByType[state.draftType] = lineItemsByType[state.draftType].map((row, index) => index === rowIndex ? { ...row, [column]: value } : row);
@@ -751,11 +894,12 @@ function shell(content) {
     ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
     ["Records", [["emails", "Email Samples", "@"]]],
     ["Administration", [["users", "Users", "◎"], ["roles", "Roles & Permissions", "◇"], ["departments", "Departments", "▤"]]],
+    ["Master Data", [["costCenters", "Cost Centers", "▦"], ["vendors", "Vendors", "◫"], ["accounts", "Chart of Accounts", "≡"], ["taxCodes", "Tax Codes", "%"], ["currencies", "Currencies", "¤"], ["paymentMethods", "Payment Methods", "↔"], ["bankAccounts", "Bank Accounts", "▣"], ["documentTypes", "Document Types", "□"]]],
   ];
   const personaNav = {
     requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]]],
     financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]]],
-    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Reference", [["documents", "Document Rules", "□"]]]],
+    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Master Data", [["costCenters", "Cost Centers", "▦"], ["vendors", "Vendors", "◫"], ["accounts", "Chart of Accounts", "≡"], ["taxCodes", "Tax Codes", "%"], ["currencies", "Currencies", "¤"], ["paymentMethods", "Payment Methods", "↔"], ["bankAccounts", "Bank Accounts", "▣"], ["documentTypes", "Document Types", "□"]]]],
     coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
     president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
   };
@@ -764,7 +908,7 @@ function shell(content) {
   const displayName = state.authUser?.display_name || persona.name;
   const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
   const initials = displayName.split(" ").map((part) => part[0]).slice(0, 2).join("");
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", users: "User Administration", roles: "Roles & Permissions", departments: "Departments" };
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", bankAccounts: "Company Bank Accounts", documentTypes: "Document Types" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>
@@ -1108,7 +1252,8 @@ function requestBuilder() {
   const isPoPayment = state.draftType === "poPayment";
   const poRecord = poSystemRecords.find((record) => record.id === state.selectedPO) || poSystemRecords[0];
   const effectiveAmount = isPoPayment ? poRecord.amount : draftAmount;
-  const currencyField = `<label>Currency<select data-draft-currency><option value="PHP" ${state.draftCurrency === "PHP" ? "selected" : ""}>PHP</option><option value="USD" ${state.draftCurrency === "USD" ? "selected" : ""}>USD</option><option value="EUR" ${state.draftCurrency === "EUR" ? "selected" : ""}>EUR</option><option value="OTHER" ${state.draftCurrency === "OTHER" ? "selected" : ""}>Other</option></select></label>${state.draftCurrency === "OTHER" ? `<label>Currency Code<input data-other-currency maxlength="8" placeholder="e.g. JPY" value="${state.otherCurrency}"></label>` : ""}`;
+  const currencyOptions = state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso" }, { code: "USD", name: "US Dollar" }, { code: "EUR", name: "Euro" }];
+  const currencyField = `<label>Currency<select data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => `<option value="${item.code}" ${state.draftCurrency === item.code ? "selected" : ""}>${item.code} — ${escapeHtml(item.name)}</option>`).join("")}</select></label>`;
   const cashAdvanceFields = config.mandatoryFields.map((field) => `${fieldInput(field)}${field.label === "Last Day of the Event" ? `<label>Date to Liquidate <small>(System Generated: 15 Days After Event)</small><input data-liquidation-due-date type="date" value="${state.cashAdvanceLiquidationDate}" readonly></label>` : ""}`).join("");
   const systemDateField = `<input type="hidden" name="requestDate" value="${state.requestCreatedDate}">`;
   const primaryFields = state.draftType === "reimbursement"
@@ -1119,7 +1264,7 @@ function requestBuilder() {
     ? `${systemDateField}<label>Cash Advance Requestor<input placeholder="Enter cash advance requestor"></label>${cashAdvanceFields}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
     : isPoPayment
     ? `${systemDateField}<label>P.O. Reference Number <small>(From P.O. System)</small><select data-po-reference>${poSystemRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id}</option>`).join("")}</select></label><label>Requestor <small>(System Generated)</small><input value="${poRecord.requestor}" readonly></label><label>Payee / Vendor <small>(System Generated)</small><input value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><input id="draftAmount" type="number" value="${poRecord.amount}" readonly></label>${currencyField}<label>Department <small>(System Generated)</small><input value="${poRecord.department}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
-    : `${systemDateField}<label>Requestor<input placeholder="Enter requestor's full name"></label><label>Payee / Vendor<input placeholder="Enter payee or vendor name"></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}`;
+    : `${systemDateField}<label>Requestor<input placeholder="Enter requestor's full name"></label><label>Payee / Vendor<select data-vendor-reference><option value="">Select vendor</option>${(state.masterData.vendors || []).map((vendor) => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}`;
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><div class="cash-return-instructions"><span>Excess Cash Advance Return</span><strong>Security Bank · Account No. 0012-3456-7890</strong><small>Upload proof of transfer with the liquidation request.</small></div></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section class="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section>` : "";
@@ -1127,7 +1272,7 @@ function requestBuilder() {
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${poSupplierNotice}${liquidationSummary}
     ${isCashAdvance || isLiquidation ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted Request</label>`}
     <div class="line-items-section"><div class="line-items-header"><div><span class="eyebrow">Request Breakdown</span><h4>Line Items</h4></div><button type="button" class="add-line-button" data-add-line="true">+ Add Line Item</button></div><div class="table-wrap"><table class="line-item-table"><thead><tr>${config.lineColumns.map((column) => `<th>${column}</th>`).join("")}<th><span class="sr-only">Actions</span></th></tr></thead><tbody>
-      ${lineItems.map((item, rowIndex) => `<tr>${config.lineColumns.map((column) => { const isFile = column === "Receipt" || column === "Attachment"; const example = lineItemExamples[state.draftType]?.[0]?.[column] ?? column; return isFile ? `<td><input type="file" aria-label="${column} for line ${rowIndex + 1}"></td>` : `<td><input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${item[column] || ""}" placeholder="${example}"></td>`; }).join("")}<td><button type="button" class="remove-line-button" data-remove-line="${rowIndex}" title="Remove line item" aria-label="Remove line item ${rowIndex + 1}" ${lineItems.length === 1 ? "disabled" : ""}>×</button></td></tr>`).join("")}
+      ${lineItems.map((item, rowIndex) => `<tr>${config.lineColumns.map((column) => { const isFile = column === "Receipt" || column === "Attachment"; const example = lineItemExamples[state.draftType]?.[0]?.[column] ?? column; const references = column === "Expense Account" ? (state.masterData["chart-of-accounts"] || []) : column.includes("Department") ? (state.masterData["cost-centers"] || []) : null; if (isFile) return `<td><input type="file" aria-label="${column} for line ${rowIndex + 1}"></td>`; if (references) return `<td><select data-line-row="${rowIndex}" data-line-column="${column}"><option value="">Select</option>${references.filter((entry) => entry.is_active !== false).map((entry) => `<option value="${escapeHtml(entry.code)}" ${item[column] === entry.code ? "selected" : ""}>${escapeHtml(entry.name)} (${escapeHtml(entry.code)})</option>`).join("")}</select></td>`; return `<td><input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${item[column] || ""}" placeholder="${example}"></td>`; }).join("")}<td><button type="button" class="remove-line-button" data-remove-line="${rowIndex}" title="Remove line item" aria-label="Remove line item ${rowIndex + 1}" ${lineItems.length === 1 ? "disabled" : ""}>×</button></td></tr>`).join("")}
     </tbody><tfoot><tr><th colspan="${config.lineColumns.length}"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "P.O. system amount" : "Total"}</span><strong>${money(effectiveAmount, state.draftCurrency)}</strong></th><td></td></tr></tfoot></table></div></div>${accountability}</div>
     <div class="panel"><div class="panel-header validation-preview-header"><h3>Validation Preview</h3><span class="count" data-validation-count>0/${config.required.length}</span></div><ul class="check-list">${config.required.map((item) => `<li data-validation-requirement="${item}"><span class="warn">!</span>${item}</li>`).join("")}</ul>
     ${state.draftType === "reimbursement" || isPoPayment ? `<div class="line-attachment-notice"><strong>Documents are attached per line item.</strong><p>${isPoPayment ? "Approved P.O. and supplier records are retrieved from the P.O. system." : "Add the corresponding invoice or receipt in each reimbursement line."}</p></div>` : `<h4>Document Uploads</h4><div class="upload-list">${config.uploadDocuments.map(uploadInput).join("")}</div>`}
@@ -1450,7 +1595,7 @@ function render() {
     bindLogin();
     return;
   }
-  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments") };
+  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
   if (state.authUser && !state.authUser.roles.includes("system_administrator")) {
     document.querySelector(".persona-control")?.remove();
@@ -1459,6 +1604,9 @@ function render() {
     queueMicrotask(loadIdentityData);
   }
   bindIdentityForms();
+  if (masterDataConfig[state.tab] && !state.masterDataLoading && !(state.masterData[masterDataConfig[state.tab].resource]) && !state.masterDataError) queueMicrotask(() => loadMasterData(state.tab));
+  if (state.tab === "request" && !state.masterDataLoading && ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some((resource) => !state.masterData[resource]) && !state.masterDataError) queueMicrotask(loadRequestReferenceData);
+  bindMasterData();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -1834,7 +1982,7 @@ function render() {
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest })));
   document.querySelector("[data-add-line]")?.addEventListener("click", addDraftLineItem);
   document.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => removeDraftLineItem(Number(button.dataset.removeLine))));
-  document.querySelectorAll("[data-line-row]").forEach((input) => input.addEventListener("input", () => updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, input.value)));
+  document.querySelectorAll("[data-line-row]").forEach((input) => input.addEventListener(input.tagName === "SELECT" ? "change" : "input", () => updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, input.value)));
   document.querySelectorAll("[data-print-voucher]").forEach((button) => button.addEventListener("click", () => window.print()));
   document.getElementById("unbudgeted")?.addEventListener("change", (event) => setState({ budgeted: !event.target.checked }));
   document.getElementById("liquidationAdvanceAmount")?.addEventListener("input", (event) => {
@@ -1865,6 +2013,7 @@ window.addEventListener("hashchange", () => {
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
+  else if (event.key === "Escape" && state.masterDataEdit) setState({ masterDataEdit: null });
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
   else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);
   else if (event.key === "Escape" && state.documentValidation.attachmentPreview) setState({ documentValidation: { ...state.documentValidation, attachmentPreview: "" } });

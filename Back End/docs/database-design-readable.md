@@ -249,3 +249,11 @@ These decisions will refine the implementation, but the overall structure descri
 The database will provide one connected, traceable record from request creation through final payment. It is designed to give employees a clear workflow while giving Finance and management the controls, history, and reporting required for reliable payment operations.
 
 The technical schema and implementation notes are available in [Payment Module Database Design](database-design.md).
+
+## Phase 02 master data now being implemented
+
+The system now has a defined database structure for cost centers, accounting codes, taxes, currencies, payment methods, company bank accounts, and document types. Each approved department has one matching cost center, and future departments can be added through the administration workflow.
+
+Vendor information will continue to come from the external vendor system. The Payment Module keeps only the external reference and the historical vendor details needed by a submitted transaction. Ordinary vendor lookups mask bank-account numbers.
+
+Company bank-account numbers are encrypted rather than stored as readable text. Finance Managers control the separate permission that allows protected bank operations, including the ability to revoke that access from a System Administrator without removing unrelated administrator responsibilities.

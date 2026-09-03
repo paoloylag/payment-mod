@@ -4,7 +4,19 @@ from sqlalchemy import select
 
 from .config import get_settings
 from .database import SessionLocal
-from .models import Department, Permission, Role, RolePermission, SystemSetting, User, UserRole
+from .models import (
+    CostCenter,
+    Currency,
+    Department,
+    DocumentType,
+    PaymentMethod,
+    Permission,
+    Role,
+    RolePermission,
+    SystemSetting,
+    User,
+    UserRole,
+)
 from .security import hash_password
 
 SEED_SETTINGS = {
@@ -15,12 +27,21 @@ SEED_SETTINGS = {
 }
 
 DEPARTMENTS = {
-    "DT": "DT",
-    "OPERATIONS": "Operations",
-    "MARKETING": "Marketing",
-    "FINANCE": "Finance",
-    "ACADEMICS": "Academics",
-    "P&C": "P&C",
+    "OCP": "Office of the College President",
+    "PNC": "People & Culture",
+    "OOG": "Office of Growth",
+    "DT": "Technology / Digital Transformation",
+    "ACAD": "Academics / Residential Campus",
+    "OPS": "Operations",
+    "FIN": "Finance",
+    "MKTG": "Marketing",
+}
+DEPARTMENT_CODE_ALIASES = {
+    "P&C": "PNC",
+    "ACADEMICS": "ACAD",
+    "OPERATIONS": "OPS",
+    "FINANCE": "FIN",
+    "MARKETING": "MKTG",
 }
 ROLES = {
     "requestor": "Requestor",
@@ -42,18 +63,39 @@ PERMISSIONS = {
     "roles.read": "List roles",
     "roles.assign": "Assign roles to users",
     "permissions.assign": "Assign explicit user permission overrides",
+    "master_data.read": "Read active master data",
+    "master_data.manage": "Create and maintain master data",
+    "vendors.read": "Search external vendor reference data",
+    "accounts.read": "Read the chart of accounts",
+    "accounts.manage": "Create and maintain the chart of accounts",
+    "bank_accounts.read": "Read masked company bank accounts",
+    "bank_accounts.manage_sensitive": "Create, update, and reveal protected company bank accounts",
+    "bank_accounts.manage_access": "Grant or revoke protected bank-account access",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
-ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
+ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS) - {"bank_accounts.manage_access"}
+ROLE_PERMISSIONS["finance_manager"] |= {
+    "master_data.read",
+    "master_data.manage",
+    "vendors.read",
+    "accounts.read",
+    "accounts.manage",
+    "bank_accounts.read",
+    "bank_accounts.manage_sensitive",
+    "bank_accounts.manage_access",
+}
+ROLE_PERMISSIONS["finance_associate"] |= {"master_data.read", "vendors.read", "accounts.read", "bank_accounts.read"}
+for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
+    ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "accounts.read"}
 DEMO_USERS = [
-    ("requestor", "requestor@payment.local", "Development Requestor", "MARKETING"),
-    ("department_head", "department.head@payment.local", "Development Department Head", "MARKETING"),
-    ("finance_associate", "finance.associate@payment.local", "Development Finance Associate", "FINANCE"),
-    ("finance_manager", "finance.manager@payment.local", "Development Finance Manager", "FINANCE"),
-    ("coo", "coo@payment.local", "Development COO", "OPERATIONS"),
+    ("requestor", "requestor@payment.local", "Development Requestor", "MKTG"),
+    ("department_head", "department.head@payment.local", "Development Department Head", "MKTG"),
+    ("finance_associate", "finance.associate@payment.local", "Development Finance Associate", "FIN"),
+    ("finance_manager", "finance.manager@payment.local", "Development Finance Manager", "FIN"),
+    ("coo", "coo@payment.local", "Development COO", "OPS"),
     ("president", "president@payment.local", "Development President", "DT"),
     ("board_member", "board.member@payment.local", "Development Board Member", "DT"),
-    ("authorized_signatory", "signatory@payment.local", "Development Authorized Signatory", "FINANCE"),
+    ("authorized_signatory", "signatory@payment.local", "Development Authorized Signatory", "FIN"),
     ("system_administrator", "admin@payment.local", "Development System Administrator", "DT"),
 ]
 
@@ -71,10 +113,64 @@ def seed() -> None:
                 session.add(SystemSetting(id=uuid5(NAMESPACE_URL, f"payment-module:{key}"), key=key, value=value))
             else:
                 setting.value = value
+        for old_code, new_code in DEPARTMENT_CODE_ALIASES.items():
+            item = session.scalar(select(Department).where(Department.code == old_code))
+            if item:
+                item.code = new_code
+        session.flush()
+        department_ids = {}
         for code, name in DEPARTMENTS.items():
-            item = session.get(Department, stable_id("department", code))
+            item = session.scalar(select(Department).where(Department.code == code))
             if item is None:
-                session.add(Department(id=stable_id("department", code), code=code, name=name))
+                item = Department(id=stable_id("department", code), code=code, name=name)
+                session.add(item)
+            else:
+                item.name = name
+                item.is_active = True
+            session.flush()
+            department_ids[code] = item.id
+            cost_center = session.scalar(select(CostCenter).where(CostCenter.department_id == item.id))
+            if cost_center is None:
+                session.add(CostCenter(id=stable_id("cost-center", code), code=code, name=name, department_id=item.id))
+            else:
+                cost_center.code, cost_center.name, cost_center.is_active = code, name, True
+        for code, name, symbol in (("PHP", "Philippine Peso", "₱"), ("USD", "US Dollar", "$"), ("EUR", "Euro", "€")):
+            item = session.get(Currency, code)
+            if item is None:
+                session.add(Currency(code=code, name=name, symbol=symbol, decimal_precision=2))
+        for code, name, category, required in (
+            ("CHECK", "Check", "check", True),
+            ("BANK_TRANSFER", "Bank Transfer / DigiBanker", "bank_transfer", True),
+            ("CASH", "Cash", "cash", False),
+        ):
+            item = session.scalar(select(PaymentMethod).where(PaymentMethod.code == code))
+            if item is None:
+                session.add(
+                    PaymentMethod(
+                        id=stable_id("payment-method", code),
+                        code=code,
+                        name=name,
+                        category=category,
+                        requires_reference=required,
+                    )
+                )
+        for code, name, request_types, copy_requirement in (
+            ("INVOICE", "Invoice / Billing", ["reimbursement", "poPayment", "general"], "soft"),
+            ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
+            ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
+            ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
+        ):
+            item = session.scalar(select(DocumentType).where(DocumentType.code == code))
+            if item is None:
+                session.add(
+                    DocumentType(
+                        id=stable_id("document-type", code),
+                        code=code,
+                        name=name,
+                        allowed_request_types=request_types,
+                        copy_requirement=copy_requirement,
+                    )
+                )
         for code, name in ROLES.items():
             item = session.get(Role, stable_id("role", code))
             if item is None:
@@ -105,11 +201,12 @@ def seed() -> None:
                         email=email,
                         display_name=display_name,
                         password_hash=hash_password(settings.development_demo_password),
-                        department_id=stable_id("department", department_code),
+                        department_id=department_ids[department_code],
                     )
                     session.add(user)
                 elif settings.app_env == "test":
                     user.password_hash = hash_password(settings.development_demo_password)
+                user.department_id = department_ids[department_code]
                 user_role_id = stable_id("user-role", f"{email}:{role_code}")
                 role_id = stable_id("role", role_code)
                 existing_user_role = session.scalar(

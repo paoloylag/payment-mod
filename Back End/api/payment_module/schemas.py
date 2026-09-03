@@ -72,3 +72,106 @@ class PermissionCreate(BaseModel):
 class PermissionUpdate(BaseModel):
     code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_.]{0,99}$")
     description: str | None = Field(default=None, min_length=1, max_length=2000)
+
+
+class ReferenceCreate(BaseModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=2000)
+    effective_from: str | None = None
+    effective_to: str | None = None
+
+
+class ReferenceUpdate(BaseModel):
+    code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    is_active: bool | None = None
+    effective_from: str | None = None
+    effective_to: str | None = None
+
+
+class ChartAccountCreate(ReferenceCreate):
+    account_type: Literal["asset", "liability", "equity", "income", "expense"]
+    parent_id: UUID | None = None
+    is_posting: bool = True
+    normal_balance: Literal["debit", "credit"]
+
+
+class ChartAccountUpdate(ReferenceUpdate):
+    account_type: Literal["asset", "liability", "equity", "income", "expense"] | None = None
+    parent_id: UUID | None = None
+    is_posting: bool | None = None
+    normal_balance: Literal["debit", "credit"] | None = None
+
+
+class TaxCodeCreate(ReferenceCreate):
+    vat_classification: str = Field(min_length=1, max_length=60)
+    vat_rate: float = Field(ge=0, le=100)
+    ewt_classification: str = Field(min_length=1, max_length=60)
+    ewt_rate: float = Field(ge=0, le=100)
+
+
+class TaxCodeUpdate(ReferenceUpdate):
+    vat_classification: str | None = Field(default=None, min_length=1, max_length=60)
+    vat_rate: float | None = Field(default=None, ge=0, le=100)
+    ewt_classification: str | None = Field(default=None, min_length=1, max_length=60)
+    ewt_rate: float | None = Field(default=None, ge=0, le=100)
+
+
+class CurrencyCreate(BaseModel):
+    code: str = Field(pattern=r"^[A-Z]{3}$")
+    name: str = Field(min_length=1, max_length=80)
+    symbol: str = Field(min_length=1, max_length=8)
+    decimal_precision: int = Field(default=2, ge=0, le=6)
+
+
+class CurrencyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    symbol: str | None = Field(default=None, min_length=1, max_length=8)
+    decimal_precision: int | None = Field(default=None, ge=0, le=6)
+    is_active: bool | None = None
+
+
+class PaymentMethodCreate(ReferenceCreate):
+    category: str = Field(min_length=1, max_length=40)
+    requires_reference: bool = False
+
+
+class PaymentMethodUpdate(ReferenceUpdate):
+    category: str | None = Field(default=None, min_length=1, max_length=40)
+    requires_reference: bool | None = None
+
+
+class BankAccountCreate(BaseModel):
+    code: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
+    bank_name: str = Field(min_length=1, max_length=160)
+    account_name: str = Field(min_length=1, max_length=160)
+    account_number: str = Field(min_length=4, max_length=80)
+    currency_code: str = Field(pattern=r"^[A-Z]{3}$")
+    branch: str = Field(default="", max_length=160)
+
+
+class BankAccountUpdate(BaseModel):
+    bank_name: str | None = Field(default=None, min_length=1, max_length=160)
+    account_name: str | None = Field(default=None, min_length=1, max_length=160)
+    account_number: str | None = Field(default=None, min_length=4, max_length=80)
+    currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    branch: str | None = Field(default=None, max_length=160)
+    is_active: bool | None = None
+
+
+class DocumentTypeCreate(ReferenceCreate):
+    allowed_request_types: list[str] = Field(default_factory=list)
+    copy_requirement: Literal["soft", "hard", "both"] = "soft"
+
+
+class DocumentTypeUpdate(ReferenceUpdate):
+    allowed_request_types: list[str] | None = None
+    copy_requirement: Literal["soft", "hard", "both"] | None = None
+
+
+class BankAccessChange(BaseModel):
+    user_id: UUID
+    allowed: bool
+    reason: str = Field(min_length=5, max_length=500)

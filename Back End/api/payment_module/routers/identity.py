@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..database import get_db
-from ..models import Department, Permission, Role, RolePermission, User, UserPermissionOverride, UserRole
+from ..models import CostCenter, Department, Permission, Role, RolePermission, User, UserPermissionOverride, UserRole
 from ..schemas import (
     DepartmentCreate,
     DepartmentUpdate,
@@ -54,8 +54,11 @@ def create_department(
 ) -> dict:
     if db.scalar(select(Department).where((Department.code == payload.code) | (Department.name == payload.name))):
         raise HTTPException(409, "Department code or name already exists")
-    item = Department(code=payload.code, name=payload.name)
+    item = Department(code=payload.code.upper().strip(), name=payload.name.strip())
     db.add(item)
+    db.flush()
+    cost_center = CostCenter(code=item.code, name=item.name, department_id=item.id)
+    db.add(cost_center)
     db.flush()
     audit(
         db,
@@ -64,7 +67,7 @@ def create_department(
         entity_type="department",
         entity_id=item.id,
         request_id=request.state.request_id,
-        after={"code": item.code, "name": item.name},
+        after={"code": item.code, "name": item.name, "cost_center_id": str(cost_center.id)},
     )
     db.commit()
     return {"id": str(item.id), "code": item.code, "name": item.name, "is_active": item.is_active}
@@ -97,6 +100,11 @@ def update_department(
     before = {"code": item.code, "name": item.name, "is_active": item.is_active}
     for key, value in changes.items():
         setattr(item, key, value)
+    cost_center = db.scalar(select(CostCenter).where(CostCenter.department_id == item.id))
+    if cost_center:
+        cost_center.code = item.code
+        cost_center.name = item.name
+        cost_center.is_active = item.is_active
     audit(
         db,
         actor_id=actor.id,
@@ -123,6 +131,7 @@ def delete_department(
         raise HTTPException(404, "Department not found")
     if db.scalar(select(User.id).where(User.department_id == item.id).limit(1)):
         raise HTTPException(409, "Department cannot be deleted while users are assigned to it")
+    cost_center = db.scalar(select(CostCenter).where(CostCenter.department_id == item.id))
     before = {"code": item.code, "name": item.name, "is_active": item.is_active}
     audit(
         db,
@@ -133,6 +142,9 @@ def delete_department(
         request_id=request.state.request_id,
         before=before,
     )
+    if cost_center:
+        db.delete(cost_center)
+        db.flush()
     db.delete(item)
     db.commit()
 
@@ -525,8 +537,14 @@ def assign_permissions(
     if not user:
         raise HTTPException(404, "User not found")
     ids = {item.permission_id for item in payload.overrides}
-    if len(set(db.scalars(select(Permission.id).where(Permission.id.in_(ids))))) != len(ids):
+    requested_permissions = list(db.scalars(select(Permission).where(Permission.id.in_(ids))))
+    if len({permission.id for permission in requested_permissions}) != len(ids):
         raise HTTPException(422, "One or more permissions do not exist")
+    protected_bank_codes = {"bank_accounts.manage_sensitive", "bank_accounts.manage_access"}
+    if protected_bank_codes.intersection(permission.code for permission in requested_permissions) and (
+        "bank_accounts.manage_access" not in request.state.permissions
+    ):
+        raise HTTPException(403, "Sensitive bank access can only be changed by an authorized Finance Manager")
     db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == user.id))
     db.add_all(
         UserPermissionOverride(user_id=user.id, permission_id=item.permission_id, is_allowed=item.effect == "allow")

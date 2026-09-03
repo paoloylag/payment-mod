@@ -7,3 +7,4 @@ alembic==1.16.4
 pydantic-settings==2.10.1
 itsdangerous==2.2.0
 python-multipart==0.0.32
+cryptography==45.0.6

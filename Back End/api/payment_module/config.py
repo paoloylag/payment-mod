@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     session_cleanup_retention_days: int = 30
     session_cleanup_batch_size: int = 1000
     development_demo_password: str | None = None
+    bank_encryption_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

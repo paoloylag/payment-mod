@@ -462,3 +462,19 @@ Add PO/ERP synchronization, bank integration, configurable approval policies, co
 - Required segregation of duties for payment preparation and authorization.
 
 These decisions refine the physical schema but do not change the central model described above.
+
+## 20. Phase 02 implemented master-data schema
+
+Migration `20260903_0005` introduces these PostgreSQL tables:
+
+- `cost_centers`: a one-to-one extension of `departments`, with synchronized code/name, active state, optional effective dates, and a restrictive department foreign key;
+- `chart_accounts`: hierarchical asset, liability, equity, income, and expense accounts with posting/summary behavior, normal balance, and cycle prevention in the service layer;
+- `tax_codes`: effective-dated VAT and EWT classifications with fixed-precision rates constrained to 0–100%;
+- `currencies`: ISO-style three-character codes, display metadata, precision, and active state;
+- `payment_methods`: effective-dated payment channels and transaction-reference requirements;
+- `company_bank_accounts`: encrypted account-number ciphertext, a last-four display fragment, currency, and safe metadata; and
+- `document_types`: effective-dated document definitions, allowed request types, and hard/soft-copy requirements.
+
+Vendors remain externally mastered. The local `/api/v1/vendors` facade uses a replaceable adapter and does not create a vendor table. Provider bank-account numbers are removed from ordinary responses and replaced by a masked last-four display value.
+
+The migration is reversible to `20260826_0004`. Destructive deletion of referenced master data is rejected; records already used by transactions will be deactivated instead.

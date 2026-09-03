@@ -5,6 +5,20 @@ Last decision update: 2026-09-03
 Status: In progress  
 Depends on: Phase 01 — Authentication and RBAC
 
+## Implementation progress — 2026-09-03
+
+Implemented locally:
+
+- Reversible PostgreSQL migration `20260903_0005` and SQLAlchemy models for the Phase 02 persisted master data.
+- Granular seeded permissions, Finance-controlled sensitive bank access, audited services and API routes.
+- Deterministic department/cost-center, currency, payment-method, and document-type seeds.
+- Replaceable vendor adapter using the supplied representative payload with bank-account redaction.
+- Uniform administration pages for all eight Master Data areas.
+- API-backed department/cost-center, vendor, account, currency, and payment-method sources with hybrid/mock fallback.
+- Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, vendor masking, encryption, and Finance Manager revocation of System Administrator bank access.
+
+Passed so far: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, encryption/redaction checks, and browser walkthrough of all Master Data routes and request dropdown fallbacks. Live migration and database-dependent pytest execution remain pending because Docker Desktop 4.83 exits before starting PostgreSQL due to its local inference socket error.
+
 ## Confirmed decisions
 
 The project owner confirmed the following on 2026-09-03:
@@ -183,7 +197,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 - Initial chart-of-account records and official account codes; the structure is confirmed.
 - Finance-approved tax codes, VAT/EWT classifications, rates, and effective dates.
 - Named encryption-key owner and approved local/staging/production secrets mechanism.
-- Vendor API OpenAPI/specification, authentication method, environments/base URLs, sample payloads, pagination/filtering, status semantics, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials.
+- A representative vendor payload was supplied on 2026-09-03 and is covered by the mock adapter contract. Its `bankAccountNumber` field is sensitive: ordinary lookup exposes only a masked value and must never log or return the clear value. Base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials remain required.
 - Bank-access minimum-owner or break-glass rule to prevent permanent administrative lockout.
 
 ## Exclusions
