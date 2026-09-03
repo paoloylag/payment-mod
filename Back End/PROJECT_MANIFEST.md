@@ -239,6 +239,8 @@ phase-09-admin-integrations
 
 ### Phase 00 — Foundation
 
+Detailed validation document: `docs/phase-00-validation.md`.
+
 - Introduce `/api/v1` routing.
 - Define standard errors, pagination, filtering, sorting, correlation IDs, logging, CORS, and Philippine Time helpers.
 - Establish transaction conventions, test fixtures, migration checks, and deterministic seed commands.
@@ -247,6 +249,8 @@ phase-09-admin-integrations
 Prototype validation: show API/database status without blocking mock workflows.
 
 ### Phase 01 — Authentication and RBAC
+
+Detailed plan and validation document: `docs/phase-01-plan.md`.
 
 - Local development login, logout, and session endpoint.
 - Users, roles, permissions, user roles, permission overrides, departments, activation, and suspension.
@@ -259,12 +263,18 @@ Prototype validation: login screen, authenticated user chip, role-driven navigat
 
 ### Phase 02 — Master data
 
-- Departments, cost centers, vendors, vendor contacts, chart of accounts, tax codes, currencies, payment methods, company bank accounts, and document types.
-- Encrypt and mask sensitive bank details.
+Detailed plan: `docs/phase-02-plan.md`.
+
+- Departments, cost centers, chart of accounts, tax codes, currencies, payment methods, company bank accounts, and document types.
+- Consume vendors and vendor contacts from an external system through a replaceable adapter; preserve external identifiers and transaction-time snapshots rather than creating a local vendor system of record.
+- Encrypt and mask sensitive bank details. Govern sensitive bank access separately so an authorized Finance Manager can revoke it from a System Administrator without changing unrelated administrator permissions.
+- Seed the eight approved active department/cost-center pairs (`OCP`, `PNC`, `OOG`, `DT`, `ACAD`, `OPS`, `FIN`, and `MKTG`), with one cost center per department and approval through Finance staff. Preserve administration for future additions.
 
 Prototype validation: replace form dropdown mocks and administration reference lists with API data.
 
 ### Phase 03 — Payment requests
+
+Detailed plan: `docs/phase-03-plan.md`.
 
 - Draft create, autosave, retrieve, edit, delete, submit, cancel, reopen, return, and resubmit.
 - Request numbering, request versions, optimistic locking, request-type extension data, line items, allocations, currency rules, totals, and duplicate invoice checks.
@@ -274,6 +284,8 @@ Prototype validation: create and persist each request type, reload it, submit it
 
 ### Phase 04 — Documents
 
+Detailed plan: `docs/phase-04-plan.md`.
+
 - Private upload/download, metadata, checksums, versions, replacements, required-document rules, request- and line-level links, and hard/soft-copy status.
 - Storage adapter with protected local development storage first.
 - Malware-scanning integration point for production.
@@ -281,6 +293,8 @@ Prototype validation: create and persist each request type, reload it, submit it
 Prototype validation: upload, replace, preview, download, and review document requirements against persisted requests.
 
 ### Phase 05 — Workflow and approvals
+
+Detailed plan: `docs/phase-05-plan.md`.
 
 - Generate a policy-snapshotted approval route at submission.
 - Role or identity assignments, queues, sequential controls, approve, return, decline, delegate, reassign, reroute, and authorized unlocking.
@@ -290,12 +304,16 @@ Prototype validation: each persona sees only its assigned queue and the request 
 
 ### Phase 06 — Finance validation and vouchers
 
+Detailed plan: `docs/phase-06-plan.md`.
+
 - Document and line decisions, VAT/EWT classification, tax snapshots, No EWT rule, receipt status, accounting entries, balanced-entry enforcement, and completion timestamp.
 - Voucher numbering, request/tax/accounting snapshots, payment method, check/transaction references, digital approval certification, printing data, posting, voiding, and replacement history.
 
 Prototype validation: Finance completes validation and generates a persisted printable voucher only after required approvals.
 
 ### Phase 07 — Payment execution
+
+Detailed plan: `docs/phase-07-plan.md`.
 
 - Payment attempts and partial settlements.
 - Check, Bank Transfer/DigiBanker, and Cash methods.
@@ -306,13 +324,17 @@ Prototype validation: prepare, authorize, release, and track payment attempts wi
 
 ### Phase 08 — Notifications, dashboards, and reports
 
+Detailed plan: `docs/phase-08-plan.md`.
+
 - Transactional outbox, durable notification jobs, templates, recipient resolution, retries, idempotency keys, and delivery history.
 - Development mailbox/log before production email.
-- Role-scoped dashboards, global search, queues, aging, payment tracker, unclaimed checks, completed payments, CSV exports, print datasets, pagination, and sorting.
+- Role-scoped dashboards, global search, queues, aging, payment tracker, unclaimed checks, completed payments, Excel exports, print datasets, pagination, and sorting.
 
 Prototype validation: show in-app notification state and reconcile dashboard/report totals with persisted transactions.
 
 ### Phase 09 — Administration and integrations
+
+Detailed plan: `docs/phase-09-plan.md`.
 
 - User/permission administration, configurable/versioned approval and tax policies, retention, monitoring, and audit access.
 - Life OS SAML, private object storage, P.O./procurement, ERP/accounting, production email, banking, webhooks, and reconciliation jobs through replaceable adapters.
@@ -460,7 +482,7 @@ Acceptance gate: retrying a business operation does not create duplicate notific
 
 ### BE-12 — Dashboards, tracker, search, and reports
 
-Implement role-scoped metrics, approval queues, live requests, request detail, workflow timelines, department/status/type filters, pagination, sorting, aging and overdue calculations, payment tracker, unclaimed checks, completed payments, archive search, Excel-compatible CSV, and print-ready report data.
+Implement role-scoped metrics, approval queues, live requests, request detail, workflow timelines, department/status/type filters, pagination, sorting, aging and overdue calculations, payment tracker, unclaimed checks, completed payments, archive search, filtered Excel workbooks, and print-ready report data.
 
 Acceptance gate: query permissions and report totals match source transactions; large-result queries are paginated.
 
@@ -507,7 +529,7 @@ Acceptance gate: a development adapter can be replaced by a contract-compatible 
 3. Approvals: route generation, assignments, queues, decisions, returns, declines, resubmission, and notifications.
 4. Finance: document review, VAT/EWT, accounting entries, and validation completion.
 5. Vouchers and payments: voucher snapshots, authorization, attempts, pick-up/release, completion, voids, and replacements.
-6. Reporting: dashboards, tracker, aging, archive search, CSV, print datasets, and unclaimed checks.
+6. Reporting: dashboards, tracker, aging, archive search, filtered Excel workbooks, print datasets, and unclaimed checks.
 7. Production integrations: Life OS SSO, email, external storage, procurement/P.O., ERP, and banking.
 
 ## Decisions required before production integration
@@ -550,7 +572,7 @@ For a phase-level completion decision, all of the following must also be true:
 - Use protected local file storage for development and an S3-compatible private object-storage adapter for production.
 - Keep approval thresholds coded but version-identified for the MVP; add administrator-configurable policies only after workflow behavior is validated.
 - Use a development mailbox or notification log before enabling live email.
-- Treat vendors, departments, and cost centers as local master data until an ERP or procurement owner is confirmed.
+- Treat departments and cost centers as local master data until another authoritative owner is confirmed. Vendors are externally owned and must be accessed through a replaceable adapter.
 - Support multiple payment attempts for a voucher; do not overwrite failed, voided, or replaced attempts.
 - Do not allow submitted financial records or audit records to be hard-deleted through ordinary APIs.
 - Store absolute instants in PostgreSQL `timestamptz` and render business timestamps in `Asia/Manila`.
@@ -575,6 +597,7 @@ When backend development resumes:
 11. Phase 02 may use the reviewed Phase 01 baseline. Do not start production promotion until the external Firefox,
     Safari, penetration, and production proxy/HTTPS checks are recorded and approved.
 12. Never enable the retained-session cleanup command in staging or production.
+13. Before Phase 02 financial seed data is authoritative, obtain the initial cost-center effective date and allocation rules, chart-of-account records, tax definitions, the bank-access lockout safeguard, and the approved encryption-key ownership/mechanism. The vendor API may remain behind deterministic mocks until its provider contract and sandbox are supplied.
 
 ## Phase status ledger
 
@@ -582,13 +605,13 @@ When backend development resumes:
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
-| 02 — Master data | Not started | — |
-| 03 — Payment requests | Not started | — |
-| 04 — Documents | Not started | — |
-| 05 — Workflow and approvals | Not started | — |
-| 06 — Finance validation and vouchers | Not started | — |
-| 07 — Payment execution | Not started | — |
-| 08 — Notifications, dashboards, and reports | Not started | — |
-| 09 — Administration and integrations | Not started | — |
+| 02 — Master data | In progress | `docs/phase-02-plan.md` |
+| 03 — Payment requests | Not started | `docs/phase-03-plan.md` |
+| 04 — Documents | Not started | `docs/phase-04-plan.md` |
+| 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |
+| 06 — Finance validation and vouchers | Not started | `docs/phase-06-plan.md` |
+| 07 — Payment execution | Not started | `docs/phase-07-plan.md` |
+| 08 — Notifications, dashboards, and reports | Not started | `docs/phase-08-plan.md` |
+| 09 — Administration and integrations | Not started | `docs/phase-09-plan.md` |
 
 Allowed status values are `Not started`, `In progress`, `Ready for validation`, `Validated`, and `Blocked`. Do not mark a phase `Validated` without recording the test/build commands, validation date, reviewer, and any accepted limitations.
