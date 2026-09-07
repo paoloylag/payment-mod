@@ -77,7 +77,7 @@
   .sidebar {
     position: relative;
     inset: auto;
-    display: none;
+    display: none !important;
     width: 100%;
     height: auto;
     max-height: none;
@@ -85,7 +85,7 @@
     transition: none;
     box-shadow: none;
   }
-  .nav-open .sidebar { display: block; transform: none; }
+  .nav-open .sidebar { display: grid !important; transform: none; }
   .sidebar-backdrop,
   .nav-open .sidebar-backdrop { display: none; }
   .nav-open main { min-height: 100vh; }

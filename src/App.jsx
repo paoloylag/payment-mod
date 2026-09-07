@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { guideSections, guideStages } from "./guide-data.js";
 
 const paymentTypes = {
   reimbursement: {
@@ -275,7 +276,7 @@ function getVoucher(request) {
 
 function App() {
   const initialPath = (window.location.hash.slice(1) || "/dashboard").split("/").filter(Boolean);
-  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : initialPath[0] === "admin" ? "admin" : ["dashboard", "approvals", "tracker", "emails"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
+  const initialTab = initialPath[0] === "requests" ? "request" : initialPath[0] === "documents" ? (initialPath[1] === "rules" ? "documents" : "uploads") : initialPath[0] === "admin" ? "admin" : ["dashboard", "approvals", "tracker", "emails", "guide"].includes(initialPath[0]) ? initialPath[0] : "dashboard";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedId, setSelectedId] = useState(seedRequests[0].id);
   const [trackerRequestId, setTrackerRequestId] = useState(initialTab === "tracker" ? initialPath[1] || null : null);
@@ -304,7 +305,7 @@ function App() {
       else if (parts[0] === "tracker") { setActiveTab("tracker"); setTrackerRequestId(parts[1] || null); }
       else if (parts[0] === "dashboard") { setActiveTab("dashboard"); setDashboardMetric(["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null); setDashboardWorkflowId(parts[1] === "workflow" ? parts[2] || null : null); if (["request", "workflow"].includes(parts[1]) && seedRequests.some((request) => request.id === parts[2])) setSelectedId(parts[2]); }
       else if (parts[0] === "admin") setActiveTab("admin");
-      else if (["approvals", "emails"].includes(parts[0])) setActiveTab(parts[0]);
+      else if (["approvals", "emails", "guide"].includes(parts[0])) setActiveTab(parts[0]);
       else setActiveTab("dashboard");
     };
     window.addEventListener("hashchange", syncRoute);
@@ -362,13 +363,14 @@ function App() {
             ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
             ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
             ["Records", [["emails", "Email Samples", "@"]]],
+            ["Help", [["guide", "System Guide", "?"]]],
             ["Administration", [["admin", "Users & Permissions", "⚙"]]],
           ].map(([group, links]) => (
             <div className="nav-group" key={group}>
               <span className="nav-group-label">{group}</span>
               <div className="nav-group-links">
                 {links.map(([id, label, icon]) => (
-                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails", admin: "/admin/users" })[id])}>
+                  <button key={id} className={activeTab === id ? "active" : ""} onClick={() => navigateTo(id === "request" ? `/requests/new/${draftType}` : ({ dashboard: "/dashboard", approvals: "/approvals", tracker: "/tracker", uploads: "/documents/uploads", documents: "/documents/rules", emails: "/emails", guide: "/guide", admin: "/admin/users" })[id])}>
                     <span>{icon}</span>{label}
                   </button>
                 ))}
@@ -413,6 +415,7 @@ function App() {
         {activeTab === "uploads" && <DocumentUploads selectedId={uploadId} onSelect={setUploadId} />}
         {activeTab === "documents" && <DocumentRules />}
         {activeTab === "emails" && <EmailSamples selectedStep={emailStep} onSelectStep={setEmailStep} />}
+        {activeTab === "guide" && <SystemGuide />}
         {activeTab === "admin" && <AdminAccess />}
       </main>
     </div>
@@ -428,6 +431,7 @@ function tabTitle(tab) {
     uploads: "Upload Required Documents",
     documents: "Required Documents",
     emails: "Workflow Email Samples",
+    guide: "System Guide",
     admin: "Users & Permissions",
   }[tab];
 }
@@ -979,6 +983,48 @@ function DocumentRules() {
           <span>Procurement alignment</span>
         </div>
       </article>
+    </section>
+  );
+}
+
+function SystemGuide() {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = (text) => !normalizedQuery || text.toLocaleLowerCase().includes(normalizedQuery);
+  const visibleSections = guideSections.map((section) => ({
+    ...section,
+    cards: section.cards.filter((card) => matches(`${card.title} ${card.path} ${card.steps.join(" ")}`)),
+  })).filter((section) => section.cards.length);
+  const visibleStages = guideStages.filter((stage) => matches(stage.join(" ")));
+  const resultCount = visibleStages.length + visibleSections.reduce((total, section) => total + section.cards.length, 0);
+
+  return (
+    <section className="system-guide-page">
+      <header className="guide-hero">
+        <div><span className="eyebrow">Automated Payment System</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls from the Functional Specification Document.</p></div>
+        <button type="button" className="guide-print-button" onClick={() => window.print()}>Print / Save PDF</button>
+      </header>
+      <nav className="guide-anchor-nav" aria-label="Guide sections">
+        {guideSections.map((section) => <a key={section.id} href={`#guide-${section.id}`}><span>{section.number}</span>{section.title}</a>)}
+      </nav>
+      <div className="guide-content">
+        <search className="guide-search">
+          <label htmlFor="guideSearch">Search the Payment Module guide</label>
+          <div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search procedures, roles, or payment stages" autoComplete="off" /></div>
+          <p role="status">{normalizedQuery ? `${resultCount} matching procedure${resultCount === 1 ? "" : "s"}.` : "Search procedures, approval rules, documents, and controls."}</p>
+        </search>
+        {visibleStages.length > 0 && <section className="guide-workflow" aria-labelledby="guide-workflow-title">
+          <div className="guide-section-heading compact"><div><span className="eyebrow">End to end</span><h3 id="guide-workflow-title">Payment workflow at a glance</h3><p>Each completed stage hands the request to the next responsible role.</p></div></div>
+          <div className="guide-stage-list">{visibleStages.map(([number, name, owner, detail]) => <article key={number}><span>{number}</span><div><h4>{name}</h4><small>{owner}</small><p>{detail}</p></div></article>)}</div>
+        </section>}
+        {visibleSections.map((section) => <section className="guide-section" id={`guide-${section.id}`} key={section.id}>
+          <header className="guide-section-heading"><div><span className="eyebrow">{section.number}</span><h3>{section.title}</h3><p>{section.intro}</p></div></header>
+          <div className="guide-card-grid">{section.cards.map((card) => <article className="guide-card" key={card.title}><h4>{card.title}</h4><p className="guide-path">{card.path}</p><ol>{card.steps.map((step) => <li key={step}>{step}</li>)}</ol></article>)}</div>
+          <p className="guide-note"><strong>Remember:</strong> {section.note}</p>
+        </section>)}
+        {resultCount === 0 && <div className="guide-empty"><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>}
+        <footer className="guide-footer"><strong>Functional reference</strong><p>This page summarizes FSD version 1.2. System permissions and approved policies remain authoritative.</p><span>All system timestamps use Asia/Manila (UTC+08:00).</span></footer>
+      </div>
     </section>
   );
 }

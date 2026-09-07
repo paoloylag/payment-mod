@@ -1,4 +1,5 @@
 import { createDataSource } from "./data-source.js";
+import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js";
 
 const dataSource = createDataSource();
 
@@ -272,6 +273,7 @@ const tabRoutes = {
   uploads: "/documents/uploads",
   documents: "/documents/rules",
   emails: "/emails",
+  guide: "/guide",
 };
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
@@ -291,6 +293,7 @@ function routeStateFromHash() {
     const emailId = [...steps, ...emailNotificationEvents].find(([id]) => String(id) === parts[1])?.[0];
     return { tab: "emails", emailStep: emailId ?? state.emailStep, trackerRequestId: null, dashboardMetric: null };
   }
+  if (parts[0] === "guide") return { tab: "guide" };
   if (parts[0] === "dashboard" && parts[1] === "request" && requests.some((r) => r.id === parts[2])) return { tab: "requestDetail", requestDetailId: parts[2], selectedId: parts[2], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
   if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardRequestId: null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null, requestDetailId: null };
   return { tab: "dashboard", dashboardMetric: null, trackerRequestId: null };
@@ -596,17 +599,18 @@ function shell(content) {
     ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
     ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
     ["Records", [["emails", "Email Samples", "@"]]],
+    ["Help", [["guide", "System Guide", "?"]]],
   ];
   const personaNav = {
-    requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]]],
-    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]]],
-    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Reference", [["documents", "Document Rules", "□"]]]],
-    coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
-    president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
+    requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"], ["guide", "System Guide", "?"]]]],
+    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["guide", "System Guide", "?"]]]],
+    coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
   };
   const navGroups = personaNav[state.persona] || allNavGroups;
   const persona = personas[state.persona];
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples" };
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>
@@ -1212,6 +1216,36 @@ function documents() {
   return `<section class="doc-grid">${Object.entries(paymentTypes).map(([, type]) => `<article class="panel"><h3>${type.label}</h3><h4>Mandatory fields</h4><ul class="check-list">${type.required.map((item) => `<li><span class="ok">✓</span>${item}</li>`).join("")}</ul><h4>Upload documents</h4><div class="chip-row">${type.uploadDocuments.map((item) => `<span>${item}</span>`).join("")}</div></article>`).join("")}<article class="panel todo-panel"><h3>Future modules</h3><div class="chip-row"><span>Petty Cash</span><span>Credit Card Payments</span><span>Cash Advance Guidelines</span><span>Procurement alignment</span></div></article></section>`;
 }
 
+function systemGuide() {
+  const roleNames = state.authUser?.roles?.map((role) => role.toLocaleLowerCase()) || [];
+  const roleAudience = roleNames.some((role) => role.includes("finance") || role.includes("system_administrator")) ? "finance"
+    : roleNames.some((role) => role.includes("president") || role.includes("chief_operating") || role.includes("board")) ? "executive"
+    : roleNames.some((role) => role.includes("signator")) ? "signatory"
+    : roleNames.some((role) => role.includes("department_head")) ? "department" : "requestor";
+  const personaAudience = ["financeAssociate", "financeManager", "all"].includes(state.persona) ? "finance" : state.persona === "requestor" ? "requestor" : "executive";
+  const audience = state.authUser ? roleAudience : personaAudience;
+  const isOverallGuide = audience === "finance";
+  const audienceLabels = { finance: "All roles guide", requestor: "Requestor guide", department: "Department approver guide", executive: "Executive approver guide", signatory: "Authorized signatory guide" };
+  const visibleSections = guideSections.map((section) => ({ ...section, cards: isOverallGuide ? section.cards : section.cards.filter((card) => card.audiences.includes(audience)) })).filter((section) => section.cards.length);
+  const visibleStages = isOverallGuide ? guideStages : guideStages.filter(([number]) => guideStageAudiences[audience]?.includes(number));
+  const sections = visibleSections.map((section) => `<section class="guide-section" id="guide-${section.id}" data-guide-section>
+    <header class="guide-section-heading"><div><span class="eyebrow">${section.number}</span><h3>${section.title}</h3><p>${section.intro}</p></div></header>
+    <div class="guide-card-grid">${section.cards.map((card) => `<article class="guide-card" data-guide-card><h4>${card.title}</h4><p class="guide-path">${card.path}</p><ol>${card.steps.map((step) => `<li>${step}</li>`).join("")}</ol></article>`).join("")}</div>
+    <p class="guide-note"><strong>Remember:</strong> ${section.note}</p>
+  </section>`).join("");
+  return `<section class="system-guide-page">
+    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for your role from the Functional Specification Document.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
+    <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
+    <div class="guide-content">
+      <search class="guide-search"><label for="guideSearch">Search the Payment Module guide</label><div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" placeholder="Search procedures, roles, or payment stages" autocomplete="off" data-guide-search></div><p role="status" data-guide-search-status>Search procedures, approval rules, documents, and controls.</p></search>
+      <section class="guide-workflow" aria-labelledby="guide-workflow-title"><div class="guide-section-heading compact"><div><span class="eyebrow">${isOverallGuide ? "End to end" : "Your workflow"}</span><h3 id="guide-workflow-title">Payment workflow at a glance</h3><p>${isOverallGuide ? "Each completed stage hands the request to the next responsible role." : "These are the payment stages most relevant to your role."}</p></div></div><div class="guide-stage-list">${visibleStages.map(([number, name, owner, detail]) => `<article data-guide-card><span>${number}</span><div><h4>${name}</h4><small>${owner}</small><p>${detail}</p></div></article>`).join("")}</div></section>
+      ${sections}
+      <div class="guide-empty" data-guide-empty hidden><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>
+      <footer class="guide-footer"><strong>Functional reference</strong><p>This page summarizes FSD version 1.2. System permissions and approved policies remain authoritative.</p><span>All system timestamps use Asia/Manila (UTC+08:00).</span></footer>
+    </div>
+  </section>`;
+}
+
 function emailRequestDestination(step, request) {
   if (step === "returned" || step === "declined") return { persona: "requestor", route: `/requests/${request.id}` };
   if (step === 4 || step >= 9 && step <= 14) return { persona: "financeAssociate", route: `/requests/${request.id}` };
@@ -1260,7 +1294,7 @@ function emails() {
 
 function render() {
   document.documentElement.dataset.theme = state.theme;
-  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails };
+  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
@@ -1280,6 +1314,23 @@ function render() {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem("payment-module-theme", state.theme);
     render();
+  });
+  document.querySelector("[data-guide-print]")?.addEventListener("click", () => window.print());
+  document.querySelector("[data-guide-search]")?.addEventListener("input", (event) => {
+    const query = event.currentTarget.value.trim().toLocaleLowerCase();
+    let visibleCards = 0;
+    document.querySelectorAll("[data-guide-card]").forEach((card) => {
+      const match = !query || card.textContent.toLocaleLowerCase().includes(query);
+      card.hidden = !match;
+      if (match) visibleCards += 1;
+    });
+    document.querySelectorAll("[data-guide-section]").forEach((section) => {
+      section.hidden = query && ![...section.querySelectorAll("[data-guide-card]")].some((card) => !card.hidden);
+    });
+    const status = document.querySelector("[data-guide-search-status]");
+    const empty = document.querySelector("[data-guide-empty]");
+    if (status) status.textContent = query ? `${visibleCards} matching procedure${visibleCards === 1 ? "" : "s"}.` : "Search procedures, approval rules, documents, and controls.";
+    if (empty) empty.hidden = visibleCards > 0;
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);
