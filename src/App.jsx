@@ -1001,7 +1001,7 @@ function SystemGuide() {
   return (
     <section className="system-guide-page">
       <header className="guide-hero">
-        <div><span className="eyebrow">Automated Payment System</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls from the Functional Specification Document.</p></div>
+        <div><span className="eyebrow">Automated Payment System</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div>
         <button type="button" className="guide-print-button" onClick={() => window.print()}>Print / Save PDF</button>
       </header>
       <nav className="guide-anchor-nav" aria-label="Guide sections">
@@ -1023,7 +1023,7 @@ function SystemGuide() {
           <p className="guide-note"><strong>Remember:</strong> {section.note}</p>
         </section>)}
         {resultCount === 0 && <div className="guide-empty"><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>}
-        <footer className="guide-footer"><strong>Functional reference</strong><p>This page summarizes FSD version 1.2. System permissions and approved policies remain authoritative.</p><span>All system timestamps use Asia/Manila (UTC+08:00).</span></footer>
+        <footer className="guide-footer"><strong>Time standard</strong><p>All system timestamps use Philippine Time, Asia/Manila (UTC+08:00).</p></footer>
       </div>
     </section>
   );

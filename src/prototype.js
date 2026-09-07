@@ -1234,14 +1234,14 @@ function systemGuide() {
     <p class="guide-note"><strong>Remember:</strong> ${section.note}</p>
   </section>`).join("");
   return `<section class="system-guide-page">
-    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for your role from the Functional Specification Document.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
+    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
     <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
     <div class="guide-content">
       <search class="guide-search"><label for="guideSearch">Search the Payment Module guide</label><div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" placeholder="Search procedures, roles, or payment stages" autocomplete="off" data-guide-search></div><p role="status" data-guide-search-status>Search procedures, approval rules, documents, and controls.</p></search>
       <section class="guide-workflow" aria-labelledby="guide-workflow-title"><div class="guide-section-heading compact"><div><span class="eyebrow">${isOverallGuide ? "End to end" : "Your workflow"}</span><h3 id="guide-workflow-title">Payment workflow at a glance</h3><p>${isOverallGuide ? "Each completed stage hands the request to the next responsible role." : "These are the payment stages most relevant to your role."}</p></div></div><div class="guide-stage-list">${visibleStages.map(([number, name, owner, detail]) => `<article data-guide-card><span>${number}</span><div><h4>${name}</h4><small>${owner}</small><p>${detail}</p></div></article>`).join("")}</div></section>
       ${sections}
       <div class="guide-empty" data-guide-empty hidden><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>
-      <footer class="guide-footer"><strong>Functional reference</strong><p>This page summarizes FSD version 1.2. System permissions and approved policies remain authoritative.</p><span>All system timestamps use Asia/Manila (UTC+08:00).</span></footer>
+      <footer class="guide-footer"><strong>Time standard</strong><p>All system timestamps use Philippine Time, Asia/Manila (UTC+08:00).</p></footer>
     </div>
   </section>`;
 }
