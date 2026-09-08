@@ -194,6 +194,7 @@ const personas = {
   president: { label: "President", name: "President", subtitle: "Routed Approvals Only" },
 };
 
+let draftAutosaveTimer;
 let state = {
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
@@ -791,10 +792,13 @@ function saveDraft({ silent = false } = {}) {
     liquidationAdvanceAmount: state.liquidationAdvanceAmount,
     lineItems: state.lineItemsByType[state.draftType].map((item) => ({ ...item })),
     controls: captureDraftControls(),
+    backendId: existing?.backendId,
+    backendVersion: existing?.backendVersion,
   };
   state.drafts = existing ? state.drafts.map((item) => item.id === draft.id ? draft : item) : [...state.drafts, draft];
   state.activeDraftId = draft.id;
   state.draftDirty = false;
+  void persistDraft(draft);
   if (!silent) render();
 }
 
@@ -828,12 +832,25 @@ function openDraft(id) {
   navigate(`/requests/new/${draft.type}`);
 }
 
-function submitSavedDraft(id) {
+async function submitSavedDraft(id) {
   const draft = state.drafts.find((item) => item.id === id);
   if (!draft) return;
+  if (dataSource.mode !== "mock" && state.authStatus === "authenticated") {
+    if (!draft.backendId) await persistDraft(draft);
+    const persisted = state.drafts.find((item) => item.id === id);
+    if (persisted?.backendId) {
+      try {
+        const submitted = await dataSource.submitPaymentRequest(persisted.backendId, persisted.backendVersion, state.csrfToken);
+        if (submitted?.request_number) draft.backendRequestNumber = submitted.request_number;
+      } catch (error) {
+        window.alert(error.message || "The request could not be submitted.");
+        return;
+      }
+    }
+  }
   const config = paymentTypes[draft.type];
   const sequence = requests.filter((request) => request.type === draft.type).length + 151;
-  const idValue = `${config.prefix}-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
+  const idValue = draft.backendRequestNumber || `${config.prefix}-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
   const vendor = draft.lineItems.find((item) => item["Merchant Name"] || item.Supplier)?.["Merchant Name"] || draft.lineItems.find((item) => item.Supplier)?.Supplier || "To Be Confirmed";
   requests.unshift({
     id: idValue, type: draft.type, requestor: draft.requestor, department: draft.department, vendor,
@@ -1124,6 +1141,45 @@ async function downloadDepartmentReport() {
   workbook.Props = { Title: "Department Transaction Report", Subject: report.department, Author: report.generatedBy, CreatedDate: new Date() };
   const departmentSlug = state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-").replaceAll("&", "and");
   XLSX.writeFile(workbook, `payment-requests-${departmentSlug}-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
+}
+
+function apiDraftPayload(draft) {
+  const currency = draft.currency === "OTHER" ? draft.otherCurrency || "PHP" : draft.currency;
+  const centers = state.masterData["cost-centers"] || [];
+  const center = centers.find((item) => item.code === (state.persona === "financeAssociate" ? "FIN" : "MKTG")) || centers[0];
+  if (!center?.department_id) return null;
+  const valueFor = (row, names) => names.map((name) => row[name]).find((value) => String(value || "").trim()) || "";
+  return {
+    request_type: draft.type,
+    department_id: center.department_id,
+    payee_name: valueFor(draft.lineItems[0] || {}, ["Merchant Name", "Supplier"]),
+    purpose: String(draft.controls.find((item) => !item.checkbox && String(item.value || "").trim())?.value || paymentTypes[draft.type].label),
+    currency_code: currency,
+    type_data: { budgeted: draft.budgeted, liquidation_advance_amount: draft.liquidationAdvanceAmount },
+    lines: draft.lineItems.map((row) => ({
+      invoice_date: valueFor(row, ["Invoice Date"]) || null,
+      invoice_number: valueFor(row, ["Invoice Number", "P.O. Number"]) || null,
+      vendor_name: valueFor(row, ["Merchant Name", "Supplier"]),
+      particulars: valueFor(row, ["Particulars"]) || paymentTypes[draft.type].label,
+      amount: Number(row.Amount) || 0,
+      currency_code: currency,
+      attachment_refs: valueFor(row, ["Attachment"]) ? [valueFor(row, ["Attachment"])] : [],
+    })),
+  };
+}
+
+async function persistDraft(draft) {
+  if (dataSource.mode === "mock" || state.authStatus !== "authenticated") return;
+  const payload = apiDraftPayload(draft);
+  if (!payload) return;
+  try {
+    const saved = draft.backendId
+      ? await dataSource.updatePaymentRequest(draft.backendId, { ...payload, version: draft.backendVersion }, state.csrfToken)
+      : await dataSource.createPaymentRequest(payload, state.csrfToken);
+    if (saved) state.drafts = state.drafts.map((item) => item.id === draft.id ? { ...item, backendId: saved.id, backendVersion: saved.version } : item);
+  } catch (error) {
+    console.warn("Draft remains saved locally because API persistence failed.", error);
+  }
 }
 
 const reportEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -2000,7 +2056,8 @@ function render() {
   if (draftForm) {
     const trackDraftChange = () => {
       state.draftDirty = true;
-      if (state.activeDraftId) saveDraft({ silent: true });
+      window.clearTimeout(draftAutosaveTimer);
+      draftAutosaveTimer = window.setTimeout(() => saveDraft({ silent: true }), 2000);
     };
     draftForm.addEventListener("input", trackDraftChange);
     draftForm.addEventListener("change", trackDraftChange);

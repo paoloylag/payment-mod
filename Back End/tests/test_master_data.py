@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from cryptography.fernet import Fernet
 from payment_module.bank_crypto import decrypt_account_number, encrypt_account_number
 from payment_module.config import get_settings
@@ -29,23 +31,28 @@ def test_phase_02_seed_catalog_is_deterministic() -> None:
 
 def test_department_creation_atomically_creates_and_synchronizes_cost_center(client) -> None:
     seed()
+    suffix = uuid4().hex[:6].upper()
+    initial_code = f"L{suffix}"
+    updated_code = f"U{suffix}"
+    initial_name = f"Legal {suffix}"
+    updated_name = f"Legal Services {suffix}"
     session = login(client)
     headers = {"X-CSRF-Token": session.json()["csrf_token"]}
-    created = client.post("/api/v1/departments", json={"code": "LEGAL2", "name": "Legal Two"}, headers=headers)
-    assert created.status_code in {201, 409}
+    created = client.post("/api/v1/departments", json={"code": initial_code, "name": initial_name}, headers=headers)
+    assert created.status_code == 201
     with SessionLocal() as db:
-        department = db.scalar(select(Department).where(Department.code == "LEGAL2"))
+        department = db.scalar(select(Department).where(Department.code == initial_code))
         center = db.scalar(select(CostCenter).where(CostCenter.department_id == department.id))
         assert (center.code, center.name, center.is_active) == (department.code, department.name, True)
     updated = client.patch(
         f"/api/v1/departments/{department.id}",
-        json={"code": "LGL2", "name": "Legal Services Two", "is_active": False},
+        json={"code": updated_code, "name": updated_name, "is_active": False},
         headers=headers,
     )
     assert updated.status_code == 200
     with SessionLocal() as db:
         center = db.scalar(select(CostCenter).where(CostCenter.department_id == department.id))
-        assert (center.code, center.name, center.is_active) == ("LGL2", "Legal Services Two", False)
+        assert (center.code, center.name, center.is_active) == (updated_code, updated_name, False)
         assert db.scalar(select(func.count()).select_from(AuditEvent).where(AuditEvent.entity_id == department.id)) >= 1
 
 

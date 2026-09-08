@@ -11,6 +11,7 @@ from .middleware import RequestContextMiddleware
 from .routers.auth import router as auth_router
 from .routers.identity import router as identity_router
 from .routers.master_data import router as master_data_router
+from .routers.requests import router as requests_router
 from .routers.system import router as system_router
 
 settings = get_settings()
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     application.include_router(auth_router)
     application.include_router(identity_router)
     application.include_router(master_data_router)
+    application.include_router(requests_router)
     return application
 
 

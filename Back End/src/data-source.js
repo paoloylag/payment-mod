@@ -113,6 +113,18 @@ export function createDataSource() {
     deleteMasterData(resource, id, csrfToken) {
       return masterDataRequest(`${resource}/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } });
     },
+    createPaymentRequest(payload, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest("/api/v1/requests", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
+    updatePaymentRequest(id, payload, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
+    submitPaymentRequest(id, version, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/submit`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version }) });
+    },
     async listBankAccess() {
       const fallback = [{ user_id: "mock-admin", display_name: "Development System Administrator", email: "admin@payment.local", has_sensitive_access: true }];
       if (mode === "mock") return fallback;

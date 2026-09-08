@@ -2,7 +2,7 @@
 
 Date prepared: 2026-08-28  
 Last decision update: 2026-09-08
-Status: Not started  
+Status: In progress
 Depends on: Phase 02 — Master Data
 
 ## Confirmed decisions — 2026-09-08
@@ -38,7 +38,7 @@ The source also records later-phase approval, notification, payment, tracking, a
 ### Source discrepancies requiring confirmation
 
 - `Sheet1` lists Reimbursement, Cash Advance, P.O. Payment, and General Payment, but the approved project plan also includes Liquidation. Confirm that Liquidation remains a fifth request type.
-- Confirm that General Payment should require `Particulars of Payment`, correcting the apparent `Particulars of P.O. payment` copy/paste text in `Sheet1`.
+- General Payment is retained exactly as currently implemented, including the `Particulars of Payment` label. Its final detailed validation and document rules remain pending Finance confirmation because the source sheet contains ambiguous P.O. wording.
 - `Sheet3` lists Cash Advance guidelines and policies as outstanding work. The source does not approve an amount limit, one-outstanding-advance rule, or liquidation deadline; those policies must not be enforced as authoritative until separately confirmed.
 - `Sheet2` does not specify Cash Advance or Liquidation documents. Confirm their required-document lists before Phase 04.
 - The source mentions auto-numbering during document upload. The later confirmed rule governs implementation: the permanent `PR-{YEAR}-{sequence}` number is assigned exactly once on successful submission.

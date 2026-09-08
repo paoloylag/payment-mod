@@ -1,3 +1,5 @@
+from datetime import date
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -72,6 +74,38 @@ class PermissionCreate(BaseModel):
 class PermissionUpdate(BaseModel):
     code: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_.]{0,99}$")
     description: str | None = Field(default=None, min_length=1, max_length=2000)
+
+
+class PaymentRequestLineInput(BaseModel):
+    invoice_date: date | None = None
+    invoice_number: str | None = Field(default=None, max_length=120)
+    vendor_name: str = Field(default="", max_length=200)
+    particulars: str = Field(min_length=1, max_length=4000)
+    chart_account_id: UUID | None = None
+    cost_center_id: UUID | None = None
+    amount: Decimal = Field(ge=0, max_digits=19, decimal_places=4)
+    currency_code: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+    attachment_refs: list[str] = Field(default_factory=list, max_length=20)
+
+
+class PaymentRequestCreate(BaseModel):
+    request_type: Literal["reimbursement", "cashAdvance", "liquidation", "poPayment", "general"]
+    department_id: UUID
+    payee_name: str = Field(default="", max_length=200)
+    vendor_external_id: str | None = Field(default=None, max_length=160)
+    purpose: str = Field(default="", max_length=4000)
+    currency_code: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+    type_data: dict = Field(default_factory=dict)
+    lines: list[PaymentRequestLineInput] = Field(default_factory=list, max_length=100)
+
+
+class PaymentRequestUpdate(PaymentRequestCreate):
+    version: int = Field(ge=1)
+
+
+class RequestTransition(BaseModel):
+    version: int = Field(ge=1)
+    note: str = Field(default="", max_length=2000)
 
 
 class ReferenceCreate(BaseModel):

@@ -71,6 +71,11 @@ PERMISSIONS = {
     "bank_accounts.read": "Read masked company bank accounts",
     "bank_accounts.manage_sensitive": "Create, update, and reveal protected company bank accounts",
     "bank_accounts.manage_access": "Grant or revoke protected bank-account access",
+    "requests.create": "Create and maintain owned payment request drafts",
+    "requests.read_own": "Read owned payment requests",
+    "requests.read_department": "Read payment requests for the user's department",
+    "requests.read_all": "Read all payment requests",
+    "requests.manage_lifecycle": "Return and administer submitted payment requests",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS) - {"bank_accounts.manage_access"}
@@ -83,10 +88,33 @@ ROLE_PERMISSIONS["finance_manager"] |= {
     "bank_accounts.read",
     "bank_accounts.manage_sensitive",
     "bank_accounts.manage_access",
+    "requests.read_all",
+    "requests.manage_lifecycle",
 }
-ROLE_PERMISSIONS["finance_associate"] |= {"master_data.read", "vendors.read", "accounts.read", "bank_accounts.read"}
+ROLE_PERMISSIONS["finance_associate"] |= {
+    "master_data.read",
+    "vendors.read",
+    "accounts.read",
+    "bank_accounts.read",
+    "requests.read_all",
+    "requests.manage_lifecycle",
+}
 for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
     ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "accounts.read"}
+ROLE_PERMISSIONS["requestor"] |= {"requests.create", "requests.read_own"}
+ROLE_PERMISSIONS["department_head"] |= {
+    "requests.create",
+    "requests.read_own",
+    "requests.read_department",
+    "requests.manage_lifecycle",
+}
+ROLE_PERMISSIONS["system_administrator"] |= {
+    "requests.create",
+    "requests.read_own",
+    "requests.read_department",
+    "requests.read_all",
+    "requests.manage_lifecycle",
+}
 DEMO_USERS = [
     ("requestor", "requestor@payment.local", "Development Requestor", "MKTG"),
     ("department_head", "department.head@payment.local", "Development Department Head", "MKTG"),
