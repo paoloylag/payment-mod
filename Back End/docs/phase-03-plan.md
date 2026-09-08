@@ -11,7 +11,37 @@ Depends on: Phase 02 — Master Data
 - Drafts autosave two seconds after the last edit. Drafts are retained for 90 days; the system warns before archival and does not silently destroy audit-relevant submitted records.
 - Every persisted monetary value is represented by an amount column and an ISO currency-code column. This applies to request totals, line amounts, allocation amounts, Cash Advance and Liquidation balances, and any later tax or settlement values. Queries and calculations must retrieve the pair together.
 - A request is single-currency in the initial implementation. Each line and allocation currency must match the request currency. Cross-currency calculations are rejected rather than implicitly converted; exchange rates and PHP-equivalent values are deferred until an approved conversion policy exists.
-- Type-specific validation will follow the original source workbook. That workbook is not currently present in the Payment Module or LifeOS workspaces and must be reattached before its rules can be treated as authoritative. Until then, the existing LCI-derived prototype requirements remain a non-authoritative implementation reference.
+- Type-specific validation follows the source Google Sheet, `Automated Payment System`, supplied on 2026-09-08. Explicit decisions recorded later in this plan take precedence where the source contains an ambiguity or an older rule.
+
+## Source business rules — 2026-09-08
+
+Source: `https://docs.google.com/spreadsheets/d/1jgfaA-KFPBO3rwEUrxlUr3IKt2gSw-lxz1kC1CzJp0c/`
+
+`Sheet1!A1:J19` establishes these Phase 03 request rules:
+
+- A request requires a requestor, payment-request type, and system-provided submission date. Request forms must be printable.
+- Reimbursement requires an event/purpose and one or more departments/cost centers. Its repeatable lines contain invoice date, invoice number, vendor/merchant, particulars/details, amount plus currency, and one uploaded invoice/receipt per line. The system computes the total.
+- Cash Advance requires an event/purpose and one or more departments/cost centers. Its repeatable lines contain particulars and amount plus currency. The system computes the total.
+- P.O. Payment requires an approved P.O., particulars, and one or more departments/cost centers.
+- General Payment requires a billing document or invoice and one or more departments/cost centers. The source's mandatory-field text says `Particulars of P.O. payment`; this is treated as an unresolved copy/paste ambiguity, not silently enforced as a General Payment label.
+- The Department Head receives the submitted request details and attachments for review. Return-for-information permits the requestor to edit, comment, add required documents where applicable, and resubmit to the returning reviewer.
+- Disapproval requires a reason and notifications to the roles already involved. Comments/notes are permitted at review steps.
+
+`Sheet2!A1:C6` defines these document rules:
+
+- Reimbursement: Invoice; Billing / Quotation / SOA when available; Proof of Payment.
+- P.O. Payment: BIR 2303 for a new supplier; Billing / Quotation / SOA; Invoice when available.
+- General Payment: BIR 2303 for a new supplier; Billing / Quotation / SOA; Invoice when available.
+
+The source also records later-phase approval, notification, payment, tracking, archiving, and accounting-posting behavior. Those rules remain authoritative inputs to Phases 04–08 rather than expanding Phase 03 implementation scope.
+
+### Source discrepancies requiring confirmation
+
+- `Sheet1` lists Reimbursement, Cash Advance, P.O. Payment, and General Payment, but the approved project plan also includes Liquidation. Confirm that Liquidation remains a fifth request type.
+- Confirm that General Payment should require `Particulars of Payment`, correcting the apparent `Particulars of P.O. payment` copy/paste text in `Sheet1`.
+- `Sheet3` lists Cash Advance guidelines and policies as outstanding work. The source does not approve an amount limit, one-outstanding-advance rule, or liquidation deadline; those policies must not be enforced as authoritative until separately confirmed.
+- `Sheet2` does not specify Cash Advance or Liquidation documents. Confirm their required-document lists before Phase 04.
+- The source mentions auto-numbering during document upload. The later confirmed rule governs implementation: the permanent `PR-{YEAR}-{sequence}` number is assigned exactly once on successful submission.
 
 ## Objective
 
@@ -112,10 +142,11 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 - State-transition and data-model references, OpenAPI examples, migration output, automated results/coverage, calculation fixtures, concurrency results, browser validation, QA register updates, reviewed commits, package checksum, and CI run.
 
-## Decisions and source material still required before implementation
+## Decisions still required before implementation
 
-- Reattach the original business-rules Excel workbook so type-specific required fields, amount limits, document conditions, and duplicate-invoice matching criteria can be reconciled and cited.
 - Confirm lifecycle-state names and which fields may be edited after return or authorized reopen.
+- Resolve the source discrepancies listed above, particularly Liquidation scope and the General Payment particulars label.
+- Confirm duplicate-invoice matching criteria. The source requires invoice numbers and per-line invoices for Reimbursement but does not define exact duplicate behavior.
 - Foreign-currency conversion is out of the initial implementation. Before conversion is enabled, Finance must approve the rate source, rate timestamp/date, rounding, base currency, and immutable exchange-rate snapshot policy.
 
 ## Exclusions
