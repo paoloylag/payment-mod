@@ -96,6 +96,8 @@ erDiagram
 
 The UUID remains stable across integrations. The formatted `request_number` may follow different sequences per request type without becoming a foreign key.
 
+Every monetary value must be stored and handled as an explicit `(amount, currency_code)` pair. The same rule applies to line items, allocations, Cash Advance amounts, Liquidation amounts, taxes, and settlements. Initial Phase 03 requests are single-currency: child monetary rows must use the request currency, and the database/service layer must reject mixed-currency aggregation. Exchange-rate conversion requires separately persisted source, rate, base/quote currencies, and effective timestamp and is deferred until Finance approves that policy.
+
 ## 6. Request-type extension tables
 
 Fields unique to a request type should live in one-to-one extension tables rather than creating many nullable columns on `payment_requests`.
@@ -125,8 +127,11 @@ The application calculates the current prototype's liquidation deadline as 15 da
 - `request_id`
 - `cash_advance_request_id`
 - `amount_advanced`
+- `amount_advanced_currency_code`
 - `amount_spent`
+- `amount_spent_currency_code`
 - `amount_returned`
+- `amount_returned_currency_code`
 - `return_reference`
 
 ### `po_payment_details`

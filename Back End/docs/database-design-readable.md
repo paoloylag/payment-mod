@@ -50,6 +50,8 @@ These requests share common information, but each type also has special fields.
 
 For example, a cash advance records the event dates and liquidation deadline. A liquidation records the original advance, the amount spent, and any amount returned. A PO payment records the purchase order and supplier invoice. Keeping these details separate prevents the main request record from becoming cluttered with fields that do not apply.
 
+Every amount is stored with its ISO currency code. This includes the request total, every line and allocation, and the advance, spent, returned, tax, and settlement amounts introduced by later phases. The first implementation permits one currency per request, so the system rejects mixed-currency totals instead of converting them silently. Currency conversion will require a separately approved exchange-rate source and snapshot policy.
+
 ## Expense lines and cost centers
 
 A payment request may contain one or more expense lines. Each line can record:

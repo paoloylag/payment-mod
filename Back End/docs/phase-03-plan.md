@@ -1,8 +1,17 @@
 # Phase 03 — Payment Requests
 
 Date prepared: 2026-08-28  
+Last decision update: 2026-09-08
 Status: Not started  
 Depends on: Phase 02 — Master Data
+
+## Confirmed decisions — 2026-09-08
+
+- Submitted requests use `PR-{YEAR}-{six-digit sequence}`, for example `PR-2026-000001`. The sequence resets each calendar year and is generated exactly once during an idempotent submission.
+- Drafts autosave two seconds after the last edit. Drafts are retained for 90 days; the system warns before archival and does not silently destroy audit-relevant submitted records.
+- Every persisted monetary value is represented by an amount column and an ISO currency-code column. This applies to request totals, line amounts, allocation amounts, Cash Advance and Liquidation balances, and any later tax or settlement values. Queries and calculations must retrieve the pair together.
+- A request is single-currency in the initial implementation. Each line and allocation currency must match the request currency. Cross-currency calculations are rejected rather than implicitly converted; exchange rates and PHP-equivalent values are deferred until an approved conversion policy exists.
+- Type-specific validation will follow the original source workbook. That workbook is not currently present in the Payment Module or LifeOS workspaces and must be reattached before its rules can be treated as authoritative. Until then, the existing LCI-derived prototype requirements remain a non-authoritative implementation reference.
 
 ## Objective
 
@@ -18,11 +27,11 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 ## Planned data model
 
-- Payment request root with UUID, type, lifecycle status, owner, department, currency, payee/vendor, purpose, totals, submission data, and current version.
+- Payment request root with UUID, type, lifecycle status, owner, department, currency, payee/vendor, purpose, totals, submission data, and current version. Each total stores `amount` and `currency_code` together.
 - Immutable request versions containing the business fields used for review and later snapshots.
 - Request-type extension tables for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and General Payment.
-- Line items with description, merchant/vendor reference, dates, expense account, quantity/rate where applicable, amount, and tax hints.
-- One-to-many allocations per line across departments and cost centers.
+- Line items with description, merchant/vendor reference, dates, expense account, quantity/rate where applicable, `amount`, `currency_code`, and tax hints.
+- One-to-many allocations per line across departments and cost centers, each with its own `amount` and `currency_code` constrained to the parent request currency.
 - Numbering sequence, status-history, idempotency-command, and duplicate-reference records.
 - Liquidation-to-Cash-Advance and P.O.-to-request relationships without copying external-system authority into the local database.
 
@@ -32,7 +41,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 - Delete applies only to eligible drafts. Submitted records retain immutable history and use cancellation instead.
 - Autosave uses optimistic locking and rejects stale versions with a conflict response containing the current safe version identifier.
 - Submission performs complete server-side validation, generates the request number once, and is idempotent.
-- Request totals equal the sum of lines; allocation totals equal their line amount using currency-specific precision.
+- Request totals equal the sum of lines; allocation totals equal their line amount using currency-specific precision. Amounts with different currency codes must never be summed or compared directly.
 - Duplicate checks consider the approved combination of vendor/payee, invoice/reference number, amount, date, and request state.
 - Cash Advance and Liquidation rules validate event dates, due dates, outstanding advances, linked advance balances, and Proof of Return requirements.
 - P.O. Payment validates the approved P.O. reference and conditional supplier/BIR requirements without trusting browser-supplied approval claims.
@@ -69,7 +78,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 ## Delivery sequence
 
-1. Confirm lifecycle states, numbering formats, editable fields, and type-specific requirements.
+1. Confirm lifecycle states and editable fields, then reconcile type-specific requirements against the reattached source workbook. Numbering, autosave, retention, and initial currency behavior are confirmed.
 2. Add request, version, line, allocation, extension, and history migrations/models.
 3. Implement calculation, validation, locking, duplicate-detection, and authorization services.
 4. Add draft, autosave, submit, cancel, reopen, return, resubmit, list, and detail APIs.
@@ -103,12 +112,11 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 - State-transition and data-model references, OpenAPI examples, migration output, automated results/coverage, calculation fixtures, concurrency results, browser validation, QA register updates, reviewed commits, package checksum, and CI run.
 
-## Decisions required before implementation
+## Decisions and source material still required before implementation
 
-- Numbering format and reset period.
-- Autosave interval and draft-retention rules.
-- Type-specific required fields, amount limits, and duplicate-invoice matching criteria.
-- Foreign-currency conversion source and snapshot policy.
+- Reattach the original business-rules Excel workbook so type-specific required fields, amount limits, document conditions, and duplicate-invoice matching criteria can be reconciled and cited.
+- Confirm lifecycle-state names and which fields may be edited after return or authorized reopen.
+- Foreign-currency conversion is out of the initial implementation. Before conversion is enabled, Finance must approve the rate source, rate timestamp/date, rounding, base currency, and immutable exchange-rate snapshot policy.
 
 ## Exclusions
 
