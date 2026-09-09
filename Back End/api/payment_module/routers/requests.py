@@ -17,12 +17,15 @@ from ..models import (
     PaymentRequestVersion,
     RequestCommand,
     RequestSequence,
+    SystemSetting,
     User,
 )
-from ..schemas import PaymentRequestCreate, PaymentRequestUpdate, RequestTransition
+from ..schemas import PaymentRequestCreate, PaymentRequestUpdate, RequestNumberingSettingUpdate, RequestTransition
 from ..security import current_user
 
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
+settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
+NUMBERING_RESET_MONTH_KEY = "requests.numbering_reset_month"
 
 
 def permissions(request: Request) -> set[str]:
@@ -192,8 +195,21 @@ def delete_payment_request(
     db.commit()
 
 
-def next_number(db: Session) -> str:
-    year = datetime.now(UTC).year
+def numbering_reset_month(db: Session) -> int:
+    setting = db.scalar(select(SystemSetting).where(SystemSetting.key == NUMBERING_RESET_MONTH_KEY))
+    try:
+        month = int(setting.value) if setting else 7
+    except (TypeError, ValueError):
+        month = 7
+    return month if 1 <= month <= 12 else 7
+
+
+def academic_year_start(moment: datetime, reset_month: int) -> int:
+    return moment.year if moment.month >= reset_month else moment.year - 1
+
+
+def next_number(db: Session, *, moment: datetime | None = None) -> str:
+    year = academic_year_start(moment or datetime.now(UTC), numbering_reset_month(db))
     sequence = db.get(RequestSequence, year, with_for_update=True)
     if not sequence:
         sequence = RequestSequence(year=year, last_value=0)
@@ -201,6 +217,49 @@ def next_number(db: Session) -> str:
         db.flush()
     sequence.last_value += 1
     return f"PR-{year}-{sequence.last_value:06d}"
+
+
+@settings_router.get("/numbering")
+def get_numbering_setting(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    reset_month = numbering_reset_month(db)
+    start_year = academic_year_start(datetime.now(UTC), reset_month)
+    return {
+        "reset_month": reset_month,
+        "current_academic_year": f"{start_year}-{start_year + 1}",
+        "number_preview": f"PR-{start_year}-000001",
+    }
+
+
+@settings_router.put("/numbering")
+def update_numbering_setting(
+    payload: RequestNumberingSettingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    item = db.scalar(select(SystemSetting).where(SystemSetting.key == NUMBERING_RESET_MONTH_KEY))
+    before = {"reset_month": numbering_reset_month(db)}
+    if item is None:
+        item = SystemSetting(key=NUMBERING_RESET_MONTH_KEY, value=str(payload.reset_month))
+        db.add(item)
+        db.flush()
+    else:
+        item.value = str(payload.reset_month)
+    after = {"reset_month": payload.reset_month}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="request_numbering.updated",
+        entity_type="system_setting",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
 
 
 @router.post("/{request_id}/submit")

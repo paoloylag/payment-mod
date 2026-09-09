@@ -80,8 +80,10 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 - Added reversible Alembic revision `20260908_0006` for request roots, amount/currency line pairs, immutable versions,
   lifecycle history, annual numbering, and idempotent commands.
 - Added owner-, department-, and all-request permission scopes plus create and lifecycle-management permissions.
-- Added draft CRUD, optimistic-version updates, idempotent submission with `PR-{YEAR}-{six-digit sequence}`, and
+- Added draft CRUD, optimistic-version updates, idempotent submission with `PR-{ACADEMIC_YEAR_START}-{six-digit sequence}`, and
   return-for-information APIs.
+- Request numbering resets at the configurable academic-year start month, defaulting to July. Finance users can modify
+  the month through an audited setting without renumbering existing requests.
 - Connected frontend draft save and submit operations through the data-source adapter while retaining standalone mock mode.
 - Added two-second draft autosave and server-side single-currency enforcement.
 - General Payment remains unchanged in the frontend; its detailed validation/document rules are marked pending Finance

@@ -37,7 +37,7 @@ def test_phase_01_seed_is_deterministic() -> None:
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Department)) >= len(DEPARTMENTS)
         assert db.scalar(select(func.count()).select_from(User)) == len(ROLES)
-        assert len(PERMISSIONS) == 21
+        assert len(PERMISSIONS) == 22
 
 
 def test_login_session_logout_and_revocation(client) -> None:

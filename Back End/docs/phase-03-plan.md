@@ -7,7 +7,7 @@ Depends on: Phase 02 — Master Data
 
 ## Confirmed decisions — 2026-09-08
 
-- Submitted requests use `PR-{YEAR}-{six-digit sequence}`, for example `PR-2026-000001`. The sequence resets each calendar year and is generated exactly once during an idempotent submission.
+- Submitted requests use `PR-{ACADEMIC_YEAR_START}-{six-digit sequence}`, for example `PR-2026-000001` for academic year 2026–2027. The sequence resets at the start of each academic year, defaults to July, and is generated exactly once during an idempotent submission. Finance users can change the reset month through an audited setting; existing request numbers never change.
 - Drafts autosave two seconds after the last edit. Drafts are retained for 90 days; the system warns before archival and does not silently destroy audit-relevant submitted records.
 - Every persisted monetary value is represented by an amount column and an ISO currency-code column. This applies to request totals, line amounts, allocation amounts, Cash Advance and Liquidation balances, and any later tax or settlement values. Queries and calculations must retrieve the pair together.
 - A request is single-currency in the initial implementation. Each line and allocation currency must match the request currency. Cross-currency calculations are rejected rather than implicitly converted; exchange rates and PHP-equivalent values are deferred until an approved conversion policy exists.

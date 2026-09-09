@@ -24,6 +24,7 @@ SEED_SETTINGS = {
     "application.timezone": "Asia/Manila",
     "application.phase": "0",
     "data_source.default": "hybrid",
+    "requests.numbering_reset_month": "7",
 }
 
 DEPARTMENTS = {
@@ -76,6 +77,7 @@ PERMISSIONS = {
     "requests.read_department": "Read payment requests for the user's department",
     "requests.read_all": "Read all payment requests",
     "requests.manage_lifecycle": "Return and administer submitted payment requests",
+    "requests.numbering.manage": "Configure the payment request numbering reset month",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS) - {"bank_accounts.manage_access"}
@@ -90,6 +92,7 @@ ROLE_PERMISSIONS["finance_manager"] |= {
     "bank_accounts.manage_access",
     "requests.read_all",
     "requests.manage_lifecycle",
+    "requests.numbering.manage",
 }
 ROLE_PERMISSIONS["finance_associate"] |= {
     "master_data.read",
@@ -98,6 +101,7 @@ ROLE_PERMISSIONS["finance_associate"] |= {
     "bank_accounts.read",
     "requests.read_all",
     "requests.manage_lifecycle",
+    "requests.numbering.manage",
 }
 for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
     ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "accounts.read"}
@@ -139,7 +143,7 @@ def seed() -> None:
             setting = session.scalar(select(SystemSetting).where(SystemSetting.key == key))
             if setting is None:
                 session.add(SystemSetting(id=uuid5(NAMESPACE_URL, f"payment-module:{key}"), key=key, value=value))
-            else:
+            elif key != "requests.numbering_reset_month":
                 setting.value = value
         for old_code, new_code in DEPARTMENT_CODE_ALIASES.items():
             item = session.scalar(select(Department).where(Department.code == old_code))

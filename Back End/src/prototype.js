@@ -213,6 +213,7 @@ let state = {
   masterDataError: "",
   masterDataEdit: null,
   bankAccessUsers: null,
+  requestNumbering: null,
   persona: "all",
   tab: "dashboard",
   approvalView: "list",
@@ -633,11 +634,12 @@ async function loadMasterData(tab = state.tab) {
   state.masterDataError = "";
   render();
   try {
-    const [items, bankAccessUsers] = await Promise.all([
+    const [items, bankAccessUsers, requestNumbering] = await Promise.all([
       dataSource.listMasterData(config.resource),
       tab === "bankAccounts" ? dataSource.listBankAccess().catch(() => []) : Promise.resolve(state.bankAccessUsers),
+      tab === "currencies" ? dataSource.getRequestNumberingSetting().catch(() => null) : Promise.resolve(state.requestNumbering),
     ]);
-    setState({ masterData: { ...state.masterData, [config.resource]: items }, bankAccessUsers, masterDataLoading: false });
+    setState({ masterData: { ...state.masterData, [config.resource]: items }, bankAccessUsers, requestNumbering, masterDataLoading: false });
   } catch (error) {
     setState({ masterDataLoading: false, masterDataError: error.status === 403 ? "You do not have permission to view this master data." : error.message });
   }
@@ -688,7 +690,8 @@ function masterDataPage(tab) {
     return `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(secondary)}</small></div><div><span>${escapeHtml(item.code)}</span><small>Official code</small></div><span class="status-pill ${active ? "success" : "danger"}">${active ? "Active" : "Inactive"}</span>${actions}</article>`;
   }).join("") : `<div class="empty-state">No records are configured yet.</div>`;
   const accessPanel = tab === "bankAccounts" ? `<section class="panel"><div class="panel-header"><div><h3>Sensitive Bank Access</h3><p>Finance Managers can grant or revoke protected bank access independently of other administrator permissions.</p></div></div><div class="identity-list">${(state.bankAccessUsers || []).map((user) => `<article><div><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email)}</small></div><div><span>Sensitive account values</span><small>Separate permission</small></div><span class="status-pill ${user.has_sensitive_access ? "success" : "danger"}">${user.has_sensitive_access ? "Allowed" : "Denied"}</span><button type="button" data-bank-access-user="${user.user_id}" data-bank-access-allowed="${user.has_sensitive_access ? "false" : "true"}">${user.has_sensitive_access ? "Revoke" : "Grant"}</button></article>`).join("") || `<div class="empty-state">No eligible users are available.</div>`}</div></section>` : "";
-  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${accessPanel}</div></section>${masterDataModal()}`;
+  const numberingPanel = tab === "currencies" && state.requestNumbering ? `<section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose the month when the request sequence restarts for the new academic year. Existing request numbers will not change.</p></div></div><form data-numbering-settings class="identity-form"><label>Academic year starts<select name="reset_month">${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div><button type="submit" class="primary-button">Save numbering setting</button></form></section>` : "";
+  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${numberingPanel}${accessPanel}</div></section>${masterDataModal()}`;
 }
 
 function masterPayload(tab, form) {
@@ -721,6 +724,14 @@ function bindMasterData() {
       state.masterDataEdit = null;
       state.masterData[config.resource] = [];
       await loadMasterData(state.tab);
+    } catch (error) { setState({ masterDataError: error.message }); }
+  });
+  document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await dataSource.updateRequestNumberingSetting(Number(new FormData(event.currentTarget).get("reset_month")), state.csrfToken);
+      state.requestNumbering = await dataSource.getRequestNumberingSetting();
+      render();
     } catch (error) { setState({ masterDataError: error.message }); }
   });
   document.querySelectorAll("[data-bank-access-user]").forEach((button) => button.addEventListener("click", async () => {

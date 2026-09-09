@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from payment_module.database import SessionLocal
 from payment_module.models import Department
+from payment_module.routers.requests import academic_year_start
 from payment_module.seed import seed
 from sqlalchemy import select
 
@@ -89,3 +91,24 @@ def test_department_head_can_return_submitted_department_request(client):
         headers=head_headers,
     )
     assert returned.status_code == 200 and returned.json()["status"] == "returned"
+
+
+def test_academic_year_numbering_boundary_and_finance_setting(client):
+    seed()
+    assert academic_year_start(datetime(2027, 6, 30, tzinfo=UTC), 7) == 2026
+    assert academic_year_start(datetime(2027, 7, 1, tzinfo=UTC), 7) == 2027
+
+    requestor_headers = login(client)
+    current = client.get("/api/v1/request-settings/numbering")
+    assert current.status_code == 200 and current.json()["reset_month"] == 7
+    denied = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=requestor_headers)
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.associate@payment.local")
+    changed = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=finance_headers)
+    assert changed.status_code == 200 and changed.json()["reset_month"] == 8
+    seed()
+    assert client.get("/api/v1/request-settings/numbering").json()["reset_month"] == 8
+    restored = client.put("/api/v1/request-settings/numbering", json={"reset_month": 7}, headers=finance_headers)
+    assert restored.status_code == 200
