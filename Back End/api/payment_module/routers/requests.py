@@ -1,14 +1,16 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..database import get_db
 from ..models import (
+    ChartAccount,
+    CostCenter,
     Currency,
     Department,
     PaymentRequest,
@@ -107,7 +109,169 @@ def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
         raise HTTPException(422, "Currency is not active")
     if any(line.currency_code != payload.currency_code for line in payload.lines):
         raise HTTPException(422, "Mixed currencies are not allowed within one request")
+    for index, line in enumerate(payload.lines, 1):
+        if line.chart_account_id:
+            account = db.get(ChartAccount, line.chart_account_id)
+            if not account or not account.is_active:
+                raise HTTPException(422, f"Line {index}: expense account is not active")
+        if line.cost_center_id:
+            center = db.get(CostCenter, line.cost_center_id)
+            if not center or not center.is_active:
+                raise HTTPException(422, f"Line {index}: cost center is not active")
     return sum((line.amount for line in payload.lines), Decimal("0"))
+
+
+def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict[str, str]]:
+    lines = list(
+        db.scalars(
+            select(PaymentRequestLine)
+            .where(PaymentRequestLine.request_id == item.id)
+            .order_by(PaymentRequestLine.position)
+        )
+    )
+    data = item.type_data or {}
+    errors: list[dict[str, str]] = []
+
+    def require(condition: object, field: str, message: str) -> None:
+        if not condition:
+            errors.append({"field": field, "message": message})
+
+    def valid_date(value: object) -> bool:
+        try:
+            date.fromisoformat(str(value))
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def decimal_value(value: object) -> Decimal:
+        try:
+            return Decimal(str(value or 0))
+        except Exception:
+            return Decimal("0")
+
+    require(item.purpose.strip(), "purpose", "Event or payment purpose is required")
+    require(lines, "lines", "At least one line item is required")
+    require(item.gross_amount > 0, "gross_amount", "The request total must be greater than zero")
+    for position, line in enumerate(lines, 1):
+        prefix = f"lines.{position - 1}"
+        require(line.particulars.strip(), f"{prefix}.particulars", f"Line {position}: particulars are required")
+        require(line.amount > 0, f"{prefix}.amount", f"Line {position}: amount must be greater than zero")
+        require(
+            line.currency_code == item.currency_code,
+            f"{prefix}.currency_code",
+            f"Line {position}: currency must match the request",
+        )
+
+    if item.request_type == "reimbursement":
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(line.invoice_date, f"{prefix}.invoice_date", f"Line {position}: invoice date is required")
+            require(
+                line.invoice_number and line.invoice_number.strip(),
+                f"{prefix}.invoice_number",
+                f"Line {position}: invoice number is required",
+            )
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+            require(
+                line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
+            )
+        require(data.get("proof_of_payment_refs"), "type_data.proof_of_payment_refs", "Proof of payment is required")
+    elif item.request_type == "cashAdvance":
+        require(
+            valid_date(data.get("event_end_date")),
+            "type_data.event_end_date",
+            "A valid last day of the event is required",
+        )
+        require(
+            valid_date(data.get("liquidation_due_date")),
+            "type_data.liquidation_due_date",
+            "A valid liquidation due date is required",
+        )
+        require(
+            data.get("accountability_acknowledged") is True,
+            "type_data.accountability_acknowledged",
+            "Accountability acknowledgement is required",
+        )
+    elif item.request_type == "liquidation":
+        require(
+            data.get("cash_advance_reference"), "type_data.cash_advance_reference", "Cash Advance reference is required"
+        )
+        require(
+            valid_date(data.get("liquidation_due_date")),
+            "type_data.liquidation_due_date",
+            "A valid date to be liquidated is required",
+        )
+        require(
+            valid_date(data.get("actual_liquidation_date")),
+            "type_data.actual_liquidation_date",
+            "A valid actual liquidation date is required",
+        )
+        require(
+            decimal_value(data.get("liquidation_advance_amount")) > 0,
+            "type_data.liquidation_advance_amount",
+            "Cash Advance amount must be greater than zero",
+        )
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(line.invoice_date, f"{prefix}.invoice_date", f"Line {position}: invoice date is required")
+            require(
+                line.invoice_number and line.invoice_number.strip(),
+                f"{prefix}.invoice_number",
+                f"Line {position}: invoice number is required",
+            )
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+            require(
+                line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
+            )
+        if decimal_value(data.get("liquidation_advance_amount")) > item.gross_amount:
+            require(
+                data.get("proof_of_return_refs"),
+                "type_data.proof_of_return_refs",
+                "Proof of unused cash return is required",
+            )
+    elif item.request_type == "poPayment":
+        require(data.get("po_reference"), "type_data.po_reference", "Approved P.O. reference is required")
+        require(item.payee_name.strip(), "payee_name", "P.O. supplier is required")
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+        require(
+            data.get("approved_po_refs") or any(line.attachment_refs for line in lines),
+            "type_data.approved_po_refs",
+            "Approved P.O. document is required",
+        )
+    elif item.request_type == "general":
+        require(item.payee_name.strip(), "payee_name", "Payee or vendor is required")
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+        require(
+            data.get("billing_document_refs") or any(line.attachment_refs for line in lines),
+            "type_data.billing_document_refs",
+            "Billing document or invoice is required",
+        )
+    return errors
+
+
+def ensure_submittable(db: Session, item: PaymentRequest) -> None:
+    errors = submission_validation_errors(db, item)
+    if errors:
+        raise HTTPException(422, detail={"message": "Request is incomplete", "errors": errors})
 
 
 def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
@@ -289,11 +453,7 @@ def submit_payment_request(
         raise HTTPException(409, "Request cannot be submitted")
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
-    line_count = db.scalar(
-        select(func.count()).select_from(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)
-    )
-    if not line_count or item.gross_amount <= 0 or not item.purpose.strip():
-        raise HTTPException(422, "Purpose and at least one positive request line are required")
+    ensure_submittable(db, item)
     previous = item.status
     item.status = "submitted"
     item.submitted_at = datetime.now(UTC)
@@ -403,9 +563,7 @@ def cancel_payment_request(
         raise HTTPException(409, "This request was updated elsewhere; reload before cancelling")
     if item.status != "draft" and not payload.note.strip():
         raise HTTPException(422, "A cancellation reason is required after submission")
-    return lifecycle_change(
-        db, item=item, actor=actor, target_status="cancelled", note=payload.note, request=request
-    )
+    return lifecycle_change(db, item=item, actor=actor, target_status="cancelled", note=payload.note, request=request)
 
 
 @router.post("/{request_id}/reopen")
@@ -447,6 +605,7 @@ def resubmit_payment_request(
         raise HTTPException(409, "Only the owner can resubmit a returned request at its current version")
     if not payload.note.strip():
         raise HTTPException(422, "A resubmission note is required")
+    ensure_submittable(db, item)
     result = lifecycle_change(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
     )

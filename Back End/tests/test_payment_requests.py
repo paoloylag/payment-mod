@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from payment_module.database import SessionLocal
-from payment_module.models import Department
+from payment_module.models import ChartAccount, CostCenter, Department
 from payment_module.routers.requests import academic_year_start
 from payment_module.seed import seed
 from sqlalchemy import select
@@ -19,23 +19,96 @@ def login(client, email="requestor@payment.local"):
 def payload(currency="PHP"):
     with SessionLocal() as db:
         department_id = db.scalar(select(Department.id).where(Department.code == "MKTG"))
+        cost_center_id = db.scalar(select(CostCenter.id).where(CostCenter.code == "MKTG"))
+        chart_account = db.scalar(select(ChartAccount).where(ChartAccount.code == "TEST-EXPENSE"))
+        if chart_account is None:
+            chart_account = ChartAccount(
+                code="TEST-EXPENSE",
+                name="Test Expense Account",
+                description="Isolated automated-test account",
+                account_type="expense",
+                is_posting=True,
+                normal_balance="debit",
+            )
+            db.add(chart_account)
+            db.commit()
+            db.refresh(chart_account)
+        chart_account_id = chart_account.id
     return {
         "request_type": "reimbursement",
         "department_id": str(department_id),
         "payee_name": "Sample Merchant",
         "purpose": "Phase 03 automated request test",
         "currency_code": currency,
-        "type_data": {"source": "test"},
+        "type_data": {"source": "test", "proof_of_payment_refs": ["proof-of-payment.pdf"]},
         "lines": [
             {
                 "invoice_number": f"INV-{uuid4()}",
+                "invoice_date": "2026-09-01",
                 "vendor_name": "Sample Merchant",
                 "particulars": "Supplies",
+                "chart_account_id": str(chart_account_id),
+                "cost_center_id": str(cost_center_id),
                 "amount": "1250.50",
                 "currency_code": currency,
+                "attachment_refs": ["invoice.pdf"],
             }
         ],
     }
+
+
+def payload_for_type(request_type: str):
+    result = payload()
+    result["request_type"] = request_type
+    result["lines"][0]["invoice_number"] = f"REF-{uuid4()}"
+    if request_type == "cashAdvance":
+        result["payee_name"] = "Development Requestor"
+        result["type_data"] = {
+            "event_end_date": "2026-09-15",
+            "liquidation_due_date": "2026-09-30",
+            "accountability_acknowledged": True,
+        }
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": None,
+                "vendor_name": "",
+                "chart_account_id": None,
+                "cost_center_id": None,
+                "attachment_refs": [],
+            }
+        )
+    elif request_type == "liquidation":
+        result["type_data"] = {
+            "cash_advance_reference": "CA-2026-000049",
+            "liquidation_due_date": "2026-09-30",
+            "actual_liquidation_date": "2026-09-28",
+            "liquidation_advance_amount": "1500.00",
+            "proof_of_return_refs": ["return-proof.pdf"],
+        }
+    elif request_type == "poPayment":
+        result["payee_name"] = "Approved Supplier"
+        result["type_data"] = {"po_reference": "PO-2026-0106", "approved_po_refs": ["approved-po.pdf"]}
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": "PO-2026-0106",
+                "vendor_name": "Approved Supplier",
+                "attachment_refs": ["approved-po.pdf"],
+            }
+        )
+    elif request_type == "general":
+        result["payee_name"] = "Utility Provider"
+        result["type_data"] = {"billing_document_refs": ["utility-bill.pdf"]}
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": None,
+                "vendor_name": "Utility Provider",
+                "attachment_refs": ["utility-bill.pdf"],
+            }
+        )
+    return result
 
 
 def test_request_crud_optimistic_lock_and_idempotent_submit(client):
@@ -166,3 +239,51 @@ def test_academic_year_numbering_boundary_and_finance_setting(client):
     assert client.get("/api/v1/request-settings/numbering").json()["reset_month"] == 8
     restored = client.put("/api/v1/request-settings/numbering", json={"reset_month": 7}, headers=finance_headers)
     assert restored.status_code == 200
+
+
+def test_all_five_request_types_pass_confirmed_submission_rules(client):
+    seed()
+    headers = login(client)
+    for request_type in ("reimbursement", "cashAdvance", "liquidation", "poPayment", "general"):
+        created = client.post("/api/v1/requests", json=payload_for_type(request_type), headers=headers)
+        assert created.status_code == 201, (request_type, created.text)
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 200, (request_type, submitted.text)
+        assert submitted.json()["status"] == "submitted"
+
+
+def test_type_specific_submission_errors_are_field_scoped(client):
+    seed()
+    headers = login(client)
+    cases = []
+    reimbursement = payload_for_type("reimbursement")
+    reimbursement["lines"][0]["attachment_refs"] = []
+    cases.append((reimbursement, "lines.0.attachment_refs"))
+    cash_advance = payload_for_type("cashAdvance")
+    cash_advance["type_data"]["accountability_acknowledged"] = False
+    cases.append((cash_advance, "type_data.accountability_acknowledged"))
+    liquidation = payload_for_type("liquidation")
+    liquidation["type_data"].pop("cash_advance_reference")
+    cases.append((liquidation, "type_data.cash_advance_reference"))
+    po_payment = payload_for_type("poPayment")
+    po_payment["type_data"].pop("po_reference")
+    cases.append((po_payment, "type_data.po_reference"))
+    general = payload_for_type("general")
+    general["type_data"]["billing_document_refs"] = []
+    general["lines"][0]["attachment_refs"] = []
+    cases.append((general, "type_data.billing_document_refs"))
+
+    for request_payload, expected_field in cases:
+        created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+        assert created.status_code == 201
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 422
+        assert expected_field in {error["field"] for error in submitted.json()["errors"]}

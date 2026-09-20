@@ -1,8 +1,8 @@
 # Automated Payment System Project Manifest
 
 Status: Approved phased backend implementation scope
-Manifest version: 2.4
-Last updated: 2026-09-08
+Manifest version: 2.5
+Last updated: 2026-09-20
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
 ## Purpose
@@ -86,6 +86,12 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
   the month through an audited setting without renumbering existing requests.
 - Connected frontend draft save and submit operations through the data-source adapter while retaining standalone mock mode.
 - Added two-second draft autosave and server-side single-currency enforcement.
+- Completed API mapping for the visible shared and type-specific request fields, master-data identifiers, line details,
+  request/line document references, vendor and P.O. references, Cash Advance acknowledgements, and Liquidation balances.
+- Added submission-time, field-scoped validation for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and
+  General Payment while retaining incomplete-draft autosave behavior.
+- Enforced a dedicated `_test` database in the automated test harness so request tests cannot accumulate records in
+  the development database. The 2026-09-20 regression passed with `40 passed` and the Vite production build passed.
 - General Payment remains unchanged in the frontend; its detailed validation/document rules are marked pending Finance
   confirmation because the source sheet contains ambiguous P.O. wording.
 - Current validation: 36 backend tests passed and the Vite production build passed on 2026-09-08.
@@ -624,7 +630,7 @@ When backend development resumes:
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
 | 02 — Master data | In progress | `docs/phase-02-plan.md` |
-| 03 — Payment requests | Not started | `docs/phase-03-plan.md` |
+| 03 — Payment requests | In progress | `docs/phase-03-plan.md` (API form integration and five-type validation updated 2026-09-20) |
 | 04 — Documents | Not started | `docs/phase-04-plan.md` |
 | 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |
 | 06 — Finance validation and vouchers | Not started | `docs/phase-06-plan.md` |

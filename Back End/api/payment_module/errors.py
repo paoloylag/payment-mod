@@ -32,12 +32,14 @@ def problem(
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        structured = exc.detail if isinstance(exc.detail, dict) else None
         return problem(
             request,
             status_code=exc.status_code,
             code="http_error",
             title="Request failed",
-            detail=str(exc.detail),
+            detail=str(structured.get("message", "Request failed")) if structured else str(exc.detail),
+            errors=structured.get("errors") if structured else None,
         )
 
     @app.exception_handler(RequestValidationError)

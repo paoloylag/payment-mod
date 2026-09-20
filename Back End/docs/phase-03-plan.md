@@ -5,6 +5,23 @@ Last decision update: 2026-09-08
 Status: In progress
 Depends on: Phase 02 — Master Data
 
+## Implementation progress — 2026-09-20
+
+- All five request forms now map their visible shared fields, type-specific fields, line details, master-data IDs,
+  currency/amount pairs, references, acknowledgements, and document filenames into the request API contract.
+- Submission-time validation is type-specific and returns field-scoped errors; incomplete drafts remain eligible for
+  autosave and later completion.
+- Reimbursement validates merchant, invoice date/number, account, cost center, amount, receipt, and proof of payment.
+- Cash Advance validates event and liquidation dates, positive lines, and accountability acknowledgement without
+  enforcing the still-unapproved amount, outstanding-advance, or deadline policies.
+- Liquidation validates its Cash Advance reference, dates, advance amount, detailed expense lines, receipts, and proof
+  of return when the advance exceeds recorded expenses.
+- P.O. Payment validates the P.O. reference, supplier, account/cost-center treatment, amount, and approved-P.O. support.
+- General Payment retains the approved `Particulars of Payment` behavior and validates payee, line accounting,
+  positive amounts, and billing/invoice support.
+- Ruff, seven focused request API tests, the complete `40 passed` backend regression, production frontend build, and
+  live browser inspection of all five forms passed. Automated tests now refuse non-`_test` databases.
+
 ## Confirmed decisions — 2026-09-08
 
 - Submitted requests use `PR-{ACADEMIC_YEAR_START}-{six-digit sequence}`, for example `PR-2026-000001` for academic year 2026–2027. The sequence resets at the start of each academic year, defaults to July, and is generated exactly once during an idempotent submission. Finance users can change the reset month through an audited setting; existing request numbers never change.

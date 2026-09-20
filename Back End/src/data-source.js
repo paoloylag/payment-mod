@@ -13,8 +13,13 @@ export function createDataSource() {
     });
     const payload = response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new Error(payload?.detail || `API request failed (${response.status})`);
+      const detail = payload?.detail;
+      const validationErrors = detail?.errors || payload?.errors;
+      const fieldErrors = validationErrors?.map((item) => `${item.field || item.loc?.join(".")}: ${item.message || item.msg}`).join("; ");
+      const message = fieldErrors || detail?.message || (typeof detail === "string" ? detail : "") || `API request failed (${response.status})`;
+      const error = new Error(message);
       error.status = response.status;
+      error.details = detail;
       throw error;
     }
     return payload;
