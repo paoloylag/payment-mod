@@ -93,6 +93,60 @@ def test_department_head_can_return_submitted_department_request(client):
     assert returned.status_code == 200 and returned.json()["status"] == "returned"
 
 
+def test_request_lifecycle_return_resubmit_cancel_and_reopen(client):
+    seed()
+    requestor_headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
+    assert created["requestor_name"] == "Development Requestor"
+    assert created["department_name"] == "Marketing"
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    returned = client.post(
+        f"/api/v1/requests/{created['id']}/return",
+        json={"version": submitted["version"], "note": "Please correct the supporting details."},
+        headers=head_headers,
+    )
+    assert returned.status_code == 200 and returned.json()["status"] == "returned"
+
+    client.cookies.clear()
+    requestor_headers = login(client)
+    resubmit_headers = {**requestor_headers, "Idempotency-Key": str(uuid4())}
+    resubmitted = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": returned.json()["version"], "note": "Supporting details corrected."},
+        headers=resubmit_headers,
+    )
+    repeated = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": returned.json()["version"], "note": "Supporting details corrected."},
+        headers=resubmit_headers,
+    )
+    assert resubmitted.status_code == 200 and resubmitted.json()["status"] == "submitted"
+    assert repeated.status_code == 200 and repeated.json()["version"] == resubmitted.json()["version"]
+
+    cancelled = client.post(
+        f"/api/v1/requests/{created['id']}/cancel",
+        json={"version": resubmitted.json()["version"], "note": "Request is no longer needed."},
+        headers=requestor_headers,
+    )
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.manager@payment.local")
+    reopened = client.post(
+        f"/api/v1/requests/{created['id']}/reopen",
+        json={"version": cancelled.json()["version"], "note": "Reopened after requestor confirmation."},
+        headers=finance_headers,
+    )
+    assert reopened.status_code == 200 and reopened.json()["status"] == "draft"
+
+
 def test_academic_year_numbering_boundary_and_finance_setting(client):
     seed()
     assert academic_year_start(datetime(2027, 6, 30, tzinfo=UTC), 7) == 2026

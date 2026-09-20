@@ -1,4 +1,5 @@
 import { createDataSource } from "./data-source.js";
+import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260920-backend-integration";
 
 const dataSource = createDataSource();
 
@@ -188,13 +189,18 @@ const requests = [
 const personas = {
   all: { label: "All Roles", name: "Prototype Admin", subtitle: "Complete Prototype Access" },
   requestor: { label: "Requestor", name: "Mika Santos", subtitle: "Marketing Department" },
+  departmentHead: { label: "Department Head", name: "Department Head", subtitle: "Department Approval" },
   financeAssociate: { label: "Finance Associate", name: "Ms. Rhee", subtitle: "Document Validation" },
   financeManager: { label: "Finance Manager", name: "Finance Manager", subtitle: "All-Request Visibility" },
+  authorizedSignatory: { label: "Authorized Signatory", name: "Authorized Signatory", subtitle: "Bank Authorization" },
   coo: { label: "COO", name: "Chief Operating Officer", subtitle: "Routed Approvals Only" },
   president: { label: "President", name: "President", subtitle: "Routed Approvals Only" },
+  boardMember: { label: "Board Member", name: "Board Member", subtitle: "Board Approvals Only" },
 };
 
 let draftAutosaveTimer;
+let toastDismissTimer;
+let scheduledToastId = null;
 let state = {
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
@@ -204,6 +210,7 @@ let state = {
   csrfToken: null,
   authError: "",
   authSubmitting: false,
+  toast: null,
   identityData: { users: [], roles: [], permissions: [], departments: [] },
   identityLoading: false,
   identityError: "",
@@ -288,6 +295,7 @@ const tabRoutes = {
   uploads: "/documents/uploads",
   documents: "/documents/rules",
   emails: "/emails",
+  guide: "/guide",
   users: "/administration/users",
   roles: "/administration/roles",
   departments: "/administration/departments",
@@ -318,6 +326,7 @@ function routeStateFromHash() {
     const emailId = [...steps, ...emailNotificationEvents].find(([id]) => String(id) === parts[1])?.[0];
     return { tab: "emails", emailStep: emailId ?? state.emailStep, trackerRequestId: null, dashboardMetric: null };
   }
+  if (parts[0] === "guide") return { tab: "guide" };
   if (parts[0] === "administration") return { tab: ["users", "roles", "departments"].includes(parts[1]) ? parts[1] : "users" };
   if (parts[0] === "master-data") {
     const resourceTabs = { "cost-centers": "costCenters", vendors: "vendors", "chart-of-accounts": "accounts", "tax-codes": "taxCodes", currencies: "currencies", "payment-methods": "paymentMethods", "company-bank-accounts": "bankAccounts", "document-types": "documentTypes" };
@@ -369,7 +378,8 @@ const approvalCertificationFor = (r) => {
     ["Department Approval", `${r.department} Department Head`, "Approved", "2026-06-20 09:14", `APR-${key}-DH`],
     ["Document Validation", "Ms. Rhee · Finance Associate", "Validated", "2026-06-22 14:36", `APR-${key}-DV`],
     ["Final Approval", finalApprovalRole(r), "Approved", "2026-06-23 11:08", `APR-${key}-FA`],
-  ];
+];
+const prototypeRequests = requests.map((request) => ({ ...request }));
 };
 const voucherFor = (r, allowCreation = false) => {
   if (r.currentStep < 9) return "";
@@ -475,29 +485,82 @@ function setState(patch) {
   render();
 }
 
+function errorToast(message, title = "Something went wrong") {
+  return { id: `${Date.now()}-${Math.random()}`, tone: "error", title, message: String(message || "Please try again.") };
+}
+
+function successToast(message, title = "Saved") {
+  return { id: `${Date.now()}-${Math.random()}`, tone: "success", title, message: String(message) };
+}
+
+function showErrorToast(message, title) {
+  setState({ toast: errorToast(message, title) });
+}
+
+function toastView() {
+  if (!state.toast) return "";
+  const isError = state.toast.tone === "error";
+  return `<div class="app-toast-region" aria-live="${isError ? "assertive" : "polite"}" aria-atomic="true"><section class="app-toast app-toast-${state.toast.tone}" role="${isError ? "alert" : "status"}"><span class="app-toast-icon" aria-hidden="true">${isError ? "!" : "✓"}</span><div class="app-toast-copy"><strong>${escapeHtml(state.toast.title)}</strong><p>${escapeHtml(state.toast.message)}</p></div><button type="button" class="app-toast-dismiss" data-dismiss-toast aria-label="Dismiss message">×</button><span class="app-toast-timer" aria-hidden="true"></span></section></div>`;
+}
+
+function bindToast() {
+  document.querySelector("[data-dismiss-toast]")?.addEventListener("click", () => setState({ toast: null }));
+  if (!state.toast || scheduledToastId === state.toast.id) return;
+  clearTimeout(toastDismissTimer);
+  scheduledToastId = state.toast.id;
+  toastDismissTimer = window.setTimeout(() => {
+    if (state.toast?.id !== scheduledToastId) return;
+    state = { ...state, toast: null };
+    scheduledToastId = null;
+    render();
+  }, 7000);
+}
+
 function loginView() {
   const checking = state.authStatus === "checking";
   const busy = checking || state.authSubmitting;
   const buttonLabel = state.authSubmitting ? "Signing in…" : checking ? "Checking session…" : "Sign in";
+  const demoAccounts = [
+    ["requestor@payment.local", "Requestor"], ["department.head@payment.local", "Department Head"],
+    ["finance.associate@payment.local", "Finance Associate"], ["finance.manager@payment.local", "Finance Manager"],
+    ["coo@payment.local", "COO"], ["president@payment.local", "President"],
+    ["board.member@payment.local", "Board Member"], ["signatory@payment.local", "Authorized Signatory"],
+    ["admin@payment.local", "System Administrator"],
+  ];
+  const demoSelector = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true"
+    ? `<div class="development-login-selector"><label>Login as<select data-demo-login><option value="">Select a development role</option>${demoAccounts.map(([email, role]) => `<option value="${email}">${role}</option>`).join("")}</select></label></div>`
+    : "";
   return `<main class="signed-out"><section class="login-panel" aria-label="Automated Payment System sign in">
     <div class="login-intro"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true">AP</span><span><strong>Automated Payment System</strong><small>Finance Operations</small></span></div></div>
     <div class="login-copy"><h1>Sign in</h1><p>Sign in to continue.</p></div>
-    <form class="login-form" data-login-form><label>Email<input name="email" type="email" autocomplete="username" required ${busy ? "disabled" : ""}></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required ${busy ? "disabled" : ""}></label>${state.authError ? `<p class="login-error" role="alert">${state.authError}</p>` : ""}<button class="primary-button login-submit-button" type="submit" ${busy ? "disabled" : ""} aria-busy="${busy}">${busy ? `<span class="login-button-spinner" aria-hidden="true"></span>` : ""}<span>${buttonLabel}</span></button></form>
-  </section></main>`;
+    <form class="login-form" data-login-form><label>Email<input name="email" type="email" autocomplete="username" required ${busy ? "disabled" : ""}></label><label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required ${busy ? "disabled" : ""}></label><button class="primary-button login-submit-button" type="submit" ${busy ? "disabled" : ""} aria-busy="${busy}">${busy ? `<span class="login-button-spinner" aria-hidden="true"></span>` : ""}<span>${buttonLabel}</span></button>${demoSelector}</form>
+  </section>${toastView()}</main>`;
+}
+
+function personaForRoles(roles = []) {
+  const rolePersona = { requestor: "requestor", department_head: "departmentHead", finance_associate: "financeAssociate", finance_manager: "financeManager", authorized_signatory: "authorizedSignatory", coo: "coo", president: "president", board_member: "boardMember" };
+  return roles.map((role) => rolePersona[role]).find(Boolean) || "all";
 }
 
 function bindLogin() {
+  document.querySelector("[data-demo-login]")?.addEventListener("change", (event) => {
+    const form = event.currentTarget.form;
+    if (!event.currentTarget.value || !form) return;
+    form.elements.email.value = event.currentTarget.value;
+    form.elements.password.value = import.meta.env.VITE_DEMO_PASSWORD || "Phase01-Test-Only!";
+  });
   document.querySelector("[data-login-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setState({ authSubmitting: true, authError: "" });
     try {
       const session = await dataSource.login(form.get("email"), form.get("password"));
-      const rolePersona = { requestor: "requestor", finance_associate: "financeAssociate", finance_manager: "financeManager", coo: "coo", president: "president" };
-      const persona = session.user.roles.map((role) => rolePersona[role]).find(Boolean) || "all";
-      setState({ authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false });
+      const persona = personaForRoles(session.user.roles);
+      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false };
+      await loadApiPaymentRequests();
+      render();
     } catch (error) {
-      setState({ authStatus: "unauthenticated", authError: error.message || "Sign-in failed", authSubmitting: false });
+      setState({ authStatus: "unauthenticated", authError: error.message || "Sign-in failed", authSubmitting: false, toast: errorToast(error.message || "Sign-in failed", "Unable to sign in") });
     }
   });
 }
@@ -513,7 +576,8 @@ async function loadIdentityData() {
     const [users, roles, permissions, departments] = await Promise.all([dataSource.listUsers(), dataSource.listRoles(), dataSource.listPermissions(), dataSource.listDepartments()]);
     setState({ identityData: { users, roles, permissions, departments }, identityLoading: false });
   } catch (error) {
-    setState({ identityLoading: false, identityError: error.status === 403 ? "You do not have permission to administer identity data." : error.message });
+    const message = error.status === 403 ? "You do not have permission to administer identity data." : error.message;
+    setState({ identityLoading: false, identityError: message, toast: errorToast(message, "Administration data unavailable") });
   }
 }
 
@@ -538,8 +602,6 @@ function identityEditorModal() {
 }
 
 function identityPage(kind) {
-  const labels = { users: "User Administration", roles: "Roles & Permissions", departments: "Departments" };
-  const tabs = ["users", "roles", "departments"].map((id) => `<button type="button" data-tab="${id}" class="${kind === id ? "active" : ""}">${labels[id]}</button>`).join("");
   if (state.identityLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading administration data"></div></section>`;
   if (state.identityError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.identityError)}</p></section>`;
   const { users, roles, permissions, departments } = state.identityData;
@@ -555,7 +617,7 @@ function identityPage(kind) {
   if (kind === "departments") {
     content = `<section class="panel"><div class="panel-header"><div><h3>Department directory</h3><p>Delete is blocked until all users are reassigned.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-identity="department">+ Department</button></div></div><div class="identity-list identity-department-list">${departments.map((department) => `<article><div><strong>${escapeHtml(department.name)}</strong><small>Department</small></div><div><span>${escapeHtml(department.code)}</span><small>Department code</small></div><span class="status-pill ${department.is_active ? "success" : "danger"}">${department.is_active ? "Active" : "Inactive"}</span>${identityActionMenu("department", department.id, department.name)}</article>`).join("")}</div></section>`;
   }
-  return `<section class="identity-page"><nav class="identity-tabs" aria-label="Identity administration">${tabs}</nav>${content}</section>${identityEditorModal()}`;
+  return `<section class="identity-page">${content}</section>${identityEditorModal()}`;
 }
 
 async function refreshIdentityData() {
@@ -583,7 +645,7 @@ function bindIdentityForms() {
     try {
       await dataSource.createDepartment({ code: String(form.get("code")).toUpperCase(), name: form.get("name") }, state.csrfToken);
       await refreshIdentityData();
-    } catch (error) { setState({ identityError: error.message }); }
+    } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update user") }); }
   });
   document.querySelector("[data-create-user]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -591,7 +653,7 @@ function bindIdentityForms() {
     try {
       await dataSource.createUser({ email: form.get("email"), display_name: form.get("display_name"), password: form.get("password"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null }, state.csrfToken);
       await refreshIdentityData();
-    } catch (error) { setState({ identityError: error.message }); }
+    } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update role") }); }
   });
   document.querySelectorAll("[data-edit-user]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "user", id: button.dataset.editUser } })));
   document.querySelectorAll("[data-edit-department]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "department", id: button.dataset.editDepartment } })));
@@ -601,15 +663,15 @@ function bindIdentityForms() {
   document.querySelector("[data-identity-modal-backdrop]")?.addEventListener("click", (event) => {
     if (event.target === event.currentTarget) setState({ identityEdit: null });
   });
-  const bindSubmit = (selector, action) => document.querySelector(selector)?.addEventListener("submit", async (event) => { event.preventDefault(); try { await action(new FormData(event.currentTarget), event.currentTarget); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } });
+  const bindSubmit = (selector, action) => document.querySelector(selector)?.addEventListener("submit", async (event) => { event.preventDefault(); try { await action(new FormData(event.currentTarget), event.currentTarget); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to save changes") }); } });
   const editUserForm = document.querySelector("form[data-edit-user-form]");
-  editUserForm?.addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await dataSource.updateUser(event.currentTarget.dataset.editUserForm, { display_name: form.get("display_name"), email: form.get("email"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null, is_active: form.get("is_active") === "on", is_suspended: form.get("is_suspended") === "on" }, state.csrfToken); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } });
+  editUserForm?.addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await dataSource.updateUser(event.currentTarget.dataset.editUserForm, { display_name: form.get("display_name"), email: form.get("email"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null, is_active: form.get("is_active") === "on", is_suspended: form.get("is_suspended") === "on" }, state.csrfToken); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update user") }); } });
   bindSubmit("[data-edit-department-form]", (form, element) => dataSource.updateDepartment(element.dataset.editDepartmentForm, { code: String(form.get("code")).toUpperCase(), name: form.get("name"), is_active: form.get("is_active") === "on" }, state.csrfToken));
   bindSubmit("[data-create-role]", (form) => dataSource.createRole({ code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-edit-role-form]", (form, element) => dataSource.updateRole(element.dataset.editRoleForm, { code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-create-permission]", (form) => dataSource.createPermission({ code: form.get("code"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-edit-permission-form]", (form, element) => dataSource.updatePermission(element.dataset.editPermissionForm, { code: form.get("code"), description: form.get("description") }, state.csrfToken));
-  const bindDelete = (selector, label, action) => document.querySelectorAll(selector).forEach((button) => button.addEventListener("click", async () => { if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return; try { await action(button); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message }); } }));
+  const bindDelete = (selector, label, action) => document.querySelectorAll(selector).forEach((button) => button.addEventListener("click", async () => { if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return; try { await action(button); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, `Unable to delete ${label}`) }); } }));
   bindDelete("[data-delete-user]", "this user", (button) => dataSource.deleteUser(button.dataset.deleteUser, state.csrfToken));
   bindDelete("[data-delete-department]", "this department", (button) => dataSource.deleteDepartment(button.dataset.deleteDepartment, state.csrfToken));
   bindDelete("[data-delete-role]", "this role", (button) => dataSource.deleteRole(button.dataset.deleteRole, state.csrfToken));
@@ -641,7 +703,8 @@ async function loadMasterData(tab = state.tab) {
     ]);
     setState({ masterData: { ...state.masterData, [config.resource]: items }, bankAccessUsers, requestNumbering, masterDataLoading: false });
   } catch (error) {
-    setState({ masterDataLoading: false, masterDataError: error.status === 403 ? "You do not have permission to view this master data." : error.message });
+    const message = error.status === 403 ? "You do not have permission to view this master data." : error.message;
+    setState({ masterDataLoading: false, masterDataError: message, toast: errorToast(message, "Master data unavailable") });
   }
 }
 
@@ -653,7 +716,7 @@ async function loadRequestReferenceData() {
     const results = await Promise.all(resources.map((resource) => dataSource.listMasterData(resource)));
     setState({ masterData: { ...state.masterData, ...Object.fromEntries(resources.map((resource, index) => [resource, results[index]])) }, masterDataLoading: false });
   } catch (error) {
-    setState({ masterDataLoading: false, masterDataError: error.message });
+    setState({ masterDataLoading: false, masterDataError: error.message, toast: errorToast(error.message, "Reference data unavailable") });
   }
 }
 
@@ -690,7 +753,7 @@ function masterDataPage(tab) {
     return `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(secondary)}</small></div><div><span>${escapeHtml(item.code)}</span><small>Official code</small></div><span class="status-pill ${active ? "success" : "danger"}">${active ? "Active" : "Inactive"}</span>${actions}</article>`;
   }).join("") : `<div class="empty-state">No records are configured yet.</div>`;
   const accessPanel = tab === "bankAccounts" ? `<section class="panel"><div class="panel-header"><div><h3>Sensitive Bank Access</h3><p>Finance Managers can grant or revoke protected bank access independently of other administrator permissions.</p></div></div><div class="identity-list">${(state.bankAccessUsers || []).map((user) => `<article><div><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email)}</small></div><div><span>Sensitive account values</span><small>Separate permission</small></div><span class="status-pill ${user.has_sensitive_access ? "success" : "danger"}">${user.has_sensitive_access ? "Allowed" : "Denied"}</span><button type="button" data-bank-access-user="${user.user_id}" data-bank-access-allowed="${user.has_sensitive_access ? "false" : "true"}">${user.has_sensitive_access ? "Revoke" : "Grant"}</button></article>`).join("") || `<div class="empty-state">No eligible users are available.</div>`}</div></section>` : "";
-  const numberingPanel = tab === "currencies" && state.requestNumbering ? `<section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose the month when the request sequence restarts for the new academic year. Existing request numbers will not change.</p></div></div><form data-numbering-settings class="identity-form"><label>Academic year starts<select name="reset_month">${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div><button type="submit" class="primary-button">Save numbering setting</button></form></section>` : "";
+  const numberingPanel = tab === "currencies" && state.requestNumbering ? `<section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose the month when the request sequence restarts for the new academic year. Existing request numbers will not change.</p></div></div><form data-numbering-settings class="identity-form numbering-settings-form"><label>Academic year starts<select name="reset_month">${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div class="numbering-settings-summary"><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong></div><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div><button type="submit" class="primary-button">Save numbering setting</button></form></section>` : "";
   return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${numberingPanel}${accessPanel}</div></section>${masterDataModal()}`;
 }
 
@@ -724,7 +787,7 @@ function bindMasterData() {
       state.masterDataEdit = null;
       state.masterData[config.resource] = [];
       await loadMasterData(state.tab);
-    } catch (error) { setState({ masterDataError: error.message }); }
+    } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to save master data") }); }
   });
   document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -732,7 +795,7 @@ function bindMasterData() {
       await dataSource.updateRequestNumberingSetting(Number(new FormData(event.currentTarget).get("reset_month")), state.csrfToken);
       state.requestNumbering = await dataSource.getRequestNumberingSetting();
       render();
-    } catch (error) { setState({ masterDataError: error.message }); }
+    } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to save numbering settings") }); }
   });
   document.querySelectorAll("[data-bank-access-user]").forEach((button) => button.addEventListener("click", async () => {
     const allowed = button.dataset.bankAccessAllowed === "true";
@@ -742,7 +805,7 @@ function bindMasterData() {
       await dataSource.changeBankAccess({ user_id: button.dataset.bankAccessUser, allowed, reason: reason.trim() }, state.csrfToken);
       state.masterData[config.resource] = [];
       await loadMasterData(state.tab);
-    } catch (error) { setState({ masterDataError: error.message }); }
+    } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to update bank access") }); }
   }));
 }
 
@@ -779,6 +842,58 @@ function removeDraftLineItem(rowIndex) {
 const draftAmountFor = (draft) => draft.lineItems.reduce((sum, item) => sum + (Number(item.Amount) || 0), 0);
 const activeRequestor = () => state.persona === "financeAssociate" ? personas.financeAssociate.name : personas.requestor.name;
 
+function apiLineToPrototype(type, line) {
+  const common = { Particulars: line.particulars, Amount: Number(line.amount) || 0 };
+  const attachment = line.attachment_refs?.[0] || "";
+  if (type === "cashAdvance") return common;
+  if (type === "poPayment") return { "P.O. Number": line.invoice_number || "", Supplier: line.vendor_name, ...common, "Expense Account": "", "Department / Cost Center": "", Attachment: attachment };
+  if (type === "general") return { "Merchant Name": line.vendor_name, Particulars: line.particulars, "Expense Account": "", "Department / Cost Center": "", Amount: Number(line.amount) || 0, Attachment: attachment };
+  return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": "", "Department to Be Charged": "", Amount: Number(line.amount) || 0, Attachment: attachment };
+}
+
+function apiRequestToPrototype(item) {
+  const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
+  const [status, currentStep] = statusMap[item.status] || [item.status, 2];
+  return {
+    id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, backendId: item.id,
+    backendVersion: item.version, backendStatus: item.status, type: item.request_type,
+    requestor: item.requestor_name, department: item.department_name,
+    vendor: item.payee_name || item.lines?.find((line) => line.vendor_name)?.vendor_name || "To Be Confirmed",
+    amount: Number(item.gross_amount) || 0, budgeted: item.type_data?.budgeted !== false,
+    status, currentStep, submitted: item.submitted_at?.slice(0, 10) || item.created_at.slice(0, 10),
+    returned: item.status === "returned" ? item.updated_at.slice(0, 10) : "", resubmitted: "",
+    documents: item.lines?.reduce((count, line) => count + (line.attachment_refs?.length || 0), 0) || 0,
+    missing: 0, currency: item.currency_code, unlocked: item.status === "returned", audit: [], lines: item.lines || [],
+    purpose: item.purpose, typeData: item.type_data || {},
+  };
+}
+
+function apiRequestToDraft(item) {
+  return {
+    id: `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, backendId: item.id, backendVersion: item.version,
+    type: item.request_type, requestor: item.requestor_name, department: item.department_name,
+    savedAt: item.updated_at, createdAt: item.created_at, currency: item.currency_code, otherCurrency: "",
+    budgeted: item.type_data?.budgeted !== false,
+    liquidationAdvanceAmount: Number(item.type_data?.liquidation_advance_amount) || 0,
+    purpose: item.purpose, lineItems: (item.lines || []).map((line) => apiLineToPrototype(item.request_type, line)), controls: [],
+  };
+}
+
+async function loadApiPaymentRequests() {
+  const items = await dataSource.listPaymentRequests();
+  if (!items) return false;
+  const submitted = items.filter((item) => item.status !== "draft").map(apiRequestToPrototype);
+  requests.splice(0, requests.length, ...submitted);
+  state = {
+    ...state,
+    drafts: items.filter((item) => item.status === "draft").map(apiRequestToDraft),
+    selectedId: submitted.some((item) => item.id === state.selectedId) ? state.selectedId : submitted[0]?.id || null,
+    requestsError: "",
+  };
+  state = { ...state, ...routeStateFromHash() };
+  return true;
+}
+
 function captureDraftControls() {
   return [...document.querySelectorAll(".request-form-panel input:not([type=file]), .request-form-panel select, .request-form-panel textarea")].map((control) => ({
     value: control.type === "checkbox" ? control.checked : control.value,
@@ -803,14 +918,19 @@ function saveDraft({ silent = false } = {}) {
     liquidationAdvanceAmount: state.liquidationAdvanceAmount,
     lineItems: state.lineItemsByType[state.draftType].map((item) => ({ ...item })),
     controls: captureDraftControls(),
+    purpose: existing?.purpose,
     backendId: existing?.backendId,
     backendVersion: existing?.backendVersion,
+    backendStatus: existing?.backendStatus,
   };
   state.drafts = existing ? state.drafts.map((item) => item.id === draft.id ? draft : item) : [...state.drafts, draft];
   state.activeDraftId = draft.id;
   state.draftDirty = false;
   void persistDraft(draft);
-  if (!silent) render();
+  if (!silent) {
+    state.toast = successToast(`${draft.id} has been saved and can be continued later.`, "Draft saved");
+    render();
+  }
 }
 
 function restoreDraftControls() {
@@ -846,15 +966,19 @@ function openDraft(id) {
 async function submitSavedDraft(id) {
   const draft = state.drafts.find((item) => item.id === id);
   if (!draft) return;
+  let submittedRecord = null;
   if (dataSource.mode !== "mock" && state.authStatus === "authenticated") {
-    if (!draft.backendId) await persistDraft(draft);
+    await persistDraft(draft);
     const persisted = state.drafts.find((item) => item.id === id);
     if (persisted?.backendId) {
       try {
-        const submitted = await dataSource.submitPaymentRequest(persisted.backendId, persisted.backendVersion, state.csrfToken);
+        const submitted = persisted.backendStatus === "returned"
+          ? await dataSource.resubmitPaymentRequest(persisted.backendId, persisted.backendVersion, "Returned request updated and resubmitted.", state.csrfToken)
+          : await dataSource.submitPaymentRequest(persisted.backendId, persisted.backendVersion, state.csrfToken);
+        submittedRecord = submitted;
         if (submitted?.request_number) draft.backendRequestNumber = submitted.request_number;
       } catch (error) {
-        window.alert(error.message || "The request could not be submitted.");
+        showErrorToast(error.message || "The request could not be submitted.", "Request not submitted");
         return;
       }
     }
@@ -863,7 +987,8 @@ async function submitSavedDraft(id) {
   const sequence = requests.filter((request) => request.type === draft.type).length + 151;
   const idValue = draft.backendRequestNumber || `${config.prefix}-${new Date().getFullYear()}-${String(sequence).padStart(4, "0")}`;
   const vendor = draft.lineItems.find((item) => item["Merchant Name"] || item.Supplier)?.["Merchant Name"] || draft.lineItems.find((item) => item.Supplier)?.Supplier || "To Be Confirmed";
-  requests.unshift({
+  if (submittedRecord) requests.unshift(apiRequestToPrototype(submittedRecord));
+  else requests.unshift({
     id: idValue, type: draft.type, requestor: draft.requestor, department: draft.department, vendor,
     amount: draftAmountFor(draft), budgeted: draft.budgeted, status: "Department Approval", currentStep: 3,
     submitted: new Date().toISOString().slice(0, 10), returned: "", resubmitted: "", documents: 0, missing: 0,
@@ -878,7 +1003,7 @@ async function submitSavedDraft(id) {
 }
 
 function draftsView() {
-  const drafts = state.drafts.filter((draft) => draft.requestor === activeRequestor());
+  const drafts = state.authStatus === "authenticated" ? state.drafts : state.drafts.filter((draft) => draft.requestor === activeRequestor());
   return `<section class="drafts-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-new-request>← Back to New Request</button></div><section class="panel"><div class="panel-header"><div><span class="eyebrow">Requestor Workspace</span><h3>My Drafts</h3><p>Saved requests remain private until submitted to the department head.</p></div><span class="count">${drafts.length}</span></div><div class="table-wrap"><table><thead><tr><th>Draft</th><th>Type</th><th>Last Saved</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>${drafts.length ? drafts.map((draft) => `<tr><td><strong>${draft.id}</strong></td><td>${paymentTypes[draft.type].label}</td><td>${new Date(draft.savedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</td><td>${money(draftAmountFor(draft), draft.currency)}</td><td>${statusPill("Draft Request")}</td><td><div class="draft-row-actions"><button type="button" data-continue-draft="${draft.id}">Continue Editing</button><button type="button" class="confirmation-button" data-submit-draft="${draft.id}">Submit to Department Head</button><button type="button" class="danger" data-delete-draft="${draft.id}">Delete Draft</button></div></td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No saved drafts yet. Start a request and choose Save as Draft.</td></tr>`}</tbody></table></div></section></section>`;
 }
 
@@ -890,7 +1015,8 @@ function requestTypeSelectionView() {
     poPayment: "Pay a supplier against an approved purchase order in the P.O. system.",
     general: "Request non-P.O. vendor, utility, professional, or other general payments.",
   };
-  return `<section class="request-type-selection"><div class="request-navigation-row request-landing-navigation"><span></span><button type="button" data-view-drafts>My Drafts (${state.drafts.filter((draft) => draft.requestor === activeRequestor()).length})</button></div><div class="persona-banner"><div><span class="eyebrow">New Request</span><strong>Select a Request Type</strong></div><p>Choose the document you need before entering information. Each request opens as a separate form.</p></div><div class="request-type-card-grid">${Object.entries(paymentTypes).map(([id, config]) => `<button type="button" class="request-type-card" data-select-request-type="${id}"><span class="request-type-icon">${config.prefix}</span><div><h3>${config.label}</h3><p>${descriptions[id]}</p><small>${config.uploadDocuments.length} document requirement${config.uploadDocuments.length === 1 ? "" : "s"}</small></div><strong>Start Request →</strong></button>`).join("")}</div></section>`;
+  const draftCount = state.authStatus === "authenticated" ? state.drafts.length : state.drafts.filter((draft) => draft.requestor === activeRequestor()).length;
+  return `<section class="request-type-selection"><div class="request-navigation-row request-landing-navigation"><span></span><button type="button" data-view-drafts>My Drafts (${draftCount})</button></div><div class="persona-banner"><div><span class="eyebrow">New Request</span><strong>Select a Request Type</strong></div><p>Choose the document you need before entering information. Each request opens as a separate form.</p></div><div class="request-type-card-grid">${Object.entries(paymentTypes).map(([id, config]) => `<button type="button" class="request-type-card" data-select-request-type="${id}"><span class="request-type-icon">${config.prefix}</span><div><h3>${config.label}</h3><p>${descriptions[id]}</p><small>${config.uploadDocuments.length} document requirement${config.uploadDocuments.length === 1 ? "" : "s"}</small></div><strong>Start Request →</strong></button>`).join("")}</div></section>`;
 }
 
 function leaveRequestModal() {
@@ -900,19 +1026,43 @@ function leaveRequestModal() {
 
 function personaRequests(persona = state.persona) {
   const submittedRequests = requests.filter((request) => request.currentStep !== 1 && request.status !== "Draft Request");
+  if (state.authStatus === "authenticated") return submittedRequests;
   if (persona === "requestor") return submittedRequests.filter((request) => request.requestor === personas.requestor.name);
   if (persona === "coo") return submittedRequests.filter((request) => request.currentStep === 7);
   if (persona === "president") return submittedRequests.filter((request) => request.currentStep === 8);
+  if (persona === "boardMember") return submittedRequests.filter((request) => request.currentStep === 8.5);
   return submittedRequests;
 }
 
 function approvalRequests(persona = state.persona) {
+  if (persona === "departmentHead") return requests.filter((request) => request.currentStep === 3);
+  if (persona === "authorizedSignatory") return requests.filter((request) => request.currentStep === 11);
   if (persona === "financeAssociate") return requests.filter((request) => [4, 9, 10, 12, 13].includes(request.currentStep) && (request.currentStep !== 4 || request.validationAssignee === personas.financeAssociate.name));
   if (persona === "financeManager") return requests.filter((request) => request.currentStep === 5);
   if (persona === "coo") return requests.filter((request) => request.currentStep === 7);
   if (persona === "president") return requests.filter((request) => request.currentStep === 8);
+  if (persona === "boardMember") return requests.filter((request) => request.currentStep === 8.5);
   if (persona === "requestor") return [];
   return requests;
+}
+
+const administrationTabs = [
+  ["users", "Users"], ["roles", "Roles & Permissions"], ["departments", "Departments"],
+  ["costCenters", "Cost Centers"], ["vendors", "Vendors"], ["accounts", "Chart of Accounts"],
+  ["taxCodes", "Tax Codes"], ["currencies", "Currencies"], ["paymentMethods", "Payment Methods"],
+  ["bankAccounts", "Bank Accounts"], ["documentTypes", "Document Types"],
+];
+const financeAdministrationTabs = administrationTabs.filter(([id]) => !["users", "roles", "departments"].includes(id));
+
+function administrationWorkspace(content) {
+  const isSystemAdministrator = state.persona === "all" || state.authUser?.roles?.includes("system_administrator");
+  const isFinanceManager = state.persona === "financeManager" || state.authUser?.roles?.includes("finance_manager");
+  const visibleTabs = isSystemAdministrator ? administrationTabs : isFinanceManager ? financeAdministrationTabs : [];
+  if (!visibleTabs.some(([id]) => id === state.tab)) return content;
+  const description = isSystemAdministrator
+    ? "Manage identity, access, departments, and financial reference data."
+    : "Manage the financial reference data used throughout payment processing.";
+  return `<section class="administration-workspace"><div class="administration-workspace-heading"><span class="eyebrow">${isSystemAdministrator ? "System Settings" : "Finance Settings"}</span><h3>Administration</h3><p>${description}</p></div><nav class="administration-tabs" aria-label="Administration settings">${visibleTabs.map(([id, label]) => `<button type="button" data-tab="${id}" class="${state.tab === id ? "active" : ""}">${label}</button>`).join("")}</nav>${content}</section>`;
 }
 
 function shell(content) {
@@ -921,22 +1071,25 @@ function shell(content) {
     ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
     ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
     ["Records", [["emails", "Email Samples", "@"]]],
-    ["Administration", [["users", "Users", "◎"], ["roles", "Roles & Permissions", "◇"], ["departments", "Departments", "▤"]]],
-    ["Master Data", [["costCenters", "Cost Centers", "▦"], ["vendors", "Vendors", "◫"], ["accounts", "Chart of Accounts", "≡"], ["taxCodes", "Tax Codes", "%"], ["currencies", "Currencies", "¤"], ["paymentMethods", "Payment Methods", "↔"], ["bankAccounts", "Bank Accounts", "▣"], ["documentTypes", "Document Types", "□"]]],
+    ["Settings", [["users", "Administration", "⚙"]]],
+    ["Help", [["guide", "System Guide", "?"]]],
   ];
   const personaNav = {
-    requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]]],
-    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]]],
-    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Master Data", [["costCenters", "Cost Centers", "▦"], ["vendors", "Vendors", "◫"], ["accounts", "Chart of Accounts", "≡"], ["taxCodes", "Tax Codes", "%"], ["currencies", "Currencies", "¤"], ["paymentMethods", "Payment Methods", "↔"], ["bankAccounts", "Bank Accounts", "▣"], ["documentTypes", "Document Types", "□"]]]],
-    coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
-    president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]]],
+    requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    departmentHead: [["Overview", [["dashboard", "Department Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Tracking", [["tracker", "Department Requests", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    authorizedSignatory: [["Overview", [["dashboard", "Authorization Dashboard", "◦"]]], ["Authorizations", [["approvals", "Bank Authorization Queue", "✓"]]], ["Tracking", [["tracker", "Authorized Payments", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Settings", [["costCenters", "Administration", "⚙"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    boardMember: [["Overview", [["dashboard", "Board Dashboard", "◦"]]], ["Approvals", [["approvals", "Board Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
   };
   const navGroups = personaNav[state.persona] || allNavGroups;
   const persona = personas[state.persona];
   const displayName = state.authUser?.display_name || persona.name;
   const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
   const initials = displayName.split(" ").map((part) => part[0]).slice(0, 2).join("");
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", bankAccounts: "Company Bank Accounts", documentTypes: "Document Types" };
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", bankAccounts: "Company Bank Accounts", documentTypes: "Document Types" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>
@@ -948,12 +1101,12 @@ function shell(content) {
           ${state.authUser ? `<div class="sidebar-account"><button type="button" class="sidebar-account-trigger" data-account-menu aria-expanded="false" aria-controls="sidebarAccountMenu"><span class="sidebar-account-avatar">${initials}</span><span class="sidebar-account-copy"><strong>${displayName}</strong><small>${displayRole}</small></span><span class="sidebar-account-chevron" aria-hidden="true">⌃</span></button><div class="sidebar-account-menu" id="sidebarAccountMenu" data-account-menu-panel hidden><button type="button" data-logout>Sign out</button></div></div>` : ""}
         </div>
       </aside>
-      <main>
-        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button><div class="persona-control"><label for="personaSwitcher">View As</label><select id="personaSwitcher">${Object.entries(personas).map(([id, option]) => `<option value="${id}" ${state.persona === id ? "selected" : ""}>${option.label}</option>`).join("")}</select></div></div></header>
-        ${content}
+      <main class="${state.tab === "guide" ? "guide-main" : ""}">
+        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button></div></header>
+        ${administrationWorkspace(content)}
         ${unlockRequestModal()}
       </main>
-    </div>`;
+    </div>${toastView()}`;
 }
 
 function unlockRequestModal() {
@@ -991,6 +1144,12 @@ function dashboardPreviewAction(request) {
     if (request.currentStep === 14) return { label: "Open Payment Tracker", route: `/requests/${request.id}` };
     return { label: "Review Request", route: `/requests/${request.id}` };
   }
+  if (state.persona === "departmentHead") return request.currentStep === 3
+    ? { label: "Review and Approve", route: `/requests/${request.id}` }
+    : { label: "Review Request", route: `/requests/${request.id}` };
+  if (state.persona === "authorizedSignatory") return request.currentStep === 11
+    ? { label: "Authorize Bank Payment", route: `/requests/${request.id}` }
+    : { label: "Review Payment", route: `/requests/${request.id}` };
   if (state.persona === "financeManager") return request.currentStep === 5
     ? { label: "Review and Approve", route: `/requests/${request.id}` }
     : { label: "Review Request", route: `/requests/${request.id}` };
@@ -999,6 +1158,9 @@ function dashboardPreviewAction(request) {
     : { label: "Review Request", route: `/requests/${request.id}` };
   if (state.persona === "president") return request.currentStep === 8
     ? { label: "Complete President Approval", route: `/requests/${request.id}` }
+    : { label: "Review Request", route: `/requests/${request.id}` };
+  if (state.persona === "boardMember") return request.currentStep === 8.5
+    ? { label: "Complete Board Approval", route: `/requests/${request.id}` }
     : { label: "Review Request", route: `/requests/${request.id}` };
   const stageRoutes = `/requests/${request.id}`;
   return { label: "Open Current Action", route: stageRoutes };
@@ -1164,7 +1326,7 @@ function apiDraftPayload(draft) {
     request_type: draft.type,
     department_id: center.department_id,
     payee_name: valueFor(draft.lineItems[0] || {}, ["Merchant Name", "Supplier"]),
-    purpose: String(draft.controls.find((item) => !item.checkbox && String(item.value || "").trim())?.value || paymentTypes[draft.type].label),
+    purpose: String(draft.purpose || draft.controls.find((item) => !item.checkbox && String(item.value || "").trim())?.value || paymentTypes[draft.type].label),
     currency_code: currency,
     type_data: { budgeted: draft.budgeted, liquidation_advance_amount: draft.liquidationAdvanceAmount },
     lines: draft.lineItems.map((row) => ({
@@ -1187,9 +1349,11 @@ async function persistDraft(draft) {
     const saved = draft.backendId
       ? await dataSource.updatePaymentRequest(draft.backendId, { ...payload, version: draft.backendVersion }, state.csrfToken)
       : await dataSource.createPaymentRequest(payload, state.csrfToken);
-    if (saved) state.drafts = state.drafts.map((item) => item.id === draft.id ? { ...item, backendId: saved.id, backendVersion: saved.version } : item);
+    if (saved) state.drafts = state.drafts.map((item) => item.id === draft.id ? { ...item, backendId: saved.id, backendVersion: saved.version, backendStatus: saved.status } : item);
+    return saved;
   } catch (error) {
     console.warn("Draft remains saved locally because API persistence failed.", error);
+    return null;
   }
 }
 
@@ -1256,6 +1420,7 @@ function workflow(currentStep) {
 
 function dashboard() {
   const visibleRequests = personaRequests();
+  if (!visibleRequests.length) return `<section class="content-grid"><div class="metric-row"><div class="metric green"><span>Pending Approval</span><strong>0</strong></div><div class="metric blue"><span>Open Request Value</span><strong>${money(0)}</strong></div><div class="metric amber"><span>Returned</span><strong>0</strong></div><div class="metric red"><span>Unclaimed Checks</span><strong>0</strong></div></div><section class="panel empty-state"><h3>No payment requests yet</h3><p>Create a request or adjust the current filters when records become available.</p><button type="button" class="primary-button" data-tab="request">Create Request</button></section></section>`;
   const selected = visibleRequests.find((r) => r.id === state.selectedId) || visibleRequests[0] || requests[0];
   const total = visibleRequests.reduce((sum, r) => sum + r.amount, 0);
   const visibleCurrencies = [...new Set(visibleRequests.map((r) => r.currency || "PHP"))];
@@ -1301,7 +1466,7 @@ function dashboard() {
     return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
   }
   const workflowModal = state.dashboardWorkflow ? `<div class="workflow-modal-backdrop" data-workflow-modal="true"><section class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-modal-title"><div class="workflow-modal-header"><div><span class="eyebrow">Request Workflow</span><h3 id="workflow-modal-title">${selected.id}</h3><p>Complete approval and processing trail for this payment request.</p></div><button type="button" class="workflow-modal-close" data-close-workflow="true" aria-label="Close full workflow">×</button></div><div class="workflow-modal-body">${workflow(selected.currentStep)}</div></section></div>` : "";
-  const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
+  const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   return `<section class="content-grid"><div class="persona-banner"><div><span class="eyebrow">Persona View</span><strong>${personas[state.persona].label}</strong></div><p>${state.persona === "all" ? "The original all-access prototype is retained in this view." : `Navigation, request visibility, and actions are scoped for ${personas[state.persona].label}.`}</p></div>
     <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${totalDisplay}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
     ${dashboardFilters(visibleRequests)}<div class="two-column">${requestTable(filteredRequests, true)}${detail(selected, true)}</div>${workflowModal}
@@ -1502,7 +1667,7 @@ function downloadValidationDocument(request, index) {
 function approvalQueuePreview(request) {
   const financeAction = dashboardPreviewAction(request);
   const financeAssociateLabel = financeAction.label;
-  const labels = { financeAssociate: financeAssociateLabel, financeManager: "Review Budget and Approve", coo: "Review COO Approval", president: "Review President Approval", all: "Open Approval Workspace" };
+  const labels = { departmentHead: "Review Department Approval", financeAssociate: financeAssociateLabel, financeManager: "Review Budget and Approve", authorizedSignatory: "Review Bank Authorization", coo: "Review COO Approval", president: "Review President Approval", boardMember: "Review Board Approval", all: "Open Approval Workspace" };
   const owner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   return `<aside class="panel dashboard-preview-pane approval-preview-pane" aria-live="polite">
     <div class="panel-header"><div><span class="eyebrow">Request Preview</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department}</p></div>${statusPill(request.status)}</div>
@@ -1520,29 +1685,58 @@ function unifiedRoleAction(request) {
     if (request.currentStep === 9) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>Voucher Creation</h3><p>${state.voucherDetails.created ? "Voucher generation is complete." : "Enter the payment processing details in the separate card below, then generate the voucher."}</p></div></section>${state.voucherDetails.created ? `<section class="panel"><div class="voucher-generation-success"><span class="voucher-generation-icon" aria-hidden="true">✓</span><div><span class="eyebrow">Voucher Ready</span><strong>Payment voucher generated successfully</strong><p>The generated voucher is shown in the separate Payment Voucher section below.</p></div></div></section>` : voucherFor(request, true)}`;
     if ([10, 12, 13].includes(request.currentStep)) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>${request.status}</h3><p>Complete the action assigned at the current payment-processing stage.</p></div></section>${paymentOperationsPanel(request)}`;
   }
-  const approvalRoleMatches = state.persona === "financeManager" && request.currentStep === 5 || state.persona === "coo" && request.currentStep === 7 || state.persona === "president" && request.currentStep === 8 || state.persona === "all" && [3, 5, 7, 8, 8.5].includes(request.currentStep);
-  if (approvalRoleMatches) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">${personas[state.persona].label} Action</span><h3>${request.status}</h3><p>Review this request and record your decision in the separate action card below.</p></div></section><section class="panel unified-action-workspace">${["financeManager", "coo", "president"].includes(state.persona) ? validationReadOnlySummary(request) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">Approve and Notify Next Owner</button><button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Reviewed request details, supporting documents, and approval route.</textarea></label></section>`;
+  if (state.persona === "authorizedSignatory" && request.currentStep === 11) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Authorized Signatory Action</span><h3>Bank Authorization</h3><p>Review the approved voucher, payee, amount, and payment instruction before authorizing the transaction.</p></div></section>${paymentOperationsPanel(request)}`;
+  const approvalRoleMatches = state.persona === "departmentHead" && request.currentStep === 3 || state.persona === "financeManager" && request.currentStep === 5 || state.persona === "coo" && request.currentStep === 7 || state.persona === "president" && request.currentStep === 8 || state.persona === "boardMember" && request.currentStep === 8.5 || state.persona === "all" && [3, 5, 7, 8, 8.5].includes(request.currentStep);
+  if (approvalRoleMatches) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">${personas[state.persona].label} Action</span><h3>${request.status}</h3><p>Review this request and record your decision in the separate action card below.</p></div></section><section class="panel unified-action-workspace">${["financeManager", "coo", "president", "boardMember"].includes(state.persona) ? validationReadOnlySummary(request) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">Approve and Notify Next Owner</button><button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Reviewed request details, supporting documents, and approval route.</textarea></label></section>`;
   if (state.persona === "requestor" && request.currentStep <= 2) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Requestor Action</span><h3>Complete Required Documents</h3><p>Upload or replace the documents required before this request can proceed.</p></div></section><section class="panel unified-action-workspace"><button type="button" class="primary-button" data-tab="uploads">Manage Document Uploads</button></section>`;
   return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><span class="eyebrow">Current Workflow Owner</span><h3>${request.status}</h3><p>${currentOwner} currently owns this request. No action is required from ${personas[state.persona].label}.</p></div></section>`;
+}
+
+function canManageRequestLifecycle() {
+  return state.authUser?.roles?.some((role) => ["department_head", "finance_associate", "finance_manager", "system_administrator"].includes(role));
+}
+
+function editReturnedApiRequest(request) {
+  const draft = {
+    id: `RETURNED-${request.backendId.slice(0, 8).toUpperCase()}`,
+    backendId: request.backendId,
+    backendVersion: request.backendVersion,
+    backendStatus: "returned",
+    type: request.type,
+    requestor: request.requestor,
+    department: request.department,
+    savedAt: new Date().toISOString(),
+    createdAt: request.submitted,
+    currency: request.currency,
+    otherCurrency: "",
+    budgeted: request.budgeted,
+    liquidationAdvanceAmount: Number(request.typeData?.liquidation_advance_amount) || 0,
+    purpose: request.purpose,
+    lineItems: request.lines.map((line) => apiLineToPrototype(request.type, line)),
+    controls: [],
+  };
+  state.drafts = [...state.drafts.filter((item) => item.backendId !== request.backendId), draft];
+  openDraft(draft.id);
 }
 
 function unifiedRequestDetails() {
   const request = requests.find((item) => item.id === state.requestDetailId || item.id === state.selectedId);
   if (!request) return `<section class="panel empty-state"><h3>Request not found</h3><p>Return to the dashboard and select an available request.</p></section>`;
-  return `<section class="metric-detail-view unified-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-unified-request>← Back</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Details</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div>${statusPill(request.status)}</div>${detail(request, true)}${unifiedRoleAction(request)}${voucherFor(request)}${vendorNotificationModal(request)}${documentViewerModal(request)}</section>`;
+  const lifecycleActions = request.backendId ? `<section class="panel request-action-footer"><div><span class="eyebrow">Request Lifecycle</span><p>Actions are validated and recorded by the backend.</p></div><div class="request-submit-actions">${request.backendStatus === "submitted" && canManageRequestLifecycle() ? `<button type="button" data-api-lifecycle="return" data-api-request="${request.id}">Return for Information</button>` : ""}${request.backendStatus === "returned" ? `<button type="button" data-edit-returned="${request.id}">Edit Request</button><button type="button" class="confirmation-button" data-api-lifecycle="resubmit" data-api-request="${request.id}">Resubmit</button>` : ""}${["submitted", "returned"].includes(request.backendStatus) ? `<button type="button" class="danger" data-api-lifecycle="cancel" data-api-request="${request.id}">Cancel Request</button>` : ""}${request.backendStatus === "cancelled" && canManageRequestLifecycle() ? `<button type="button" class="primary-button" data-api-lifecycle="reopen" data-api-request="${request.id}">Reopen Request</button>` : ""}</div></section>` : "";
+  return `<section class="metric-detail-view unified-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-unified-request>← Back</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Details</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div>${statusPill(request.status)}</div>${detail(request, true)}${lifecycleActions}${unifiedRoleAction(request)}${voucherFor(request)}${vendorNotificationModal(request)}${documentViewerModal(request)}</section>`;
 }
 
 function approvals() {
   const queue = approvalRequests();
   if (!queue.length) return `<section class="panel empty-persona-view"><span class="eyebrow">Requestor View</span><h3>No Approval Queue</h3><p>Requestors can monitor progress and respond to returned requests from their dashboard.</p></section>`;
   const selected = queue.find((r) => r.id === state.selectedId) || queue[0];
-  if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">Finance Associate Workspace</span><h3>Approval Queue</h3><p>Select a request to perform its current finance action.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
+  if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Bank Authorization Queue" : "Approval Queue"}</h3><p>Select a request to perform its current assigned action.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
   if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
   const isVoucherCreation = state.persona === "financeAssociate" && selected.currentStep === 9;
   const actionTitle = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Document Validation" : isVoucherCreation ? "Voucher Creation" : "Approval Action";
   const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
   const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
-  const showReadOnlyValidation = ["financeManager", "coo", "president"].includes(state.persona);
+  const showReadOnlyValidation = ["financeManager", "coo", "president", "boardMember"].includes(state.persona);
   return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Finance Associate Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : isVoucherCreation ? (state.voucherDetails.created ? "" : voucherFor(selected, true)) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button><button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button></div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
 }
 
@@ -1550,7 +1744,7 @@ function paymentOperationsPanel(request) {
   if (![10, 11, 12, 13].includes(request.currentStep) && !request.pickupAvailableAt) return "";
   const actor = personas[state.persona].name;
   const canFinanceAct = ["all", "financeAssociate"].includes(state.persona);
-  const canAuthorize = state.persona === "all";
+  const canAuthorize = ["all", "authorizedSignatory"].includes(state.persona);
   const records = [
     request.bankSubmittedAt && ["For Bank Approval", request.bankSubmittedAt, request.bankSubmittedBy],
     request.bankAuthorizedAt && ["Signatory Approval Completed", request.bankAuthorizedAt, request.bankAuthorizedBy],
@@ -1609,13 +1803,43 @@ function documents() {
   return `<section class="doc-grid">${Object.entries(paymentTypes).map(([, type]) => `<article class="panel"><h3>${type.label}</h3><h4>Mandatory fields</h4><ul class="check-list">${type.required.map((item) => `<li><span class="ok">✓</span>${item}</li>`).join("")}</ul><h4>Upload documents</h4><div class="chip-row">${type.uploadDocuments.map((item) => `<span>${item}</span>`).join("")}</div></article>`).join("")}<article class="panel todo-panel"><h3>Future modules</h3><div class="chip-row"><span>Petty Cash</span><span>Credit Card Payments</span><span>Cash Advance Guidelines</span><span>Procurement alignment</span></div></article></section>`;
 }
 
+function systemGuide() {
+  const roleNames = state.authUser?.roles?.map((role) => role.toLocaleLowerCase()) || [];
+  const knownAudiences = ["system_administrator", "finance_manager", "finance_associate", "authorized_signatory", "department_head", "board_member", "president", "coo", "requestor"];
+  const roleAudience = knownAudiences.find((audience) => roleNames.some((role) => role.includes(audience))) || "requestor";
+  const personaAudiences = { all: "system_administrator", requestor: "requestor", departmentHead: "department_head", financeAssociate: "finance_associate", financeManager: "finance_manager", authorizedSignatory: "authorized_signatory", coo: "coo", president: "president", boardMember: "board_member" };
+  const personaAudience = personaAudiences[state.persona] || "requestor";
+  const audience = state.authUser ? roleAudience : personaAudience;
+  const audienceLabels = { system_administrator: "System Administrator guide", finance_manager: "Finance Manager guide", finance_associate: "Finance Associate guide", requestor: "Requestor guide", department_head: "Department Head guide", coo: "COO guide", president: "President guide", board_member: "Board Member guide", authorized_signatory: "Authorized Signatory guide" };
+  const visibleSections = guideSections
+    .map((section) => ({ ...section, cards: section.cards.filter((card) => card.audiences.includes(audience)) }))
+    .filter((section) => section.cards.length);
+  const visibleStages = guideStages.filter(([number]) => guideStageAudiences[audience]?.includes(number));
+  const sections = visibleSections.map((section) => `<section class="guide-section" id="guide-${section.id}" data-guide-section>
+    <header class="guide-section-heading"><div><span class="eyebrow">${section.number}</span><h3>${section.title}</h3><p>${section.intro}</p></div></header>
+    <div class="guide-card-grid">${section.cards.map((card) => `<article class="guide-card" data-guide-card><h4>${card.title}</h4><p class="guide-path">${card.path}</p><ol>${card.steps.map((step) => `<li>${step}</li>`).join("")}</ol></article>`).join("")}</div>
+    <p class="guide-note"><strong>Remember:</strong> ${section.note}</p>
+  </section>`).join("");
+  return `<section class="system-guide-page">
+    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
+    <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}" data-guide-anchor="guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
+    <div class="guide-content">
+      <search class="guide-search"><label for="guideSearch">Search the Payment Module guide</label><div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" placeholder="Search procedures, roles, or payment stages" autocomplete="off" data-guide-search></div><p role="status" data-guide-search-status>Search procedures, approval rules, documents, and controls.</p></search>
+      ${visibleStages.length ? `<section class="guide-workflow" aria-labelledby="guide-workflow-title"><div class="guide-section-heading compact"><div><span class="eyebrow">Your workflow</span><h3 id="guide-workflow-title">Payment workflow at a glance</h3><p>These are the payment stages relevant to your role.</p></div></div><div class="guide-stage-list">${visibleStages.map(([number, name, owner, detail]) => `<article data-guide-card><span>${number}</span><div><h4>${name}</h4><small>${owner}</small><p>${detail}</p></div></article>`).join("")}</div></section>` : ""}
+      ${sections}
+      <div class="guide-empty" data-guide-empty hidden><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>
+    </div>
+  </section>`;
+}
+
 function emailRequestDestination(step, request) {
   if (step === "returned" || step === "declined") return { persona: "requestor", route: `/requests/${request.id}` };
   if (step === 4 || step >= 9 && step <= 14) return { persona: "financeAssociate", route: `/requests/${request.id}` };
   if (step === 5) return { persona: "financeManager", route: `/requests/${request.id}` };
   if (step === 7) return { persona: "coo", route: `/requests/${request.id}` };
   if (step === 8) return { persona: "president", route: `/requests/${request.id}` };
-  if (step === 3 || step === 8.5) return { persona: "all", route: `/requests/${request.id}` };
+  if (step === 3) return { persona: "departmentHead", route: `/requests/${request.id}` };
+  if (step === 8.5) return { persona: "boardMember", route: `/requests/${request.id}` };
   if (step === 15) return { persona: "requestor", route: `/requests/${request.id}` };
   return { persona: "all", route: `/requests/${request.id}` };
 }
@@ -1624,7 +1848,8 @@ function emails() {
   const emailEntries = [...steps, ...emailNotificationEvents];
   const step = emailEntries.find(([id]) => id === state.emailStep);
   const decisionEmail = state.emailStep === "returned" || state.emailStep === "declined";
-  const request = decisionEmail ? requests.find((item) => item.id === "RMB-2026-0148") : requests.find((item) => item.currentStep === state.emailStep) || requests[0];
+  const emailRequests = requests.length ? requests : prototypeRequests;
+  const request = decisionEmail ? emailRequests.find((item) => item.id === "RMB-2026-0148") || emailRequests[0] : emailRequests.find((item) => item.currentStep === state.emailStep) || emailRequests[0];
   const [recipient, subject, trigger, intro, message] = emailTemplates[state.emailStep];
   const destination = emailRequestDestination(state.emailStep, request);
   const completionEmail = state.emailStep === 15;
@@ -1660,13 +1885,12 @@ function render() {
   if (!["mock", "authenticated"].includes(state.authStatus)) {
     document.getElementById("root").innerHTML = loginView();
     bindLogin();
+    bindToast();
     return;
   }
-  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
+  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
-  if (state.authUser && !state.authUser.roles.includes("system_administrator")) {
-    document.querySelector(".persona-control")?.remove();
-  }
+  bindToast();
   if (["users", "roles", "departments"].includes(state.tab) && state.authUser && !state.identityLoading && !state.identityData.departments.length && !state.identityError) {
     queueMicrotask(loadIdentityData);
   }
@@ -1675,23 +1899,52 @@ function render() {
   if (state.tab === "request" && !state.masterDataLoading && ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some((resource) => !state.masterData[resource]) && !state.masterDataError) queueMicrotask(loadRequestReferenceData);
   bindMasterData();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
-  if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["coo", "president"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
+  if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
     state.mobileNavOpen = false;
     navigate(button.dataset.tab === "request" ? "/requests" : tabRoutes[button.dataset.tab]);
   }));
   document.querySelector("[data-open-mobile-nav]")?.addEventListener("click", () => setState({ mobileNavOpen: true }));
   document.querySelectorAll("[data-close-mobile-nav]").forEach((button) => button.addEventListener("click", () => setState({ mobileNavOpen: false })));
-  document.querySelector("#personaSwitcher")?.addEventListener("change", (event) => {
-    const persona = event.target.value;
-    const visible = personaRequests(persona);
-    state = { ...state, persona, selectedId: visible[0]?.id || requests[0].id, dashboardMetric: null, dashboardWorkflow: false };
+  document.querySelector(".shell-search input")?.addEventListener("search", (event) => {
+    state.dashboardFilters = { ...state.dashboardFilters, voucher: event.target.value.trim() };
+    navigate("/dashboard");
+  });
+  document.querySelector(".shell-search input")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    state.dashboardFilters = { ...state.dashboardFilters, voucher: event.currentTarget.value.trim() };
     navigate("/dashboard");
   });
   document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem("payment-module-theme", state.theme);
     render();
+  });
+  document.querySelector("[data-guide-print]")?.addEventListener("click", () => window.print());
+  document.querySelectorAll("[data-guide-anchor]").forEach((anchor) => anchor.addEventListener("click", (event) => {
+    event.preventDefault();
+    const search = document.querySelector("[data-guide-search]");
+    if (search?.value) {
+      search.value = "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    document.getElementById(anchor.dataset.guideAnchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  document.querySelector("[data-guide-search]")?.addEventListener("input", (event) => {
+    const query = event.currentTarget.value.trim().toLocaleLowerCase();
+    let visibleCards = 0;
+    document.querySelectorAll("[data-guide-card]").forEach((card) => {
+      const match = !query || card.textContent.toLocaleLowerCase().includes(query);
+      card.hidden = !match;
+      if (match) visibleCards += 1;
+    });
+    document.querySelectorAll("[data-guide-section]").forEach((section) => {
+      section.hidden = Boolean(query) && ![...section.querySelectorAll("[data-guide-card]")].some((card) => !card.hidden);
+    });
+    const status = document.querySelector("[data-guide-search-status]");
+    const empty = document.querySelector("[data-guide-empty]");
+    if (status) status.textContent = query ? `${visibleCards} matching procedure${visibleCards === 1 ? "" : "s"}.` : "Search procedures, approval rules, documents, and controls.";
+    if (empty) empty.hidden = visibleCards > 0;
   });
   document.querySelector("[data-account-menu]")?.addEventListener("click", (event) => {
     const panel = document.querySelector("[data-account-menu-panel]");
@@ -1987,7 +2240,38 @@ function render() {
   });
   document.querySelectorAll("[data-continue-draft]").forEach((button) => button.addEventListener("click", () => openDraft(button.dataset.continueDraft)));
   document.querySelectorAll("[data-submit-draft]").forEach((button) => button.addEventListener("click", () => submitSavedDraft(button.dataset.submitDraft)));
-  document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", () => setState({ drafts: state.drafts.filter((draft) => draft.id !== button.dataset.deleteDraft), activeDraftId: state.activeDraftId === button.dataset.deleteDraft ? null : state.activeDraftId })));
+  document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", async () => {
+    const draft = state.drafts.find((item) => item.id === button.dataset.deleteDraft);
+    if (!draft || !window.confirm(`Delete ${draft.id}?`)) return;
+    try {
+      if (draft.backendId) await dataSource.deletePaymentRequest(draft.backendId, state.csrfToken);
+      setState({ drafts: state.drafts.filter((item) => item.id !== draft.id), activeDraftId: state.activeDraftId === draft.id ? null : state.activeDraftId });
+    } catch (error) { showErrorToast(error.message || "The draft could not be deleted.", "Draft not deleted"); }
+  }));
+  document.querySelectorAll("[data-edit-returned]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === button.dataset.editReturned);
+    if (request) editReturnedApiRequest(request);
+  }));
+  document.querySelectorAll("[data-api-lifecycle]").forEach((button) => button.addEventListener("click", async () => {
+    const request = requests.find((item) => item.id === button.dataset.apiRequest);
+    const action = button.dataset.apiLifecycle;
+    if (!request?.backendId) return;
+    const labels = { return: "return reason", resubmit: "resubmission note", cancel: "cancellation reason", reopen: "reopening reason" };
+    const note = window.prompt(`Enter the ${labels[action]}:`)?.trim();
+    if (!note) return;
+    button.disabled = true;
+    try {
+      const method = `${action}PaymentRequest`;
+      const updated = await dataSource[method](request.backendId, request.backendVersion, note, state.csrfToken);
+      await loadApiPaymentRequests();
+      const displayId = updated?.request_number || request.id;
+      state.selectedId = displayId;
+      navigate(`/requests/${displayId}`);
+    } catch (error) {
+      showErrorToast(error.message || `The request could not be ${action}ed.`, "Request update failed");
+      button.disabled = false;
+    }
+  }));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
   document.querySelector("[data-email-view-request]")?.addEventListener("click", (event) => {
     const button = event.currentTarget;
@@ -2092,12 +2376,17 @@ render();
 dataSource.getSystemStatus().then((backendStatus) => setState({ backendStatus }));
 if (dataSource.mode !== "mock") {
   dataSource.getSession()
-    .then((session) => setState({ authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, authSubmitting: false }))
+    .then(async (session) => {
+      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona: personaForRoles(session.user.roles), authSubmitting: false };
+      await loadApiPaymentRequests();
+      render();
+    })
     .catch((error) => {
       if (dataSource.mode === "hybrid" && error.status !== 401) {
-        setState({ authStatus: "mock", authUser: null, csrfToken: null, authError: "", authSubmitting: false });
+        setState({ authStatus: "mock", authUser: null, csrfToken: null, authError: "", authSubmitting: false, toast: errorToast("The API could not be reached. The development fallback view is active.", "Backend unavailable") });
       } else {
-        setState({ authStatus: "unauthenticated", authError: error.status === 401 ? "" : "Authentication service is unavailable.", authSubmitting: false });
+        const message = error.status === 401 ? "" : "Authentication service is unavailable.";
+        setState({ authStatus: "unauthenticated", authError: message, authSubmitting: false, toast: message ? errorToast(message, "Unable to restore session") : null });
       }
     });
 }

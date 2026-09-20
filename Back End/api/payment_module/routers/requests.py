@@ -52,6 +52,8 @@ def get_visible(db: Session, request: Request, actor: User, request_id: UUID) ->
 
 
 def serialize(db: Session, item: PaymentRequest) -> dict:
+    requestor = db.get(User, item.requestor_id)
+    department = db.get(Department, item.department_id)
     lines = list(
         db.scalars(
             select(PaymentRequestLine)
@@ -65,7 +67,9 @@ def serialize(db: Session, item: PaymentRequest) -> dict:
         "request_type": item.request_type,
         "status": item.status,
         "requestor_id": str(item.requestor_id),
+        "requestor_name": requestor.display_name if requestor else "Unknown requestor",
         "department_id": str(item.department_id),
+        "department_name": department.name if department else "Unknown department",
         "payee_name": item.payee_name,
         "vendor_external_id": item.vendor_external_id,
         "purpose": item.purpose,
@@ -333,5 +337,127 @@ def return_payment_request(
     )
     db.flush()
     result = snapshot(db, item, actor)
+    db.commit()
+    return result
+
+
+def lifecycle_change(
+    db: Session,
+    *,
+    item: PaymentRequest,
+    actor: User,
+    target_status: str,
+    note: str,
+    request: Request,
+    commit: bool = True,
+) -> dict:
+    previous = item.status
+    item.status = target_status
+    item.version += 1
+    if target_status == "cancelled":
+        item.cancelled_at = datetime.now(UTC)
+    elif previous == "cancelled":
+        item.cancelled_at = None
+    if target_status == "submitted":
+        item.submitted_at = datetime.now(UTC)
+        item.request_number = item.request_number or next_number(db)
+    db.add(
+        PaymentRequestStatusHistory(
+            request_id=item.id,
+            from_status=previous,
+            to_status=target_status,
+            actor_user_id=actor.id,
+            note=note,
+        )
+    )
+    db.flush()
+    result = snapshot(db, item, actor)
+    audit(
+        db,
+        actor_id=actor.id,
+        action=f"payment_request.{target_status}",
+        entity_type="payment_request",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before={"status": previous},
+        after={"status": target_status, "version": item.version},
+    )
+    if commit:
+        db.commit()
+    return result
+
+
+@router.post("/{request_id}/cancel")
+def cancel_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    item = get_visible(db, request, actor, request_id)
+    allowed = item.requestor_id == actor.id or "requests.manage_lifecycle" in permissions(request)
+    if not allowed or item.status not in {"draft", "submitted", "returned"}:
+        raise HTTPException(409, "Request cannot be cancelled by this user or from its current status")
+    if item.version != payload.version:
+        raise HTTPException(409, "This request was updated elsewhere; reload before cancelling")
+    if item.status != "draft" and not payload.note.strip():
+        raise HTTPException(422, "A cancellation reason is required after submission")
+    return lifecycle_change(
+        db, item=item, actor=actor, target_status="cancelled", note=payload.note, request=request
+    )
+
+
+@router.post("/{request_id}/reopen")
+def reopen_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.manage_lifecycle" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.manage_lifecycle")
+    item = get_visible(db, request, actor, request_id)
+    if item.status != "cancelled" or item.version != payload.version or not payload.note.strip():
+        raise HTTPException(409, "Only a cancelled request can be reopened with the current version and a reason")
+    return lifecycle_change(db, item=item, actor=actor, target_status="draft", note=payload.note, request=request)
+
+
+@router.post("/{request_id}/resubmit")
+def resubmit_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "resubmit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
+    item = get_visible(db, request, actor, request_id)
+    if item.requestor_id != actor.id or item.status != "returned" or item.version != payload.version:
+        raise HTTPException(409, "Only the owner can resubmit a returned request at its current version")
+    if not payload.note.strip():
+        raise HTTPException(422, "A resubmission note is required")
+    result = lifecycle_change(
+        db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
+    )
+    db.add(
+        RequestCommand(
+            request_id=item.id,
+            actor_user_id=actor.id,
+            action="resubmit",
+            idempotency_key=idempotency_key,
+            result=result,
+        )
+    )
     db.commit()
     return result

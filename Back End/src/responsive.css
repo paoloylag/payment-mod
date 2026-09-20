@@ -137,12 +137,23 @@
   text-align: left;
 }
 
-.panel-header > :last-child,
-.approval-page-intro > :last-child,
-.persona-banner > :last-child,
-.validation-section-heading > :last-child,
-.workflow-summary-heading > :last-child,
-.metric-detail-header > :last-child {
+.panel-header > .count,
+.panel-header > button,
+.panel-header > .identity-header-actions,
+.panel-header > .status-pill,
+.panel-header > .upload-progress,
+.panel-header > .eyebrow,
+.approval-page-intro > .count,
+.approval-page-intro > button,
+.validation-section-heading > .count,
+.validation-section-heading > button,
+.validation-section-heading > .status-pill,
+.workflow-summary-heading > .count,
+.workflow-summary-heading > button,
+.workflow-summary-heading > .eyebrow,
+.metric-detail-header > .status-pill,
+.metric-detail-header > button,
+.metric-detail-header > strong {
   flex: 0 0 auto;
   margin-left: auto;
 }

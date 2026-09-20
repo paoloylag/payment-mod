@@ -117,6 +117,15 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest("/api/v1/requests", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
+    async listPaymentRequests() {
+      if (mode === "mock") return null;
+      try { return await apiRequest("/api/v1/requests"); }
+      catch (error) { if (mode === "hybrid") return null; throw error; }
+    },
+    getPaymentRequest(id) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}`);
+    },
     updatePaymentRequest(id, payload, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/requests/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
@@ -124,6 +133,26 @@ export function createDataSource() {
     submitPaymentRequest(id, version, csrfToken, idempotencyKey = crypto.randomUUID()) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/requests/${id}/submit`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version }) });
+    },
+    deletePaymentRequest(id, csrfToken) {
+      if (mode === "mock") return Promise.resolve();
+      return apiRequest(`/api/v1/requests/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } });
+    },
+    cancelPaymentRequest(id, version, note, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ version, note }) });
+    },
+    reopenPaymentRequest(id, version, note, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/reopen`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ version, note }) });
+    },
+    resubmitPaymentRequest(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/resubmit`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
+    },
+    returnPaymentRequest(id, version, note, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/return`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ version, note }) });
     },
     getRequestNumberingSetting() {
       if (mode === "mock") return Promise.resolve({ reset_month: 7, current_academic_year: "2026-2027", number_preview: "PR-2026-000001" });
