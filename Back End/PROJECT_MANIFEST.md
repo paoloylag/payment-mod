@@ -95,12 +95,13 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 - Added transaction-safe concurrent numbering, row-locked mutations, post-lock idempotency checks, bounded list
   pagination, and batched list serialization. Exact four-decimal line totals, excess precision, simultaneous edits,
   duplicate submission races, concurrent numbering, and 130-record list performance are covered by automated tests.
-- The 2026-09-20 regression passed with `46 passed`; the focused request suite passed `13 passed`, Ruff passed, and
-  the previously validated Vite production build remains unchanged.
+- Added role-scoped server-side request search, filters, stable sorting, pagination metadata, API-backed frontend
+  filters, audited 90-day draft archival, draft expiry/warning metadata, monetary boundaries, manager scope, explicit
+  permission-denial coverage, and audited privileged administrator reads.
 - General Payment remains unchanged in the frontend; its detailed validation/document rules are marked pending Finance
   confirmation because the source sheet contains ambiguous P.O. wording.
-- Current validation: 46 backend tests passed and Ruff passed on 2026-09-20; the Vite production build passed during
-  the preceding Phase 03 integration validation.
+- Current validation: `54 passed` in the complete backend regression, Ruff passed, and the Vite 7.3.6 production build
+  passed on 2026-09-21. Integrated development-role login and the API-connected dashboard were also verified live.
 
 Current Phase 00 backend endpoints:
 
