@@ -69,7 +69,7 @@ The source also records later-phase approval, notification, payment, tracking, a
 
 ### Source discrepancies requiring confirmation
 
-- `Sheet1` lists Reimbursement, Cash Advance, P.O. Payment, and General Payment, but the approved project plan also includes Liquidation. Confirm that Liquidation remains a fifth request type.
+- `Sheet1` omits Liquidation, but the owner subsequently confirmed and implemented it as the fifth request type.
 - General Payment is retained exactly as currently implemented, including the `Particulars of Payment` label. Its final detailed validation and document rules remain pending Finance confirmation because the source sheet contains ambiguous P.O. wording.
 - `Sheet3` lists Cash Advance guidelines and policies as outstanding work. The source does not approve an amount limit, one-outstanding-advance rule, or liquidation deadline; those policies must not be enforced as authoritative until separately confirmed.
 - `Sheet2` does not specify Cash Advance or Liquidation documents. Confirm their required-document lists before Phase 04.
@@ -177,7 +177,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 ## Decisions still required before implementation
 
 - Confirm lifecycle-state names and which fields may be edited after return or authorized reopen.
-- Resolve the source discrepancies listed above, particularly Liquidation scope and the General Payment particulars label.
+- Resolve the remaining source discrepancies listed above, particularly the General Payment particulars and document rules.
 - Confirm duplicate-invoice matching criteria. The source requires invoice numbers and per-line invoices for Reimbursement but does not define exact duplicate behavior.
 - Foreign-currency conversion is out of the initial implementation. Before conversion is enabled, Finance must approve the rate source, rate timestamp/date, rounding, base currency, and immutable exchange-rate snapshot policy.
 
