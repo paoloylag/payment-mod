@@ -68,6 +68,8 @@ expected HTTP `422` into an internal error.
 - A request is single-currency; every line must match it.
 - Amounts support at most 15 integer digits and four decimal places.
 - Each line represents one item and has exactly one cost center. Different cost centers require separate lines.
+- General Payment does not use a request-level particulars field. Empty frontend breakdown rows are omitted; once any
+  value is entered in a row, every required field for that row must be completed before submission.
 - The exact Decimal sum of all lines is the authoritative request total.
 
 ## Draft retention

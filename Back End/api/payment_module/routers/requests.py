@@ -207,7 +207,8 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
         except Exception:
             return Decimal("0")
 
-    require(item.purpose.strip(), "purpose", "Event or payment purpose is required")
+    if item.request_type in {"reimbursement", "cashAdvance", "liquidation"}:
+        require(item.purpose.strip(), "purpose", "Event or payment purpose is required")
     require(lines, "lines", "At least one line item is required")
     require(item.gross_amount > 0, "gross_amount", "The request total must be greater than zero")
     for position, line in enumerate(lines, 1):
@@ -448,6 +449,30 @@ def list_payment_requests(
         )
     )
     return serialize_many(db, items)
+
+
+@router.get("/cash-advance-options")
+def list_own_cash_advance_options(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    items = db.scalars(
+        select(PaymentRequest)
+        .where(
+            PaymentRequest.requestor_id == actor.id,
+            PaymentRequest.request_type == "cashAdvance",
+            PaymentRequest.request_number.is_not(None),
+            PaymentRequest.status.notin_(("draft", "cancelled", "archived")),
+        )
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
+    )
+    return [
+        {
+            "request_number": item.request_number,
+            "amount": str(item.gross_amount),
+            "currency_code": item.currency_code,
+            "status": item.status,
+            "created_at": item.created_at.isoformat(),
+        }
+        for item in items
+    ]
 
 
 @router.get("/{request_id}")

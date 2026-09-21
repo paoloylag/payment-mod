@@ -80,7 +80,7 @@ class PaymentRequestLineInput(BaseModel):
     invoice_date: date | None = None
     invoice_number: str | None = Field(default=None, max_length=120)
     vendor_name: str = Field(default="", max_length=200)
-    particulars: str = Field(min_length=1, max_length=4000)
+    particulars: str = Field(default="", max_length=4000)
     chart_account_id: UUID | None = None
     cost_center_id: UUID | None = None
     amount: Decimal = Field(ge=0, max_digits=19, decimal_places=4)

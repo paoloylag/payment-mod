@@ -137,6 +137,10 @@ export function createDataSource() {
       try { return await apiRequest(`/api/v1/requests?${params}`); }
       catch (error) { if (mode === "hybrid") return null; throw error; }
     },
+    listOwnCashAdvances() {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest("/api/v1/requests/cash-advance-options");
+    },
     getPaymentRequest(id) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/requests/${id}`);

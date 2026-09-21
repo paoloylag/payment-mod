@@ -42,20 +42,16 @@ const paymentTypes = {
   poPayment: {
     label: "P.O. Payment",
     prefix: "PO",
-    required: ["Particulars of P.O. Payment", "Department / Cost Center for Each Line Item", "Approved P.O."],
-    mandatoryFields: [
-      { label: "Particulars of P.O. Payment", kind: "textarea", value: "Office equipment purchase order payment" },
-    ],
+    required: ["Department / Cost Center for Each Line Item", "Approved P.O."],
+    mandatoryFields: [],
     uploadDocuments: ["Approved P.O.", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
     lineColumns: ["P.O. Number", "Supplier", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
   general: {
     label: "General Payment",
     prefix: "GEN",
-    required: ["Particulars of Payment", "Department / Cost Center for Each Line Item", "Billing or Invoice"],
-    mandatoryFields: [
-      { label: "Particulars of Payment", kind: "textarea", value: "Monthly utilities and service charges" },
-    ],
+    required: ["Complete Request Breakdown Row(s)", "Billing or Invoice"],
+    mandatoryFields: [],
     uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
     lineColumns: ["Merchant Name", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
@@ -745,7 +741,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
         </div>
         <div className={`field-grid ${isReimbursement || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}`}>
           <input type="hidden" name="requestDate" value={requestCreatedDate} />
-          <label>{isReimbursement ? "Requestor's Name" : isLiquidation || isCashAdvance ? "Cash Advance Requestor" : "Requestor"}<input placeholder={isLiquidation || isCashAdvance ? "Enter cash advance requestor" : "Enter requestor's full name"} /></label>
+          <label>{isReimbursement ? "Requestor's Name" : isLiquidation || isCashAdvance ? "Cash Advance Requestor" : "Requestor"}<input defaultValue="System Administrator" placeholder={isLiquidation || isCashAdvance ? "Enter cash advance requestor" : "Enter requestor's full name"} /></label>
           {!isReimbursement && !isLiquidation && !isCashAdvance && <label>Payee / Vendor<input placeholder="Enter payee or vendor name" /></label>}
           {config.mandatoryFields.map((field) => (
             <label className={field.kind === "textarea" ? "full" : ""} key={field.label}>
@@ -764,27 +760,24 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
         <div className="line-items-section">
           <div className="line-items-header">
             <div><span className="eyebrow">Request Breakdown</span><h4>Line Items</h4></div>
-            <button type="button" className="add-line-button" onClick={addLineItem}>+ Add Line Item</button>
           </div>
-          <div className="table-wrap">
-            <table className="line-item-table">
-              <thead><tr>{config.lineColumns.map((column) => <th key={column}>{column}</th>)}<th><span className="sr-only">Actions</span></th></tr></thead>
-              <tbody>
-                {lineItems.map((item, rowIndex) => (
-                  <tr key={`${draftType}-${rowIndex}`}>
-                    {config.lineColumns.map((column) => {
-                      const isFile = column === "Receipt" || column === "Attachment";
-                      const example = lineItemExamples[draftType]?.[0]?.[column] ?? column;
-                      if (isFile) return <td key={column}><input type="file" aria-label={`${column} for line ${rowIndex + 1}`} /></td>;
-                      return <td key={column}><input type={column === "Amount" ? "number" : column.includes("date") ? "date" : "text"} value={item[column] || ""} placeholder={String(example)} onChange={(event) => updateLineItem(rowIndex, column, event.target.value)} /></td>;
-                    })}
-                    <td><button type="button" className="remove-line-button" title="Remove line item" aria-label={`Remove line item ${rowIndex + 1}`} disabled={lineItems.length === 1} onClick={() => removeLineItem(rowIndex)}>×</button></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><th colSpan={config.lineColumns.length}><span>{isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : "Total"}</span><strong>{formatCurrency(draftAmount)}</strong></th><td /></tr></tfoot>
-            </table>
+          <div className="line-card-list">
+            {lineItems.map((item, rowIndex) => {
+              const attachments = Array.isArray(item.Attachment) ? item.Attachment : item.Attachment ? [item.Attachment] : [];
+              const active = config.lineColumns.some((column) => column === "Amount" ? Number(item[column]) > 0 : column === "Attachment" ? attachments.length > 0 : Boolean(String(item[column] || "").trim()));
+              return <details className="line-item-card" key={`${draftType}-${rowIndex}`} defaultOpen={rowIndex === 0}>
+                <summary><span className="line-card-number">{rowIndex + 1}</span><span className="line-card-summary"><strong>{item["Merchant Name"] || item.Particulars || item.Supplier || `Line item ${rowIndex + 1}`}</strong>{config.lineColumns.some((column) => column.includes("Department")) && <small>{item["Department / Cost Center"] || item["Department to Be Charged"] || "Choose a cost center"}</small>}</span><span className="line-card-meta"><strong>{formatCurrency(Number(item.Amount) || 0)}</strong>{config.lineColumns.includes("Attachment") && <small>{attachments.length} files</small>}</span><span className="line-card-chevron" aria-hidden="true">⌄</span></summary>
+                <div className="line-card-body"><div className="line-card-fields">{config.lineColumns.map((column) => {
+                  const isFile = column === "Receipt" || column === "Attachment";
+                  const example = lineItemExamples[draftType]?.[0]?.[column] ?? column;
+                  const incomplete = active && (column === "Amount" ? Number(item[column]) <= 0 : isFile ? attachments.length === 0 : !String(item[column] || "").trim());
+                  if (isFile) return <label className={`line-card-field line-card-attachments${incomplete ? " line-field-required" : ""}`} key={column}>{column}<input type="file" multiple required={incomplete} aria-required={active} aria-label={`${column} files for line ${rowIndex + 1}`} onChange={(event) => updateLineItem(rowIndex, column, [...(event.target.files || [])].map((file) => file.name).slice(0, 20))} /><span className="line-upload-filename">{attachments.length ? attachments.join(", ") : "No files selected"}</span></label>;
+                  return <label className={`line-card-field${incomplete ? " line-field-required" : ""}`} key={column}>{column}<input type={column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"} required={active} value={item[column] || ""} placeholder={String(example)} onChange={(event) => updateLineItem(rowIndex, column, event.target.value)} /></label>;
+                })}</div><div className="line-card-actions"><button type="button" className="remove-line-button" disabled={lineItems.length === 1} onClick={() => removeLineItem(rowIndex)}>Remove line</button></div></div>
+              </details>;
+            })}
           </div>
+          <div className="line-card-footer"><button type="button" className="add-line-button" onClick={addLineItem}>+ Add Line Item</button><div className="line-card-total"><span>{isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : "Total"}</span><strong>{formatCurrency(draftAmount)}</strong></div></div>
         </div>
         {isCashAdvance && <><section className="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required /> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section className="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section></>}
       </div>

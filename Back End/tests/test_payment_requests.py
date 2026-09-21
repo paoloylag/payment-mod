@@ -262,6 +262,27 @@ def test_academic_year_numbering_boundary_and_finance_setting(client):
     assert restored.status_code == 200
 
 
+def test_cash_advance_options_only_include_current_users_submitted_advances(client):
+    seed()
+    requestor_headers = login(client)
+    before = client.get("/api/v1/requests/cash-advance-options").json()
+    draft = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=requestor_headers).json()
+    assert client.get("/api/v1/requests/cash-advance-options").json() == before
+
+    submitted = client.post(
+        f"/api/v1/requests/{draft['id']}/submit",
+        json={"version": draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200, submitted.text
+    options = client.get("/api/v1/requests/cash-advance-options").json()
+    assert submitted.json()["request_number"] in [option["request_number"] for option in options]
+
+    client.cookies.clear()
+    login(client, "department.head@payment.local")
+    assert submitted.json()["request_number"] not in [option["request_number"] for option in client.get("/api/v1/requests/cash-advance-options").json()]
+
+
 def test_all_five_request_types_pass_confirmed_submission_rules(client):
     seed()
     headers = login(client)
@@ -308,6 +329,35 @@ def test_type_specific_submission_errors_are_field_scoped(client):
         )
         assert submitted.status_code == 422
         assert expected_field in {error["field"] for error in submitted.json()["errors"]}
+
+
+def test_general_payment_uses_complete_breakdown_rows_without_request_level_particulars(client):
+    seed()
+    headers = login(client)
+    complete = payload_for_type("general")
+    complete["purpose"] = ""
+    created = client.post("/api/v1/requests", json=complete, headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+
+    incomplete = payload_for_type("general")
+    incomplete["purpose"] = ""
+    incomplete["lines"][0].update({"particulars": "", "chart_account_id": None, "cost_center_id": None})
+    created = client.post("/api/v1/requests", json=incomplete, headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 422
+    fields = {error["field"] for error in submitted.json()["errors"]}
+    assert {"lines.0.particulars", "lines.0.chart_account_id", "lines.0.cost_center_id"} <= fields
 
 
 def test_line_totals_reconcile_with_exact_four_decimal_precision(client):

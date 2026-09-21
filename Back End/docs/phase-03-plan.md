@@ -17,8 +17,8 @@ Depends on: Phase 02 — Master Data
 - Liquidation validates its Cash Advance reference, dates, advance amount, detailed expense lines, receipts, and proof
   of return when the advance exceeds recorded expenses.
 - P.O. Payment validates the P.O. reference, supplier, account/cost-center treatment, amount, and approved-P.O. support.
-- General Payment retains the approved `Particulars of Payment` behavior and validates payee, line accounting,
-  positive amounts, and billing/invoice support.
+- General Payment has no request-level `Particulars of Payment` field. Particulars are entered in the request breakdown;
+  untouched rows stay optional, while every started row must be complete before submission.
 - Ruff, 13 focused request API tests, the complete `46 passed` backend regression, production frontend build, and
   live browser inspection of all five forms passed. Automated tests now refuse non-`_test` databases.
 - Concurrent numbering, simultaneous edits, duplicate submissions, exact four-decimal line-total reconciliation,
@@ -70,7 +70,7 @@ The source also records later-phase approval, notification, payment, tracking, a
 ### Source discrepancies requiring confirmation
 
 - `Sheet1` omits Liquidation, but the owner subsequently confirmed and implemented it as the fifth request type.
-- General Payment is retained exactly as currently implemented, including the `Particulars of Payment` label. Its final detailed validation and document rules remain pending Finance confirmation because the source sheet contains ambiguous P.O. wording.
+- General Payment uses complete request-breakdown rows instead of a request-level particulars field. Its final document rules remain pending Finance confirmation because the source sheet contains ambiguous P.O. wording.
 - `Sheet3` lists Cash Advance guidelines and policies as outstanding work. The source does not approve an amount limit, one-outstanding-advance rule, or liquidation deadline; those policies must not be enforced as authoritative until separately confirmed.
 - `Sheet2` does not specify Cash Advance or Liquidation documents. Confirm their required-document lists before Phase 04.
 - The source mentions auto-numbering during document upload. The later confirmed rule governs implementation: the permanent `PR-{YEAR}-{sequence}` number is assigned exactly once on successful submission.

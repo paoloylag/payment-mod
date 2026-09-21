@@ -958,6 +958,12 @@ textarea:focus {
   text-align: left;
 }
 
+/* The global action-button weight must not carry into descriptive card copy. */
+.app-shell main .request-type-card p,
+.app-shell main .request-type-card small {
+  font-weight: 300;
+}
+
 .app-shell main .upload-request-buttons button {
   display: flex;
   width: 100%;
