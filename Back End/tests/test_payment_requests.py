@@ -1,11 +1,17 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from decimal import Decimal
+from threading import Barrier
+from time import perf_counter
 from uuid import uuid4
 
-from payment_module.database import SessionLocal
-from payment_module.models import ChartAccount, CostCenter, Department
+from fastapi.testclient import TestClient
+from payment_module.database import SessionLocal, engine
+from payment_module.main import app
+from payment_module.models import ChartAccount, CostCenter, Department, PaymentRequest, PaymentRequestLine, User
 from payment_module.routers.requests import academic_year_start
 from payment_module.seed import seed
-from sqlalchemy import select
+from sqlalchemy import event, func, select
 
 PASSWORD = "Phase01-Test-Only!"
 
@@ -287,3 +293,188 @@ def test_type_specific_submission_errors_are_field_scoped(client):
         )
         assert submitted.status_code == 422
         assert expected_field in {error["field"] for error in submitted.json()["errors"]}
+
+
+def test_line_totals_reconcile_with_exact_four_decimal_precision(client):
+    seed()
+    headers = login(client)
+    request_payload = payload()
+    second_line = dict(request_payload["lines"][0])
+    request_payload["lines"][0]["amount"] = "10.0050"
+    second_line.update({"invoice_number": f"INV-{uuid4()}", "amount": "0.0050"})
+    request_payload["lines"].append(second_line)
+
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert created.status_code == 201
+    assert created.json()["gross_amount"] == 10.01
+    assert sum(Decimal(str(line["amount"])) for line in created.json()["lines"]) == Decimal("10.010")
+    with SessionLocal() as db:
+        stored_total = db.scalar(
+            select(PaymentRequest.gross_amount).where(PaymentRequest.id == created.json()["id"])
+        )
+        stored_line_total = db.scalar(
+            select(func.sum(PaymentRequestLine.amount)).where(PaymentRequestLine.request_id == created.json()["id"])
+        )
+    assert stored_total == Decimal("10.0100")
+    assert stored_line_total == stored_total
+
+
+def test_amounts_beyond_supported_precision_are_rejected(client):
+    seed()
+    headers = login(client)
+    request_payload = payload()
+    request_payload["lines"][0]["amount"] = "1.00001"
+
+    response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert response.status_code == 422
+
+
+def _concurrent_request(barrier: Barrier, method: str, path: str, *, json: dict, idempotency_key: str | None = None):
+    with TestClient(app) as concurrent_client:
+        headers = login(concurrent_client)
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        barrier.wait()
+        return concurrent_client.request(method, path, json=json, headers=headers)
+
+
+def test_simultaneous_edits_allow_exactly_one_version_to_commit(client):
+    seed()
+    headers = login(client)
+    draft = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    changes = []
+    for purpose in ("Concurrent edit A", "Concurrent edit B"):
+        changed = payload()
+        changed.update({"version": draft["version"], "purpose": purpose})
+        changes.append(changed)
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(
+            pool.map(
+                lambda changed: _concurrent_request(
+                    barrier, "PATCH", f"/api/v1/requests/{draft['id']}", json=changed
+                ),
+                changes,
+            )
+        )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert next(response for response in responses if response.status_code == 200).json()["version"] == 2
+
+
+def test_duplicate_submission_race_is_idempotent(client):
+    seed()
+    headers = login(client)
+    draft = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    idempotency_key = str(uuid4())
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(
+                _concurrent_request,
+                barrier,
+                "POST",
+                f"/api/v1/requests/{draft['id']}/submit",
+                json={"version": draft["version"]},
+                idempotency_key=idempotency_key,
+            )
+            for _ in range(2)
+        ]
+        responses = [future.result() for future in futures]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert len({response.json()["request_number"] for response in responses}) == 1
+    assert len({response.json()["version"] for response in responses}) == 1
+
+
+def test_concurrent_submissions_receive_unique_sequential_numbers(client):
+    seed()
+    headers = login(client)
+    drafts = [client.post("/api/v1/requests", json=payload(), headers=headers).json() for _ in range(6)]
+    barrier = Barrier(len(drafts))
+
+    with ThreadPoolExecutor(max_workers=len(drafts)) as pool:
+        futures = [
+            pool.submit(
+                _concurrent_request,
+                barrier,
+                "POST",
+                f"/api/v1/requests/{draft['id']}/submit",
+                json={"version": draft["version"]},
+                idempotency_key=str(uuid4()),
+            )
+            for draft in drafts
+        ]
+        responses = [future.result() for future in futures]
+
+    assert all(response.status_code == 200 for response in responses)
+    sequence_values = sorted(int(response.json()["request_number"].rsplit("-", 1)[1]) for response in responses)
+    assert len(set(sequence_values)) == len(drafts)
+    assert sequence_values == list(range(sequence_values[0], sequence_values[0] + len(drafts)))
+
+
+def test_large_request_list_is_bounded_paginated_and_query_efficient(client):
+    seed()
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        department_id = db.scalar(select(Department.id).where(Department.code == "MKTG"))
+        baseline = db.scalar(
+            select(func.count()).select_from(PaymentRequest).where(PaymentRequest.requestor_id == requestor.id)
+        )
+        records = [
+            PaymentRequest(
+                request_type="reimbursement",
+                requestor_id=requestor.id,
+                department_id=department_id,
+                payee_name="Pagination Vendor",
+                purpose=f"Pagination performance fixture {index:03d}",
+                currency_code="PHP",
+                gross_amount=Decimal("1.0000"),
+                type_data={},
+            )
+            for index in range(130)
+        ]
+        db.add_all(records)
+        db.flush()
+        db.add_all(
+            PaymentRequestLine(
+                request_id=record.id,
+                position=1,
+                vendor_name="Pagination Vendor",
+                particulars="Performance fixture",
+                amount=Decimal("1.0000"),
+                currency_code="PHP",
+                attachment_refs=[],
+            )
+            for record in records
+        )
+
+    headers = login(client)
+    query_count = 0
+
+    def count_query(*_args):
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(engine, "before_cursor_execute", count_query)
+    started_at = perf_counter()
+    try:
+        first_page = client.get("/api/v1/requests?page=1&page_size=50", headers=headers)
+        second_page = client.get("/api/v1/requests?page=2&page_size=50", headers=headers)
+    finally:
+        elapsed = perf_counter() - started_at
+        event.remove(engine, "before_cursor_execute", count_query)
+
+    assert first_page.status_code == 200 and second_page.status_code == 200
+    assert len(first_page.json()) == len(second_page.json()) == 50
+    assert first_page.headers["X-Total-Count"] == str(baseline + 130)
+    assert first_page.headers["X-Page"] == "1" and second_page.headers["X-Page"] == "2"
+    assert {item["id"] for item in first_page.json()}.isdisjoint(item["id"] for item in second_page.json())
+    # Authentication, permission resolution, pagination metadata, the page,
+    # and three batched relationship queries remain constant as rows grow.
+    assert query_count <= 24
+    assert elapsed < 3.0

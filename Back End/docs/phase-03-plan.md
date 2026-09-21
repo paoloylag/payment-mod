@@ -19,15 +19,20 @@ Depends on: Phase 02 — Master Data
 - P.O. Payment validates the P.O. reference, supplier, account/cost-center treatment, amount, and approved-P.O. support.
 - General Payment retains the approved `Particulars of Payment` behavior and validates payee, line accounting,
   positive amounts, and billing/invoice support.
-- Ruff, seven focused request API tests, the complete `40 passed` backend regression, production frontend build, and
+- Ruff, 13 focused request API tests, the complete `46 passed` backend regression, production frontend build, and
   live browser inspection of all five forms passed. Automated tests now refuse non-`_test` databases.
+- Concurrent numbering, simultaneous edits, duplicate submissions, exact four-decimal line-total reconciliation,
+  excess-precision rejection, bounded pagination, constant-query list loading, and a 130-record performance fixture pass.
+- The confirmed model is one item per line and exactly one cost center per line. If an expense applies to different cost
+  centers, the requestor records separate lines. Split allocation is not a Phase 03 requirement or completion blocker.
 
 ## Confirmed decisions — 2026-09-08
 
 - Submitted requests use `PR-{ACADEMIC_YEAR_START}-{six-digit sequence}`, for example `PR-2026-000001` for academic year 2026–2027. The sequence resets at the start of each academic year, defaults to July, and is generated exactly once during an idempotent submission. Finance users can change the reset month through an audited setting; existing request numbers never change.
 - Drafts autosave two seconds after the last edit. Drafts are retained for 90 days; the system warns before archival and does not silently destroy audit-relevant submitted records.
-- Every persisted monetary value is represented by an amount column and an ISO currency-code column. This applies to request totals, line amounts, allocation amounts, Cash Advance and Liquidation balances, and any later tax or settlement values. Queries and calculations must retrieve the pair together.
-- A request is single-currency in the initial implementation. Each line and allocation currency must match the request currency. Cross-currency calculations are rejected rather than implicitly converted; exchange rates and PHP-equivalent values are deferred until an approved conversion policy exists.
+- Every persisted monetary value is represented by an amount column and an ISO currency-code column. This applies to request totals, line amounts, Cash Advance and Liquidation balances, and any later tax or settlement values. Queries and calculations must retrieve the pair together.
+- A request is single-currency in the initial implementation. Each line currency must match the request currency. Cross-currency calculations are rejected rather than implicitly converted; exchange rates and PHP-equivalent values are deferred until an approved conversion policy exists.
+- Each line represents one item and has exactly one cost center. Expenses chargeable to different cost centers must be entered as separate lines; split allocation within a line is out of scope.
 - Type-specific validation follows the source Google Sheet, `Automated Payment System`, supplied on 2026-09-08. Explicit decisions recorded later in this plan take precedence where the source contains an ambiguity or an older rule.
 
 ## Source business rules — 2026-09-08
@@ -68,7 +73,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 - Draft creation, autosave, retrieval, editing, deletion, submission, cancellation, reopening, returning, and resubmission.
 - Request numbering, immutable versions and status history, optimistic locking, and idempotent commands.
-- Type-specific extension data, line items, department/cost-center allocations, currencies, totals, and rounding.
+- Type-specific extension data, line items with one cost center each, currencies, totals, and rounding.
 - Ownership and department visibility using Phase 01 identities and Phase 02 reference data.
 - Duplicate invoice/reference checks and outstanding Cash Advance/Liquidation relationships.
 
@@ -78,7 +83,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 - Immutable request versions containing the business fields used for review and later snapshots.
 - Request-type extension tables for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and General Payment.
 - Line items with description, merchant/vendor reference, dates, expense account, quantity/rate where applicable, `amount`, `currency_code`, and tax hints.
-- One-to-many allocations per line across departments and cost centers, each with its own `amount` and `currency_code` constrained to the parent request currency.
+- Each line stores one department/cost-center reference and an `amount` plus `currency_code` constrained to the parent request currency.
 - Numbering sequence, status-history, idempotency-command, and duplicate-reference records.
 - Liquidation-to-Cash-Advance and P.O.-to-request relationships without copying external-system authority into the local database.
 
@@ -88,7 +93,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 - Delete applies only to eligible drafts. Submitted records retain immutable history and use cancellation instead.
 - Autosave uses optimistic locking and rejects stale versions with a conflict response containing the current safe version identifier.
 - Submission performs complete server-side validation, generates the request number once, and is idempotent.
-- Request totals equal the sum of lines; allocation totals equal their line amount using currency-specific precision. Amounts with different currency codes must never be summed or compared directly.
+- Request totals equal the sum of lines using exact four-decimal precision. Amounts with different currency codes must never be summed or compared directly.
 - Duplicate checks consider the approved combination of vendor/payee, invoice/reference number, amount, date, and request state.
 - Cash Advance and Liquidation rules validate event dates, due dates, outstanding advances, linked advance balances, and Proof of Return requirements.
 - P.O. Payment validates the approved P.O. reference and conditional supplier/BIR requirements without trusting browser-supplied approval claims.
@@ -112,7 +117,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 ## Frontend implementation
 
 - Connect New Request, dashboard lists, request detail, workflow preview, search, and filters to persisted APIs.
-- Provide type-specific forms while retaining shared request, payee, currency, line, allocation, and document-placeholder components.
+- Provide type-specific forms while retaining shared request, payee, currency, line, cost-center, and document-placeholder components.
 - Show autosave state, stale-version conflicts, validation summaries, duplicate warnings, and unsaved-change protection.
 - Preserve frontend-only fixtures with the same shapes and lifecycle outcomes needed for independent UI work.
 
@@ -126,7 +131,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 ## Delivery sequence
 
 1. Confirm lifecycle states and editable fields, then reconcile type-specific requirements against the reattached source workbook. Numbering, autosave, retention, and initial currency behavior are confirmed.
-2. Add request, version, line, allocation, extension, and history migrations/models.
+2. Add request, version, line, extension, and history migrations/models.
 3. Implement calculation, validation, locking, duplicate-detection, and authorization services.
 4. Add draft, autosave, submit, cancel, reopen, return, resubmit, list, and detail APIs.
 5. Connect request forms, dashboard lists, filters, and detail views to persisted data.
@@ -139,7 +144,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 ## Acceptance gates
 
 - Each request type completes its valid lifecycle and invalid transitions fail server-side.
-- Line totals and allocations reconcile exactly across PHP, USD, EUR, and configured currencies.
+- Line totals reconcile exactly to the request total across PHP, USD, EUR, and configured currencies.
 - Concurrent edits return a clear conflict instead of silently overwriting data.
 - Ownership, role, and department visibility tests pass.
 - Persisted requests reload accurately and prototype list/search/filter views use API data.
@@ -149,7 +154,7 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 - Migration rollback/replay, deterministic request fixtures, and numbering-sequence concurrency.
 - Valid and invalid lifecycle paths for all five request types.
 - Autosave and simultaneous-edit conflicts, idempotent submission, and duplicate-request races.
-- Decimal rounding, multi-line, multi-allocation, PHP/USD/EUR, zero/negative amount, and reconciliation boundaries.
+- Decimal rounding, multi-line, PHP/USD/EUR, zero/negative amount, and reconciliation boundaries.
 - Ownership, manager association, department scope, explicit deny, and administrator audit tests.
 - Outstanding Cash Advance, Liquidation linkage, P.O. reference, conditional-document, cancel/reopen/return/resubmit rules.
 - API list/filter/sort/pagination and larger-data performance checks.

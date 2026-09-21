@@ -96,7 +96,7 @@ erDiagram
 
 The UUID remains stable across integrations. The formatted `request_number` may follow different sequences per request type without becoming a foreign key.
 
-Every monetary value must be stored and handled as an explicit `(amount, currency_code)` pair. The same rule applies to line items, allocations, Cash Advance amounts, Liquidation amounts, taxes, and settlements. Initial Phase 03 requests are single-currency: child monetary rows must use the request currency, and the database/service layer must reject mixed-currency aggregation. Exchange-rate conversion requires separately persisted source, rate, base/quote currencies, and effective timestamp and is deferred until Finance approves that policy.
+Every monetary value must be stored and handled as an explicit `(amount, currency_code)` pair. The same rule applies to line items, Cash Advance amounts, Liquidation amounts, taxes, and settlements. Initial Phase 03 requests are single-currency: child monetary rows must use the request currency, and the database/service layer must reject mixed-currency aggregation. Exchange-rate conversion requires separately persisted source, rate, base/quote currencies, and effective timestamp and is deferred until Finance approves that policy.
 
 ## 6. Request-type extension tables
 
@@ -148,7 +148,7 @@ The application calculates the current prototype's liquidation deadline as 15 da
 - `service_period_from`
 - `service_period_to`
 
-## 7. Line items and cost allocation
+## 7. Line items and cost centers
 
 ### `request_line_items`
 
@@ -162,22 +162,14 @@ The application calculates the current prototype's liquidation deadline as 15 da
 | `particulars` | Description of the expense |
 | `merchant_name` | Merchant or supplier on the line |
 | `expense_account_id` | Proposed expense account |
+| `cost_center_id` | The one cost center charged by this line |
 | `quantity` | Optional quantity |
 | `unit_price` | Optional unit price |
 | `amount` | Line total as `numeric(19,4)` |
 | `currency_code` | Currency for the line |
 | `created_at` | Philippine Time timestamp |
 
-### `line_item_allocations`
-
-- `id`
-- `line_item_id`
-- `department_id`
-- `cost_center_id`
-- `amount`
-- `percentage`, nullable
-
-The sum of a request's line items must equal its gross amount. The allocation total for a line must equal that line's amount. These invariants should be checked in the same database transaction that submits or updates the request.
+Each line represents one item and charges exactly one cost center. If an expense belongs to different cost centers, the requestor creates separate lines. The sum of a request's line items must equal its gross amount; this invariant should be checked in the same database transaction that submits or updates the request.
 
 ## 8. Documents and reviews
 
@@ -441,7 +433,7 @@ An outbox table is recommended for backend integrations. Business changes and ou
 
 ### Phase 1: Request and approval foundation
 
-Implement users, departments, vendors, requests, request-type details, line items, allocations, documents, approvals, workflow events, and audit records.
+Implement users, departments, vendors, requests, request-type details, line items with one cost center each, documents, approvals, workflow events, and audit records.
 
 ### Phase 2: Finance processing
 

@@ -2,8 +2,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import delete, or_, select
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..audit import audit
@@ -46,21 +46,41 @@ def visible_query(request: Request, actor: User):
     return query.where(PaymentRequest.requestor_id == actor.id)
 
 
-def get_visible(db: Session, request: Request, actor: User, request_id: UUID) -> PaymentRequest:
-    item = db.scalar(visible_query(request, actor).where(PaymentRequest.id == request_id))
+def get_visible(
+    db: Session, request: Request, actor: User, request_id: UUID, *, lock_for_update: bool = False
+) -> PaymentRequest:
+    query = visible_query(request, actor).where(PaymentRequest.id == request_id)
+    if lock_for_update:
+        query = query.with_for_update()
+    item = db.scalar(query)
     if not item:
         raise HTTPException(404, "Payment request not found")
     return item
 
 
-def serialize(db: Session, item: PaymentRequest) -> dict:
-    requestor = db.get(User, item.requestor_id)
-    department = db.get(Department, item.department_id)
-    lines = list(
-        db.scalars(
-            select(PaymentRequestLine)
-            .where(PaymentRequestLine.request_id == item.id)
-            .order_by(PaymentRequestLine.position)
+def serialize(
+    db: Session,
+    item: PaymentRequest,
+    *,
+    requestors: dict[UUID, User] | None = None,
+    departments: dict[UUID, Department] | None = None,
+    lines_by_request: dict[UUID, list[PaymentRequestLine]] | None = None,
+) -> dict:
+    requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
+    department = (
+        departments.get(item.department_id)
+        if departments is not None
+        else db.get(Department, item.department_id)
+    )
+    lines = (
+        lines_by_request.get(item.id, [])
+        if lines_by_request is not None
+        else list(
+            db.scalars(
+                select(PaymentRequestLine)
+                .where(PaymentRequestLine.request_id == item.id)
+                .order_by(PaymentRequestLine.position)
+            )
         )
     )
     return {
@@ -99,6 +119,33 @@ def serialize(db: Session, item: PaymentRequest) -> dict:
             for line in lines
         ],
     }
+
+
+def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
+    if not items:
+        return []
+    requestor_ids = {item.requestor_id for item in items}
+    department_ids = {item.department_id for item in items}
+    request_ids = {item.id for item in items}
+    requestors = {item.id: item for item in db.scalars(select(User).where(User.id.in_(requestor_ids)))}
+    departments = {item.id: item for item in db.scalars(select(Department).where(Department.id.in_(department_ids)))}
+    lines_by_request: dict[UUID, list[PaymentRequestLine]] = {request_id: [] for request_id in request_ids}
+    for line in db.scalars(
+        select(PaymentRequestLine)
+        .where(PaymentRequestLine.request_id.in_(request_ids))
+        .order_by(PaymentRequestLine.request_id, PaymentRequestLine.position)
+    ):
+        lines_by_request[line.request_id].append(line)
+    return [
+        serialize(
+            db,
+            item,
+            requestors=requestors,
+            departments=departments,
+            lines_by_request=lines_by_request,
+        )
+        for item in items
+    ]
 
 
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
@@ -313,11 +360,27 @@ def create_payment_request(
 
 
 @router.get("")
-def list_payment_requests(request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)):
-    return [
-        serialize(db, item)
-        for item in db.scalars(visible_query(request, actor).order_by(PaymentRequest.updated_at.desc()))
-    ]
+def list_payment_requests(
+    request: Request,
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    query = visible_query(request, actor)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    items = list(
+        db.scalars(
+            query.order_by(PaymentRequest.updated_at.desc(), PaymentRequest.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    return serialize_many(db, items)
 
 
 @router.get("/{request_id}")
@@ -335,7 +398,7 @@ def update_payment_request(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
     if item.requestor_id != actor.id or item.status not in {"draft", "returned"}:
         raise HTTPException(409, "Only the owner can edit a draft or returned request")
     if item.version != payload.version:
@@ -356,7 +419,7 @@ def update_payment_request(
 def delete_payment_request(
     request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
 ):
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
     if item.requestor_id != actor.id or item.status != "draft":
         raise HTTPException(409, "Only the owner can delete a draft")
     db.delete(item)
@@ -378,6 +441,9 @@ def academic_year_start(moment: datetime, reset_month: int) -> int:
 
 def next_number(db: Session, *, moment: datetime | None = None) -> str:
     year = academic_year_start(moment or datetime.now(UTC), numbering_reset_month(db))
+    # Serialize creation as well as increment of the annual counter. A row lock
+    # alone cannot protect the first request in a new academic year.
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": year})
     sequence = db.get(RequestSequence, year, with_for_update=True)
     if not sequence:
         sequence = RequestSequence(year=year, last_value=0)
@@ -448,7 +514,18 @@ def submit_payment_request(
     )
     if existing:
         return existing.result
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    # Another transaction may have completed this command while this request
+    # waited for the row lock.
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "submit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
     if item.requestor_id != actor.id or item.status not in {"draft", "returned"}:
         raise HTTPException(409, "Request cannot be submitted")
     if item.version != payload.version:
@@ -485,7 +562,7 @@ def return_payment_request(
 ):
     if "requests.manage_lifecycle" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.manage_lifecycle")
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
     if item.status != "submitted" or item.version != payload.version or not payload.note.strip():
         raise HTTPException(409, "Submitted request and a return note are required")
     item.status = "returned"
@@ -555,7 +632,7 @@ def cancel_payment_request(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
     allowed = item.requestor_id == actor.id or "requests.manage_lifecycle" in permissions(request)
     if not allowed or item.status not in {"draft", "submitted", "returned"}:
         raise HTTPException(409, "Request cannot be cancelled by this user or from its current status")
@@ -576,7 +653,7 @@ def reopen_payment_request(
 ):
     if "requests.manage_lifecycle" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.manage_lifecycle")
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
     if item.status != "cancelled" or item.version != payload.version or not payload.note.strip():
         raise HTTPException(409, "Only a cancelled request can be reopened with the current version and a reason")
     return lifecycle_change(db, item=item, actor=actor, target_status="draft", note=payload.note, request=request)
@@ -600,7 +677,16 @@ def resubmit_payment_request(
     )
     if existing:
         return existing.result
-    item = get_visible(db, request, actor, request_id)
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "resubmit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
     if item.requestor_id != actor.id or item.status != "returned" or item.version != payload.version:
         raise HTTPException(409, "Only the owner can resubmit a returned request at its current version")
     if not payload.note.strip():

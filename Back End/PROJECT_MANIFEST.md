@@ -90,11 +90,17 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
   request/line document references, vendor and P.O. references, Cash Advance acknowledgements, and Liquidation balances.
 - Added submission-time, field-scoped validation for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and
   General Payment while retaining incomplete-draft autosave behavior.
-- Enforced a dedicated `_test` database in the automated test harness so request tests cannot accumulate records in
-  the development database. The 2026-09-20 regression passed with `40 passed` and the Vite production build passed.
+- Enforced a dedicated `_test` database in the automated test harness and automatic removal of test-created sessions
+  and requests so automated tests cannot accumulate records in development or test databases.
+- Added transaction-safe concurrent numbering, row-locked mutations, post-lock idempotency checks, bounded list
+  pagination, and batched list serialization. Exact four-decimal line totals, excess precision, simultaneous edits,
+  duplicate submission races, concurrent numbering, and 130-record list performance are covered by automated tests.
+- The 2026-09-20 regression passed with `46 passed`; the focused request suite passed `13 passed`, Ruff passed, and
+  the previously validated Vite production build remains unchanged.
 - General Payment remains unchanged in the frontend; its detailed validation/document rules are marked pending Finance
   confirmation because the source sheet contains ambiguous P.O. wording.
-- Current validation: 36 backend tests passed and the Vite production build passed on 2026-09-08.
+- Current validation: 46 backend tests passed and Ruff passed on 2026-09-20; the Vite production build passed during
+  the preceding Phase 03 integration validation.
 
 Current Phase 00 backend endpoints:
 
@@ -301,7 +307,7 @@ Implementation status (2026-09-03): reversible migration `20260903_0005`, master
 Detailed plan: `docs/phase-03-plan.md`.
 
 - Draft create, autosave, retrieve, edit, delete, submit, cancel, reopen, return, and resubmit.
-- Request numbering, request versions, optimistic locking, request-type extension data, line items, allocations, currency rules, totals, and duplicate invoice checks.
+- Request numbering, request versions, optimistic locking, request-type extension data, line items with one cost center each, currency rules, totals, and duplicate invoice checks.
 - Request types: Reimbursement, Cash Advance, Liquidation, P.O. Payment, and General Payment.
 
 Prototype validation: create and persist each request type, reload it, submit it, list it, filter it, and enforce ownership/department visibility.
@@ -427,7 +433,7 @@ The first usable backend release includes:
 2. Users, roles, permissions, and local authentication.
 3. Departments, cost centers, and vendors.
 4. Draft and submitted payment requests.
-5. Line items, allocations, and document uploads.
+5. Line items, cost centers, and document uploads.
 6. Approval routing and decisions.
 7. Finance validation and accounting entries.
 8. Voucher generation and printing data.
@@ -456,11 +462,11 @@ Implement draft creation, auto-save, retrieval, update, deletion, submission, re
 
 Acceptance gate: each request type can complete its valid lifecycle and invalid transitions are rejected server-side.
 
-### BE-04 — Expense lines, allocations, and currencies
+### BE-04 — Expense lines, cost centers, and currencies
 
-Implement expense lines, merchant/vendor fields, references, attachments, expense accounts, currency, totals, and one-to-many department/cost-center allocations. Enforce that line totals equal the request total and allocation totals equal their line amount.
+Implement expense lines, merchant/vendor fields, references, attachments, expense accounts, currency, totals, and exactly one department/cost center per line. Expenses spanning cost centers use separate lines. Enforce that line totals equal the request total.
 
-Acceptance gate: rounding, multi-line, multi-allocation, PHP, USD, EUR, and custom-currency tests pass.
+Acceptance gate: rounding, multi-line, one-cost-center-per-line, PHP, USD, EUR, and custom-currency tests pass.
 
 ### BE-05 — Request-type business rules
 
@@ -549,7 +555,7 @@ Acceptance gate: a development adapter can be replaced by a contract-compatible 
 ## Delivery sequence
 
 1. Foundation: schema, migrations, identity context, RBAC, master data, audit framework, logging, errors, and seeds.
-2. Requests: drafts, request types, expense lines, allocations, validations, uploads, submission, and versioning.
+2. Requests: drafts, request types, expense lines, cost centers, validations, uploads, submission, and versioning.
 3. Approvals: route generation, assignments, queues, decisions, returns, declines, resubmission, and notifications.
 4. Finance: document review, VAT/EWT, accounting entries, and validation completion.
 5. Vouchers and payments: voucher snapshots, authorization, attempts, pick-up/release, completion, voids, and replacements.

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import delete, select
 from sqlalchemy.engine import make_url
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,20 +23,25 @@ os.environ["DATABASE_URL"] = configured_database_url
 
 from payment_module.database import SessionLocal  # noqa: E402
 from payment_module.main import app  # noqa: E402
-from payment_module.models import AuthSession  # noqa: E402
+from payment_module.models import AuthSession, PaymentRequest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def remove_sessions_created_by_test():
-    """Never leave test-created authentication sessions in the configured database."""
+def remove_records_created_by_test():
+    """Never leave test-created sessions or payment requests in the test database."""
     with SessionLocal() as db:
-        existing_ids = set(db.scalars(AuthSession.__table__.select().with_only_columns(AuthSession.id)))
+        existing_session_ids = set(db.scalars(select(AuthSession.id)))
+        existing_request_ids = set(db.scalars(select(PaymentRequest.id)))
     yield
     with SessionLocal.begin() as db:
-        query = db.query(AuthSession)
-        if existing_ids:
-            query = query.filter(AuthSession.id.not_in(existing_ids))
-        query.delete(synchronize_session=False)
+        session_delete = delete(AuthSession)
+        request_delete = delete(PaymentRequest)
+        if existing_session_ids:
+            session_delete = session_delete.where(AuthSession.id.not_in(existing_session_ids))
+        if existing_request_ids:
+            request_delete = request_delete.where(PaymentRequest.id.not_in(existing_request_ids))
+        db.execute(session_delete)
+        db.execute(request_delete)
 
 
 @pytest.fixture()
