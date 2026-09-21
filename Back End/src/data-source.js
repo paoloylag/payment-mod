@@ -108,7 +108,24 @@ export function createDataSource() {
     createPermission(payload, csrfToken) { return apiRequest("/api/v1/permissions", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) }); },
     updatePermission(permissionId, payload, csrfToken) { return apiRequest(`/api/v1/permissions/${permissionId}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) }); },
     deletePermission(permissionId, csrfToken) { return apiRequest(`/api/v1/permissions/${permissionId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } }); },
-    listMasterData(resource) { return masterDataRequest(resource); },
+    async listMasterData(resource) {
+      if (mode === "mock") return mockMasterData[resource] || [];
+      try {
+        const items = [];
+        let priorFirstId = null;
+        for (let page = 1; ; page += 1) {
+          const batch = await apiRequest(`/api/v1/${resource}?page=${page}&page_size=100`);
+          const firstId = batch[0]?.id || batch[0]?.code || null;
+          if (page > 1 && firstId && firstId === priorFirstId) throw new Error("Master-data pagination did not advance");
+          priorFirstId = firstId;
+          items.push(...batch);
+          if (batch.length < 100) return items;
+        }
+      } catch (error) {
+        if (mode === "hybrid") return mockMasterData[resource] || [];
+        throw error;
+      }
+    },
     createMasterData(resource, payload, csrfToken) {
       return masterDataRequest(resource, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },

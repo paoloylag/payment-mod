@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import pytest
 from cryptography.fernet import Fernet
 from payment_module.bank_crypto import decrypt_account_number, encrypt_account_number
 from payment_module.config import get_settings
@@ -145,3 +146,91 @@ def test_vendor_normalizer_never_exposes_clear_account_number() -> None:
     assert item["maskedBankAccountNumber"] == "•••• 6789"
     assert "bankAccountNumber" not in item
     assert "SYNTHETIC-TEST-6789" not in str(item)
+
+
+def test_master_data_lists_are_bounded_searchable_and_stably_ordered(client) -> None:
+    seed()
+    assert login(client).status_code == 200
+    first = client.get("/api/v1/cost-centers?page=1&page_size=3")
+    second = client.get("/api/v1/cost-centers?page=2&page_size=3")
+    assert first.status_code == second.status_code == 200
+    assert len(first.json()) == len(second.json()) == 3
+    assert first.headers["X-Total-Count"] == second.headers["X-Total-Count"]
+    assert first.headers["X-Page"] == "1"
+    assert second.headers["X-Page"] == "2"
+    assert {item["id"] for item in first.json()}.isdisjoint(item["id"] for item in second.json())
+    assert [item["name"] for item in first.json() + second.json()] == sorted(
+        item["name"] for item in first.json() + second.json()
+    )
+    match = client.get("/api/v1/cost-centers?search=OCP&active=true")
+    assert match.status_code == 200
+    assert [item["code"] for item in match.json()] == ["OCP"]
+    assert client.get("/api/v1/cost-centers?page_size=101").status_code == 422
+    assert client.get("/api/v1/currencies?page=1&page_size=2").headers["X-Page-Size"] == "2"
+    assert client.get("/api/v1/vendors?page=2&page_size=1").json() == []
+    assert client.get("/api/v1/company-bank-accounts?page=1&page_size=1").headers["X-Page-Size"] == "1"
+
+
+def test_chart_account_duplicate_cycle_and_referenced_delete_are_rejected(client) -> None:
+    seed()
+    session = login(client)
+    headers = {"X-CSRF-Token": session.json()["csrf_token"]}
+    suffix = uuid4().hex[:8].upper()
+    parent_payload = {
+        "code": f"A{suffix}",
+        "name": f"Test Parent {suffix}",
+        "account_type": "expense",
+        "normal_balance": "debit",
+    }
+    parent = client.post("/api/v1/chart-of-accounts", json=parent_payload, headers=headers)
+    assert parent.status_code == 201, parent.text
+    parent_id = parent.json()["id"]
+    child_id = None
+    try:
+        assert client.post("/api/v1/chart-of-accounts", json=parent_payload, headers=headers).status_code == 409
+        child = client.post(
+            "/api/v1/chart-of-accounts",
+            json={**parent_payload, "code": f"B{suffix}", "name": f"Test Child {suffix}", "parent_id": parent_id},
+            headers=headers,
+        )
+        assert child.status_code == 201, child.text
+        child_id = child.json()["id"]
+        assert (
+            client.patch(
+                f"/api/v1/chart-of-accounts/{parent_id}", json={"parent_id": child_id}, headers=headers
+            ).status_code
+            == 422
+        )
+        assert client.delete(f"/api/v1/chart-of-accounts/{parent_id}", headers=headers).status_code == 409
+        assert (
+            client.patch(
+                f"/api/v1/chart-of-accounts/{child_id}", json={"is_active": False}, headers=headers
+            ).status_code
+            == 200
+        )
+        inactive = client.get("/api/v1/chart-of-accounts?active=false&search=" + suffix).json()
+        assert [item["id"] for item in inactive] == [child_id]
+    finally:
+        if child_id:
+            assert client.delete(f"/api/v1/chart-of-accounts/{child_id}", headers=headers).status_code == 204
+        assert client.delete(f"/api/v1/chart-of-accounts/{parent_id}", headers=headers).status_code == 204
+
+
+def test_vendor_mock_search_and_wrong_bank_key_fail_safely(client) -> None:
+    seed()
+    assert login(client).status_code == 200
+    assert [item["name"] for item in client.get("/api/v1/vendors?search=power%20mac").json()] == [
+        "Power Mac Center, Inc."
+    ]
+    assert client.get("/api/v1/vendors?search=not-a-vendor").json() == []
+    assert client.get("/api/v1/vendors/unknown-vendor").status_code == 404
+    settings = get_settings()
+    original_key = settings.bank_encryption_key
+    settings.bank_encryption_key = Fernet.generate_key().decode()
+    try:
+        token = encrypt_account_number("SYNTHETIC-TEST-6789")
+        settings.bank_encryption_key = Fernet.generate_key().decode()
+        with pytest.raises(RuntimeError, match="Unable to decrypt"):
+            decrypt_account_number(token)
+    finally:
+        settings.bank_encryption_key = original_key

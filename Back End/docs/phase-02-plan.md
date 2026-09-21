@@ -1,7 +1,7 @@
 # Phase 02 — Master Data
 
 Date prepared: 2026-08-28  
-Last decision update: 2026-09-03  
+Last decision update: 2026-09-22
 Status: In progress  
 Depends on: Phase 01 — Authentication and RBAC
 
@@ -18,6 +18,8 @@ Implemented locally:
 - Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, vendor masking, encryption, and Finance Manager revocation of System Administrator bank access.
 
 Passed on 2026-09-03: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, encryption/redaction checks, and browser walkthrough of all Master Data routes and request dropdown fallbacks. Live PostgreSQL 17 migrations reached `20260903_0005` on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 still encounters a host-level Windows Unix-socket error, so local database validation uses the loopback-only native PostgreSQL service on port `5434`; this does not alter production configuration.
+
+2026-09-22 approval-free follow-up: master-data list endpoints now use bounded pages (maximum 100 records) while the frontend loads all pages needed for its lists and dropdowns. Automated tests cover page ordering/filtering, duplicate and cyclic chart accounts, safe deletion, mock vendor search, and wrong-key bank decryption. See `docs/phase-02-validation.md` for current command results and remaining gates.
 
 ## Confirmed decisions
 
@@ -46,13 +48,13 @@ The project owner authorized review of `LCI Org Chart ao Sep 1.pdf` from the sup
 | Finance | `FIN` | Active | Finance staff |
 | Marketing | `MKTG` | Active | Finance staff |
 
-The chart also identifies leadership and reporting relationships. The approved rule is one initial cost center per department; subordinate teams do not receive separate initial cost centers. Department and cost-center administration must nevertheless support future additions. The initial effective-from date remains unset until Finance supplies one.
+The chart also identifies leadership and reporting relationships. The approved rule is one initial cost center per department; subordinate teams do not receive separate initial cost centers. Department and cost-center administration must nevertheless support future additions. Each request line is one item charged to exactly one cost center; a single line is not split across cost centers. The initial effective-from date remains unset until Finance supplies one.
 
 ### Remaining cost-center information required
 
 - Effective-from date and, for retired codes, effective-to date.
 - Whether requestors may allocate across departments or only within their assigned department.
-- Whether a line item may be split across multiple cost centers.
+- Whether requestors may charge another department remains open. Split allocation within a line is out of scope by owner decision; different cost centers require separate lines.
 
 The organizational chart can seed a review worksheet, but Finance must approve the final accounting mapping before migration seed data is treated as authoritative.
 
@@ -93,7 +95,7 @@ Replace prototype reference data with persisted, audited API data that payment r
 - Tax codes: code, description, VAT classification, EWT rate, effective dates, and active state.
 - Currencies: ISO code, display name, symbol, decimal precision, and active state.
 - Payment methods: code, display name, method category, required-reference rules, and active state.
-- Company bank accounts: bank name, account name, encrypted account number, masked display value, currency, branch, and active state.
+- Company bank accounts: the protected schema and APIs exist, but full account-number storage and sensitive-access administration are deferred from the current request-documentation rollout. No bank connection is part of Phase 02. Do not provision real bank details or treat this feature as a current-rollout acceptance gate until its need is confirmed.
 - Document types: code, name, description, allowed request types, hard/soft-copy behavior, and active state.
 
 ## Business and validation rules
@@ -139,7 +141,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 
 ## Security and operational requirements
 
-- Obtain encryption material from environment or an approved secrets provider; never use a committed default key.
+- If full bank-account storage is enabled in a later rollout, obtain encryption material from an approved environment or secrets provider; never use a committed default key. No such key or real bank-account number is required for the current documentation-only rollout.
 - Ensure logs, exceptions, audit before/after values, exports, fixtures, screenshots, and tests do not expose bank-account clear text.
 - Use indexed lookup columns and bounded list responses to avoid unbounded administration queries.
 - Backups must contain encrypted bank values, and restore testing must confirm they remain decryptable only with the correct key.
@@ -162,7 +164,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 
 - Every master-data type is persisted, validated, searchable, and safely administered.
 - Duplicate codes, invalid relationships, and destructive deletion of referenced records are rejected.
-- Bank details are encrypted, masked, permission-controlled, and never written to logs or audit payloads in clear text.
+- Existing bank-data endpoints remain in the code and are permission-controlled, encrypted, masked, and covered by synthetic-data tests. They are not approved for use with real bank details in the current rollout; disabling or removing these endpoints from a production release remains a separate release-control decision.
 - Required prototype dropdowns use API data; standalone mock mode remains runnable.
 - Migrations, deterministic seeds, authorization, audit, coverage, dependency audits, builds, Docker checks, and CI pass.
 
@@ -193,12 +195,12 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 
 ## Remaining decisions and external inputs
 
-- The remaining cost-center policy information listed above: initial effective-from date, cross-department allocation, and split-allocation rules.
-- Initial chart-of-account records and official account codes; the structure is confirmed.
+- The remaining cost-center policy information listed above: initial effective-from date and cross-department charging. One item and one cost center per line is already confirmed.
+- Initial Finance-approved chart-of-account records and official QuickBooks account codes or a representative export; the structure is confirmed, but authoritative account values are not seeded.
 - Finance-approved tax codes, VAT/EWT classifications, rates, and effective dates.
-- Named encryption-key owner and approved local/staging/production secrets mechanism.
+- Before any later rollout stores real company bank-account numbers: named encryption-key owner and approved local/staging/production secrets mechanism.
 - A representative vendor payload was supplied on 2026-09-03 and is covered by the mock adapter contract. Its `bankAccountNumber` field is sensitive: ordinary lookup exposes only a masked value and must never log or return the clear value. Base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials remain required.
-- Bank-access minimum-owner or break-glass rule to prevent permanent administrative lockout.
+- Before any later rollout enables sensitive bank-account administration: minimum-owner or break-glass rule to prevent permanent administrative lockout. This is not a current Phase 02 blocker.
 
 ## Exclusions
 

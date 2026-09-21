@@ -294,14 +294,16 @@ Prototype validation: login screen, authenticated user chip, role-driven navigat
 
 Detailed plan: `docs/phase-02-plan.md`.
 
-- Departments, cost centers, chart of accounts, tax codes, currencies, payment methods, company bank accounts, and document types.
+- Departments, cost centers, chart of accounts, tax codes, currencies, payment methods, and document types. Protected company-bank-account code exists but full account-number storage is deferred from the current request-documentation rollout; there is no direct bank connection.
 - Consume vendors and vendor contacts from an external system through a replaceable adapter; preserve external identifiers and transaction-time snapshots rather than creating a local vendor system of record.
-- Encrypt and mask sensitive bank details. Govern sensitive bank access separately so an authorized Finance Manager can revoke it from a System Administrator without changing unrelated administrator permissions.
+- If protected bank-account storage is enabled later, encrypt and mask sensitive details and govern access separately. Real bank details, encryption-key ownership, and break-glass policy are not current Phase 02 rollout gates.
 - Seed the eight approved active department/cost-center pairs (`OCP`, `PNC`, `OOG`, `DT`, `ACAD`, `OPS`, `FIN`, and `MKTG`), with one cost center per department and approval through Finance staff. Preserve administration for future additions.
 
 Prototype validation: replace form dropdown mocks and administration reference lists with API data.
 
 Implementation status (2026-09-03): reversible migration `20260903_0005`, master-data models/services/APIs, deterministic reference seeds, external-vendor adapter contract, protected bank-data handling, Finance-controlled bank-access administration, eight administration pages, and API-backed request dropdowns with standalone mock fallback are implemented locally. Static migration generation, lint, frontend production build, and browser mock-mode walkthrough pass. Live PostgreSQL 17 migrations reached head on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 continues to encounter a host-level Windows Unix-socket error; local validation therefore uses a loopback-only native PostgreSQL service on port `5434` without changing production configuration.
+
+Approval-free follow-up (2026-09-22): bounded master-data API pages and frontend page aggregation are implemented; additional pagination/filtering, chart-account, vendor-mock, and wrong-key tests pass. One item and exactly one cost center per request line is confirmed; split allocation within a line is out of scope. The full backend suite passed with 59 tests. See `docs/phase-02-validation.md` for current evidence and remaining gates.
 
 ### Phase 03 — Payment requests
 
@@ -628,7 +630,7 @@ When backend development resumes:
 11. Phase 02 may use the reviewed Phase 01 baseline. Do not start production promotion until the external Firefox,
     Safari, penetration, and production proxy/HTTPS checks are recorded and approved.
 12. Never enable the retained-session cleanup command in staging or production.
-13. Before Phase 02 financial seed data is authoritative, obtain the initial cost-center effective date and allocation rules, chart-of-account records, tax definitions, the bank-access lockout safeguard, and the approved encryption-key ownership/mechanism. The vendor API may remain behind deterministic mocks until its provider contract and sandbox are supplied.
+13. Before Phase 02 financial seed data is authoritative, obtain the initial cost-center effective date and cross-department charging rule, official QuickBooks chart-of-account records, and tax definitions. One cost center per request line is already confirmed. The vendor API may remain behind deterministic mocks until its provider contract and sandbox are supplied. Bank-access lockout and encryption-key ownership decisions are deferred until a later rollout actually needs full company bank-account numbers.
 
 ## Phase status ledger
 
@@ -636,7 +638,7 @@ When backend development resumes:
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
-| 02 — Master data | In progress | `docs/phase-02-plan.md` |
+| 02 — Master data | In progress | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` |
 | 03 — Payment requests | In progress | `docs/phase-03-plan.md` (API form integration and five-type validation updated 2026-09-20) |
 | 04 — Documents | Not started | `docs/phase-04-plan.md` |
 | 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |

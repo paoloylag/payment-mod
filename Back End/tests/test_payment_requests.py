@@ -280,7 +280,8 @@ def test_cash_advance_options_only_include_current_users_submitted_advances(clie
 
     client.cookies.clear()
     login(client, "department.head@payment.local")
-    assert submitted.json()["request_number"] not in [option["request_number"] for option in client.get("/api/v1/requests/cash-advance-options").json()]
+    other_user_options = client.get("/api/v1/requests/cash-advance-options").json()
+    assert submitted.json()["request_number"] not in [option["request_number"] for option in other_user_options]
 
 
 def test_all_five_request_types_pass_confirmed_submission_rules(client):

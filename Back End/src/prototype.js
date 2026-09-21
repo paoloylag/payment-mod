@@ -811,13 +811,40 @@ function masterPayload(tab, form) {
   return { code: text("code").toUpperCase(), name: text("name"), description: text("description") };
 }
 
+let masterModalReturnTarget = null;
+
+function openMasterDataModal(id = null) {
+  masterModalReturnTarget = id ? `[data-master-edit="${CSS.escape(id)}"]` : "[data-add-master]";
+  setState({ masterDataEdit: { tab: state.tab, id } });
+  document.querySelector("[data-master-form] input:not([type=hidden]), [data-master-form] select")?.focus();
+}
+
+function closeMasterDataModal() {
+  const returnTarget = masterModalReturnTarget;
+  setState({ masterDataEdit: null });
+  if (returnTarget) document.querySelector(returnTarget)?.focus();
+  masterModalReturnTarget = null;
+}
+
 function bindMasterData() {
   const config = masterDataConfig[state.tab];
   if (!config) return;
-  document.querySelector("[data-add-master]")?.addEventListener("click", () => setState({ masterDataEdit: { tab: state.tab, id: null } }));
-  document.querySelectorAll("[data-master-edit]").forEach((button) => button.addEventListener("click", () => setState({ masterDataEdit: { tab: state.tab, id: button.dataset.masterEdit } })));
-  document.querySelectorAll("[data-cancel-master-edit]").forEach((button) => button.addEventListener("click", () => setState({ masterDataEdit: null })));
-  document.querySelector("[data-master-modal-backdrop]")?.addEventListener("click", (event) => { if (event.target === event.currentTarget) setState({ masterDataEdit: null }); });
+  document.querySelector("[data-add-master]")?.addEventListener("click", () => openMasterDataModal());
+  document.querySelectorAll("[data-master-edit]").forEach((button) => button.addEventListener("click", () => openMasterDataModal(button.dataset.masterEdit)));
+  document.querySelectorAll("[data-cancel-master-edit]").forEach((button) => button.addEventListener("click", closeMasterDataModal));
+  document.querySelector("[data-master-modal-backdrop]")?.addEventListener("click", (event) => { if (event.target === event.currentTarget) closeMasterDataModal(); });
+  document.querySelector("[data-master-modal-backdrop] .identity-modal")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll("button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])")];
+    if (!controls.length) return;
+    if (event.shiftKey && document.activeElement === controls[0]) {
+      event.preventDefault();
+      controls.at(-1).focus();
+    } else if (!event.shiftKey && document.activeElement === controls.at(-1)) {
+      event.preventDefault();
+      controls[0].focus();
+    }
+  });
   document.querySelector("[data-master-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const edit = state.masterDataEdit;
@@ -2580,7 +2607,7 @@ window.addEventListener("hashchange", () => {
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
-  else if (event.key === "Escape" && state.masterDataEdit) setState({ masterDataEdit: null });
+  else if (event.key === "Escape" && state.masterDataEdit) closeMasterDataModal();
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
   else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);
   else if (event.key === "Escape" && state.documentValidation.attachmentPreview) setState({ documentValidation: { ...state.documentValidation, attachmentPreview: "" } });

@@ -2,8 +2,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -69,13 +69,21 @@ def json_values(values: dict) -> dict:
     return result
 
 
-def list_rows(db: Session, model, search: str, active: bool | None) -> list[dict]:
+def list_rows(
+    db: Session, model, search: str, active: bool | None, page: int, page_size: int, response: Response
+) -> list[dict]:
     query = select(model)
     if search:
         query = query.where(or_(model.code.ilike(f"%{search.strip()}%"), model.name.ilike(f"%{search.strip()}%")))
     if active is not None:
         query = query.where(model.is_active == active)
-    return [row(item) for item in db.scalars(query.order_by(model.name, model.code))]
+    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return [
+        row(item)
+        for item in db.scalars(query.order_by(model.name, model.code).offset((page - 1) * page_size).limit(page_size))
+    ]
 
 
 def create_reference(
@@ -147,24 +155,30 @@ def delete_reference(db: Session, model, item_id: UUID, request: Request, actor:
 
 @router.get("/cost-centers")
 def cost_centers(
+    response: Response,
     search: str = "",
     active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("master_data.read")),
     db: Session = Depends(get_db),
 ):
     from ..models import CostCenter
 
-    return list_rows(db, CostCenter, search, active)
+    return list_rows(db, CostCenter, search, active, page, page_size, response)
 
 
 @router.get("/chart-of-accounts")
 def accounts(
+    response: Response,
     search: str = "",
     active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("accounts.read")),
     db: Session = Depends(get_db),
 ):
-    return list_rows(db, ChartAccount, search, active)
+    return list_rows(db, ChartAccount, search, active, page, page_size, response)
 
 
 @router.post("/chart-of-accounts", status_code=201)
@@ -203,12 +217,15 @@ def delete_account(
 
 @router.get("/tax-codes")
 def tax_codes(
+    response: Response,
     search: str = "",
     active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("master_data.read")),
     db: Session = Depends(get_db),
 ):
-    return list_rows(db, TaxCode, search, active)
+    return list_rows(db, TaxCode, search, active, page, page_size, response)
 
 
 @router.post("/tax-codes", status_code=201)
@@ -244,12 +261,22 @@ def delete_tax(
 
 @router.get("/currencies")
 def currencies(
-    active: bool | None = None, _: User = Depends(require_permission("master_data.read")), db: Session = Depends(get_db)
+    response: Response,
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
 ):
     query = select(Currency)
     if active is not None:
         query = query.where(Currency.is_active == active)
-    return [row(item) for item in db.scalars(query.order_by(Currency.code))]
+    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return [
+        row(item) for item in db.scalars(query.order_by(Currency.code).offset((page - 1) * page_size).limit(page_size))
+    ]
 
 
 @router.post("/currencies", status_code=201)
@@ -307,12 +334,15 @@ def update_currency(
 
 @router.get("/payment-methods")
 def payment_methods(
+    response: Response,
     search: str = "",
     active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("master_data.read")),
     db: Session = Depends(get_db),
 ):
-    return list_rows(db, PaymentMethod, search, active)
+    return list_rows(db, PaymentMethod, search, active, page, page_size, response)
 
 
 @router.post("/payment-methods", status_code=201)
@@ -348,12 +378,15 @@ def delete_method(
 
 @router.get("/document-types")
 def document_types(
+    response: Response,
     search: str = "",
     active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("master_data.read")),
     db: Session = Depends(get_db),
 ):
-    return list_rows(db, DocumentType, search, active)
+    return list_rows(db, DocumentType, search, active, page, page_size, response)
 
 
 @router.post("/document-types", status_code=201)
@@ -388,8 +421,19 @@ def delete_document_type(
 
 
 @router.get("/vendors")
-def vendors(search: str = "", active_only: bool = True, _: User = Depends(require_permission("vendors.read"))):
-    return get_vendor_adapter().list(search, active_only)
+def vendors(
+    response: Response,
+    search: str = "",
+    active_only: bool = True,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("vendors.read")),
+):
+    items = get_vendor_adapter().list(search, active_only)
+    response.headers["X-Total-Count"] = str(len(items))
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return items[(page - 1) * page_size : page * page_size]
 
 
 @router.get("/vendors/{vendor_id}")
@@ -401,8 +445,18 @@ def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read"))
 
 
 @router.get("/company-bank-accounts")
-def bank_accounts(_: User = Depends(require_permission("bank_accounts.read")), db: Session = Depends(get_db)):
-    return [row(item) for item in db.scalars(select(CompanyBankAccount).order_by(CompanyBankAccount.bank_name))]
+def bank_accounts(
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("bank_accounts.read")),
+    db: Session = Depends(get_db),
+):
+    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(CompanyBankAccount)) or 0)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    query = select(CompanyBankAccount).order_by(CompanyBankAccount.bank_name, CompanyBankAccount.id)
+    return [row(item) for item in db.scalars(query.offset((page - 1) * page_size).limit(page_size))]
 
 
 @router.post("/company-bank-accounts", status_code=201)
