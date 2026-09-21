@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from payment_module.config import Settings
 from payment_module.database import SessionLocal
-from payment_module.maintenance import MaintenanceRefusedError, cleanup_sessions
-from payment_module.models import AuthSession, User
+from payment_module.maintenance import MaintenanceRefusedError, archive_expired_drafts, cleanup_sessions
+from payment_module.models import AuditEvent, AuthSession, Department, PaymentRequest, User
 from payment_module.seed import seed
 from sqlalchemy import select
 
@@ -17,6 +17,18 @@ def cleanup_settings(**overrides) -> Settings:
         "session_cleanup_retention_days": 30,
         "session_cleanup_batch_size": 2,
         "session_idle_minutes": 60,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def archival_settings(**overrides) -> Settings:
+    values = {
+        "app_env": "test",
+        "draft_archival_enabled": True,
+        "draft_retention_days": 90,
+        "draft_warning_days": 7,
+        "draft_archival_batch_size": 2,
     }
     values.update(overrides)
     return Settings(**values)
@@ -100,3 +112,55 @@ def test_cleanup_batches_thousands_without_removing_active_sessions() -> None:
 
     with SessionLocal.begin() as db:
         db.query(AuthSession).filter(AuthSession.id == active_id).delete(synchronize_session=False)
+
+
+def test_draft_archival_warns_then_archives_without_deleting() -> None:
+    seed()
+    now = datetime.now(UTC)
+    with SessionLocal.begin() as db:
+        user = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        department = db.scalar(select(Department).where(Department.code == "MKTG"))
+        recent = PaymentRequest(
+            request_type="general",
+            requestor_id=user.id,
+            department_id=department.id,
+            purpose="Recent draft",
+            currency_code="PHP",
+            gross_amount=0,
+            updated_at=now - timedelta(days=89),
+        )
+        expired = PaymentRequest(
+            request_type="general",
+            requestor_id=user.id,
+            department_id=department.id,
+            purpose="Expired draft",
+            currency_code="PHP",
+            gross_amount=0,
+            updated_at=now - timedelta(days=91),
+        )
+        db.add_all([recent, expired])
+        db.flush()
+        recent_id, expired_id = recent.id, expired.id
+
+    with SessionLocal() as db:
+        preview = archive_expired_drafts(db, archival_settings(), now=now, dry_run=True)
+        assert preview.matched == 1 and preview.archived == 0
+
+    with SessionLocal() as db:
+        result = archive_expired_drafts(db, archival_settings(), now=now)
+        assert result.archived == 1
+        assert db.get(PaymentRequest, recent_id).status == "draft"
+        archived = db.get(PaymentRequest, expired_id)
+        assert archived is not None and archived.status == "archived" and archived.archived_at == now
+        assert db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.entity_id == expired_id,
+                AuditEvent.action == "payment_request.draft_archived",
+            )
+        )
+
+
+def test_draft_archival_requires_explicit_enablement() -> None:
+    with SessionLocal() as db:
+        with pytest.raises(MaintenanceRefusedError, match="disabled"):
+            archive_expired_drafts(db, archival_settings(draft_archival_enabled=False), dry_run=True)

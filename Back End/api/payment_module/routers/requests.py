@@ -1,12 +1,14 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import String, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..audit import audit
+from ..config import get_settings
 from ..database import get_db
 from ..models import (
     ChartAccount,
@@ -28,6 +30,7 @@ from ..security import current_user
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
 NUMBERING_RESET_MONTH_KEY = "requests.numbering_reset_month"
+app_settings = get_settings()
 
 
 def permissions(request: Request) -> set[str]:
@@ -41,7 +44,11 @@ def visible_query(request: Request, actor: User):
         return query
     if "requests.read_department" in codes and actor.department_id:
         return query.where(
-            or_(PaymentRequest.requestor_id == actor.id, PaymentRequest.department_id == actor.department_id)
+            or_(
+                PaymentRequest.requestor_id == actor.id,
+                PaymentRequest.department_id == actor.department_id,
+                PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
+            )
         )
     return query.where(PaymentRequest.requestor_id == actor.id)
 
@@ -83,6 +90,8 @@ def serialize(
             )
         )
     )
+    draft_expires_at = item.updated_at + timedelta(days=app_settings.draft_retention_days)
+    warning_at = draft_expires_at - timedelta(days=app_settings.draft_warning_days)
     return {
         "id": str(item.id),
         "request_number": item.request_number,
@@ -102,6 +111,8 @@ def serialize(
         "submitted_at": item.submitted_at.isoformat() if item.submitted_at else None,
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
+        "draft_expires_at": draft_expires_at.isoformat() if item.status == "draft" else None,
+        "draft_retention_warning": item.status == "draft" and datetime.now(UTC) >= warning_at,
         "lines": [
             {
                 "id": str(line.id),
@@ -365,17 +376,73 @@ def list_payment_requests(
     response: Response,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=100),
+    search: str = Query(default="", max_length=200),
+    request_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    department: str | None = Query(default=None, max_length=120),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    min_amount: Decimal | None = Query(default=None, ge=0),
+    max_amount: Decimal | None = Query(default=None, ge=0),
+    sort_by: Literal["submitted", "updated", "voucher", "type", "status", "amount"] = "updated",
+    sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
     query = visible_query(request, actor)
+    if search.strip():
+        needle = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                PaymentRequest.request_number.ilike(needle),
+                PaymentRequest.payee_name.ilike(needle),
+                PaymentRequest.purpose.ilike(needle),
+            )
+        )
+    if request_type:
+        query = query.where(PaymentRequest.request_type == request_type)
+    if status:
+        query = query.where(PaymentRequest.status == status)
+    if department:
+        query = query.where(
+            PaymentRequest.department_id.in_(
+                select(Department.id).where(
+                    or_(
+                        Department.id.cast(String) == department,
+                        Department.code == department,
+                        Department.name == department,
+                    )
+                )
+            )
+        )
+    effective_date = func.coalesce(PaymentRequest.submitted_at, PaymentRequest.updated_at)
+    if date_from:
+        query = query.where(func.date(effective_date) >= date_from)
+    if date_to:
+        query = query.where(func.date(effective_date) <= date_to)
+    if min_amount is not None:
+        query = query.where(PaymentRequest.gross_amount >= min_amount)
+    if max_amount is not None:
+        query = query.where(PaymentRequest.gross_amount <= max_amount)
+    if min_amount is not None and max_amount is not None and min_amount > max_amount:
+        raise HTTPException(422, "min_amount cannot exceed max_amount")
+    sort_columns = {
+        "submitted": effective_date,
+        "updated": PaymentRequest.updated_at,
+        "voucher": PaymentRequest.request_number,
+        "type": PaymentRequest.request_type,
+        "status": PaymentRequest.status,
+        "amount": PaymentRequest.gross_amount,
+    }
+    sort_column = sort_columns[sort_by]
+    order = sort_column.asc().nulls_last() if sort_direction == "asc" else sort_column.desc().nulls_last()
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     response.headers["X-Total-Count"] = str(total)
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
     items = list(
         db.scalars(
-            query.order_by(PaymentRequest.updated_at.desc(), PaymentRequest.id.desc())
+            query.order_by(order, PaymentRequest.id.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -387,7 +454,20 @@ def list_payment_requests(
 def get_payment_request(
     request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
 ):
-    return serialize(db, get_visible(db, request, actor, request_id))
+    item = get_visible(db, request, actor, request_id)
+    result = serialize(db, item)
+    if item.requestor_id != actor.id and "requests.read_all" in permissions(request):
+        audit(
+            db,
+            actor_id=actor.id,
+            action="payment_request.privileged_read",
+            entity_type="payment_request",
+            entity_id=item.id,
+            request_id=request.state.request_id,
+            after={"status": item.status},
+        )
+        db.commit()
+    return result
 
 
 @router.patch("/{request_id}")

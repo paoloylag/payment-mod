@@ -61,6 +61,16 @@ docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_mo
 docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_module.maintenance cleanup-sessions
 ```
 
+Archive request drafts older than the confirmed 90-day retention period only after reviewing the dry run:
+
+```powershell
+docker compose run --rm -e DRAFT_ARCHIVAL_ENABLED=true app python -m payment_module.maintenance archive-drafts --dry-run
+docker compose run --rm -e DRAFT_ARCHIVAL_ENABLED=true app python -m payment_module.maintenance archive-drafts
+```
+
+Draft archival is disabled by default, retains the request and its audit history, and is safe to schedule in production
+only after operations enables the setting. The Phase 03 API contract is documented in `docs/phase-03-api.md`.
+
 The command is disabled by default and hard-refuses `APP_ENV=staging` and `APP_ENV=production`. It is intentionally not
 scheduled by the API or Docker Compose, so enabling local cleanup cannot introduce a production background job.
 

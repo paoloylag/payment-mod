@@ -40,7 +40,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Total-Count", "X-Page", "X-Page-Size"],
     )
     install_exception_handlers(application)
     application.include_router(system_router)

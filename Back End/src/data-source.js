@@ -122,9 +122,19 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest("/api/v1/requests", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
-    async listPaymentRequests() {
+    async listPaymentRequests(filters = {}) {
       if (mode === "mock") return null;
-      try { return await apiRequest("/api/v1/requests"); }
+      const params = new URLSearchParams({ page: "1", page_size: "100" });
+      const mappings = {
+        voucher: "search", department: "department", type: "request_type", status: "status",
+        minAmount: "min_amount", maxAmount: "max_amount", sortBy: "sort_by", sortDirection: "sort_direction",
+        dateFrom: "date_from", dateTo: "date_to",
+      };
+      Object.entries(mappings).forEach(([source, target]) => {
+        const value = filters[source];
+        if (value !== undefined && value !== "" && value !== "all") params.set(target, value);
+      });
+      try { return await apiRequest(`/api/v1/requests?${params}`); }
       catch (error) { if (mode === "hybrid") return null; throw error; }
     },
     getPaymentRequest(id) {

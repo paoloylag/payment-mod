@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -26,7 +27,7 @@ def problem(
     }
     if errors:
         payload["errors"] = errors
-    return JSONResponse(payload, status_code=status_code, media_type="application/problem+json")
+    return JSONResponse(jsonable_encoder(payload), status_code=status_code, media_type="application/problem+json")
 
 
 def install_exception_handlers(app: FastAPI) -> None:

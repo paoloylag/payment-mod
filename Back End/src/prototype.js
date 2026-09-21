@@ -199,6 +199,7 @@ const personas = {
 };
 
 let draftAutosaveTimer;
+let requestFilterTimer;
 let toastDismissTimer;
 let scheduledToastId = null;
 let state = {
@@ -896,14 +897,14 @@ function apiRequestToDraft(item) {
   };
 }
 
-async function loadApiPaymentRequests() {
-  const items = await dataSource.listPaymentRequests();
+async function loadApiPaymentRequests(filters = null) {
+  const items = await dataSource.listPaymentRequests(filters || {});
   if (!items) return false;
   const submitted = items.filter((item) => item.status !== "draft").map(apiRequestToPrototype);
   requests.splice(0, requests.length, ...submitted);
   state = {
     ...state,
-    drafts: items.filter((item) => item.status === "draft").map(apiRequestToDraft),
+    drafts: filters ? state.drafts : items.filter((item) => item.status === "draft").map(apiRequestToDraft),
     selectedId: submitted.some((item) => item.id === state.selectedId) ? state.selectedId : submitted[0]?.id || null,
     requestsError: "",
   };
@@ -2367,8 +2368,21 @@ function render() {
     const replacement = document.querySelector(`[data-dashboard-filter="${input.dataset.dashboardFilter}"]`);
     replacement?.focus();
     if (replacement?.setSelectionRange && input.tagName === "INPUT" && input.type !== "number") replacement.setSelectionRange(replacement.value.length, replacement.value.length);
+    window.clearTimeout(requestFilterTimer);
+    requestFilterTimer = window.setTimeout(async () => {
+      try {
+        if (await loadApiPaymentRequests(state.dashboardFilters)) render();
+      } catch (error) {
+        showErrorToast(error.message || "Requests could not be filtered.", "Request filters unavailable");
+      }
+    }, input.tagName === "INPUT" ? 300 : 0);
   }));
-  document.querySelector("[data-clear-filters]")?.addEventListener("click", () => setState({ dashboardFilters: { voucher: "", department: "all", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" } }));
+  document.querySelector("[data-clear-filters]")?.addEventListener("click", async () => {
+    state.dashboardFilters = { voucher: "", department: "all", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" };
+    try { await loadApiPaymentRequests(state.dashboardFilters); }
+    catch (error) { showErrorToast(error.message || "Requests could not be reloaded.", "Request filters unavailable"); }
+    render();
+  });
   document.querySelector("[data-export-report]")?.addEventListener("click", downloadDepartmentReport);
   document.querySelector("[data-print-report]")?.addEventListener("click", printDepartmentReport);
   document.querySelector("[data-draft-currency]")?.addEventListener("change", (event) => setState({ draftCurrency: event.target.value, otherCurrency: event.target.value === "OTHER" ? state.otherCurrency : "" }));

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .audit import audit
 from .config import Settings, get_settings
 from .database import SessionLocal
-from .models import AuthSession
+from .models import AuthSession, PaymentRequest
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,13 @@ class MaintenanceRefusedError(RuntimeError):
 class SessionCleanupResult:
     matched: int
     deleted: int
+    dry_run: bool
+
+
+@dataclass(frozen=True)
+class DraftArchivalResult:
+    matched: int
+    archived: int
     dry_run: bool
 
 
@@ -88,19 +95,75 @@ def cleanup_sessions(
     return SessionCleanupResult(matched=matched, deleted=deleted, dry_run=False)
 
 
+def archive_expired_drafts(
+    db: Session,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    dry_run: bool = False,
+) -> DraftArchivalResult:
+    if not settings.draft_archival_enabled:
+        raise MaintenanceRefusedError("Draft archival is disabled. Set DRAFT_ARCHIVAL_ENABLED=true explicitly.")
+    effective_now = now or datetime.now(UTC)
+    cutoff = effective_now - timedelta(days=settings.draft_retention_days)
+    eligibility = (PaymentRequest.status == "draft") & (PaymentRequest.updated_at <= cutoff)
+    matched = db.scalar(select(func.count()).select_from(PaymentRequest).where(eligibility)) or 0
+    if dry_run or matched == 0:
+        return DraftArchivalResult(matched=matched, archived=0, dry_run=dry_run)
+
+    archived = 0
+    while True:
+        items = list(
+            db.scalars(
+                select(PaymentRequest)
+                .where(eligibility)
+                .order_by(PaymentRequest.updated_at, PaymentRequest.id)
+                .limit(settings.draft_archival_batch_size)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        if not items:
+            break
+        for item in items:
+            item.status = "archived"
+            item.archived_at = effective_now
+            item.version += 1
+            audit(
+                db,
+                actor_id=None,
+                action="payment_request.draft_archived",
+                entity_type="payment_request",
+                entity_id=item.id,
+                request_id=None,
+                before={"status": "draft"},
+                after={"status": "archived", "retention_days": settings.draft_retention_days},
+            )
+        archived += len(items)
+        db.commit()
+    logger.info("draft_archival_completed", extra={"archived_count": archived})
+    return DraftArchivalResult(matched=matched, archived=archived, dry_run=False)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Development/test maintenance commands.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     cleanup_parser = subparsers.add_parser("cleanup-sessions", help="Remove retained invalid sessions.")
     cleanup_parser.add_argument("--dry-run", action="store_true", help="Count eligible sessions without deleting them.")
+    archive_parser = subparsers.add_parser("archive-drafts", help="Archive drafts older than the retention period.")
+    archive_parser.add_argument("--dry-run", action="store_true", help="Count eligible drafts without archiving them.")
     args = parser.parse_args()
     settings = get_settings()
     try:
         with SessionLocal() as db:
-            result = cleanup_sessions(db, settings, dry_run=args.dry_run)
+            if args.command == "cleanup-sessions":
+                result = cleanup_sessions(db, settings, dry_run=args.dry_run)
+                summary = f"matched={result.matched} deleted={result.deleted} dry_run={str(result.dry_run).lower()}"
+            else:
+                result = archive_expired_drafts(db, settings, dry_run=args.dry_run)
+                summary = f"matched={result.matched} archived={result.archived} dry_run={str(result.dry_run).lower()}"
     except MaintenanceRefusedError as error:
         parser.error(str(error))
-    print(f"matched={result.matched} deleted={result.deleted} dry_run={str(result.dry_run).lower()}")
+    print(summary)
     return 0
 
 

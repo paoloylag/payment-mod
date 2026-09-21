@@ -5,10 +5,21 @@ from threading import Barrier
 from time import perf_counter
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from payment_module.database import SessionLocal, engine
 from payment_module.main import app
-from payment_module.models import ChartAccount, CostCenter, Department, PaymentRequest, PaymentRequestLine, User
+from payment_module.models import (
+    AuditEvent,
+    ChartAccount,
+    CostCenter,
+    Department,
+    PaymentRequest,
+    PaymentRequestLine,
+    Permission,
+    User,
+    UserPermissionOverride,
+)
 from payment_module.routers.requests import academic_year_start
 from payment_module.seed import seed
 from sqlalchemy import event, func, select
@@ -124,6 +135,8 @@ def test_request_crud_optimistic_lock_and_idempotent_submit(client):
     assert created.status_code == 201
     draft = created.json()
     assert draft["status"] == "draft" and draft["gross_amount"] == 1250.5
+    assert draft["draft_expires_at"]
+    assert draft["draft_retention_warning"] is False
 
     changed = payload()
     changed["version"] = draft["version"]
@@ -138,6 +151,8 @@ def test_request_crud_optimistic_lock_and_idempotent_submit(client):
     assert submitted.status_code == 200
     assert repeated.json()["request_number"] == submitted.json()["request_number"]
     assert submitted.json()["request_number"].startswith("PR-2026-")
+    assert submitted.json()["draft_expires_at"] is None
+    assert submitted.json()["draft_retention_warning"] is False
 
 
 def test_mixed_currency_rejected_and_visibility_enforced(client):
@@ -478,3 +493,124 @@ def test_large_request_list_is_bounded_paginated_and_query_efficient(client):
     # and three batched relationship queries remain constant as rows grow.
     assert query_count <= 24
     assert elapsed < 3.0
+
+
+def test_request_list_search_filters_sorting_and_amount_bounds(client):
+    seed()
+    headers = login(client)
+    created = []
+    for request_type, payee, amount in (
+        ("reimbursement", "Alpha Search Merchant", "1250.50"),
+        ("general", "Beta Utility Provider", "500.00"),
+        ("poPayment", "Gamma Approved Supplier", "2500.00"),
+    ):
+        request_payload = payload_for_type(request_type)
+        request_payload["payee_name"] = payee
+        request_payload["lines"][0]["amount"] = amount
+        response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+        assert response.status_code == 201
+        created.append(response.json())
+
+    searched = client.get("/api/v1/requests?search=Alpha%20Search", headers=headers)
+    assert searched.status_code == 200
+    assert [item["payee_name"] for item in searched.json()] == ["Alpha Search Merchant"]
+
+    filtered = client.get(
+        "/api/v1/requests?request_type=poPayment&status=draft&department=MKTG&min_amount=2000&max_amount=3000",
+        headers=headers,
+    )
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()] == [created[2]["id"]]
+    assert filtered.headers["X-Total-Count"] == "1"
+
+    sorted_response = client.get(
+        "/api/v1/requests?min_amount=500&sort_by=amount&sort_direction=asc",
+        headers=headers,
+    )
+    amounts = [item["gross_amount"] for item in sorted_response.json() if item["id"] in {row["id"] for row in created}]
+    assert amounts == sorted(amounts)
+    assert client.get("/api/v1/requests?min_amount=10&max_amount=1", headers=headers).status_code == 422
+
+
+@pytest.mark.parametrize("currency", ["PHP", "USD", "EUR"])
+def test_supported_currency_line_totals_reconcile(currency, client):
+    seed()
+    headers = login(client)
+    request_payload = payload(currency)
+    request_payload["lines"][0]["amount"] = "0.0001"
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+    assert created.status_code == 201
+    assert created.json()["currency_code"] == currency
+    with SessionLocal() as db:
+        assert db.get(PaymentRequest, created.json()["id"]).gross_amount == Decimal("0.0001")
+
+
+def test_zero_negative_and_maximum_amount_boundaries(client):
+    seed()
+    headers = login(client)
+    zero = payload()
+    zero["lines"][0]["amount"] = "0.0000"
+    zero_draft = client.post("/api/v1/requests", json=zero, headers=headers)
+    assert zero_draft.status_code == 201
+    zero_submit = client.post(
+        f"/api/v1/requests/{zero_draft.json()['id']}/submit",
+        json={"version": zero_draft.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert zero_submit.status_code == 422
+
+    negative = payload()
+    negative["lines"][0]["amount"] = "-0.0001"
+    assert client.post("/api/v1/requests", json=negative, headers=headers).status_code == 422
+
+    maximum = payload()
+    maximum["lines"][0]["amount"] = "999999999999999.9999"
+    assert client.post("/api/v1/requests", json=maximum, headers=headers).status_code == 201
+
+
+def test_manager_scope_explicit_deny_privileged_audit_and_unauthorized_lifecycle(client):
+    seed()
+    requestor_headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
+    denied_return = client.post(
+        f"/api/v1/requests/{created['id']}/return",
+        json={"version": created["version"], "note": "Not authorized"},
+        headers=requestor_headers,
+    )
+    assert denied_return.status_code == 403
+
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        manager = db.scalar(select(User).where(User.email == "department.head@payment.local"))
+        operations = db.scalar(select(Department).where(Department.code == "OPS"))
+        original_department, original_manager = requestor.department_id, requestor.manager_id
+        requestor.department_id = operations.id
+        requestor.manager_id = manager.id
+        item = db.get(PaymentRequest, created["id"])
+        item.department_id = operations.id
+
+    client.cookies.clear()
+    manager_headers = login(client, "department.head@payment.local")
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=manager_headers).status_code == 200
+
+    client.cookies.clear()
+    admin_headers = login(client, "admin@payment.local")
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=admin_headers).status_code == 200
+    with SessionLocal.begin() as db:
+        admin = db.scalar(select(User).where(User.email == "admin@payment.local"))
+        read_all = db.scalar(select(Permission).where(Permission.code == "requests.read_all"))
+        assert db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.actor_user_id == admin.id,
+                AuditEvent.entity_id == created["id"],
+                AuditEvent.action == "payment_request.privileged_read",
+            )
+        )
+        db.add(UserPermissionOverride(user_id=admin.id, permission_id=read_all.id, is_allowed=False))
+
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=admin_headers).status_code == 404
+
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        requestor.department_id, requestor.manager_id = original_department, original_manager
+        db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == admin.id).delete()

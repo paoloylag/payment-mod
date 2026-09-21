@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     session_cleanup_enabled: bool = False
     session_cleanup_retention_days: int = 30
     session_cleanup_batch_size: int = 1000
+    draft_archival_enabled: bool = False
+    draft_retention_days: int = 90
+    draft_warning_days: int = 7
+    draft_archival_batch_size: int = 500
     development_demo_password: str | None = None
     bank_encryption_key: str | None = None
 

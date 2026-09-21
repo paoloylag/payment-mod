@@ -1,7 +1,7 @@
 # Phase 03 — Payment Requests
 
 Date prepared: 2026-08-28  
-Last decision update: 2026-09-08
+Last decision update: 2026-09-21
 Status: In progress
 Depends on: Phase 02 — Master Data
 
@@ -23,6 +23,16 @@ Depends on: Phase 02 — Master Data
   live browser inspection of all five forms passed. Automated tests now refuse non-`_test` databases.
 - Concurrent numbering, simultaneous edits, duplicate submissions, exact four-decimal line-total reconciliation,
   excess-precision rejection, bounded pagination, constant-query list loading, and a 130-record performance fixture pass.
+- Role-scoped server-side search, filters, stable sorting, pagination metadata, API-backed frontend filters, and the
+  retained standalone/hybrid fallback are implemented.
+- Draft responses expose their archival deadline and warning state. A disabled-by-default maintenance command supports
+  dry runs and audited, batched archival after 90 days without deleting submitted or audit-relevant records.
+- PHP, USD, and EUR exact four-decimal persistence, zero/negative submission rejection, maximum supported amounts,
+  manager/direct-report visibility, explicit permission denial, unauthorized lifecycle actions, and audited privileged
+  administrator reads are covered.
+- The complete backend regression passes with `54 passed`; Ruff and the Vite 7.3.6 production build pass. Live browser
+  verification confirmed development-role login and the API-connected dashboard without a separate session-loading page.
+- The current request API contract and draft-retention operation are documented in `docs/phase-03-api.md`.
 - The confirmed model is one item per line and exactly one cost center per line. If an expense applies to different cost
   centers, the requestor records separate lines. Split allocation is not a Phase 03 requirement or completion blocker.
 
