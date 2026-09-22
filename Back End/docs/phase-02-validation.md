@@ -1,43 +1,35 @@
-# Phase 02 — Approval-free validation record
+# Phase 02 — Validation record
 
 Date: 2026-09-22
-Status: Technical checks passed; Phase 02 remains **In progress** pending Finance data and the external vendor contract.
-Scope: Current request-documentation rollout. No real company bank-account numbers or direct bank connection are in scope.
+Status: In progress. Local checks are recorded below; Finance reference-data and live vendor integration remain open.
 
-## Completed without new business approval
+## Current scope
 
-| Area | Evidence | Result |
-|---|---|---|
-| Reference-list scale | Master-data list APIs return stable, bounded pages of at most 100 records, with `X-Total-Count`, `X-Page`, and `X-Page-Size`. Frontend lists and dropdowns fetch subsequent pages while retaining mock fallback. | Passed automated pagination, search, active-filter, and ordering tests. |
-| Master-data integrity | Department/cost-center seed and synchronization, duplicate codes, account-parent cycle, referenced-record deletion, and deactivation. | Passed focused API tests. |
-| Vendor mock safety | Search, missing-vendor response, masked account identifier, and clear-number omission. | Passed focused API tests; live provider contract is not available. |
-| Protected bank-code safety | Synthetic account-number encryption/redaction, wrong-key failure, and Finance Manager revocation of administrator sensitive access. | Passed focused tests. This is code assurance, **not** approval to store real bank details. |
-| Frontend compatibility | Production Vite build with API, hybrid, and standalone mock data-source branches retained. | Passed production build. Mock-mode desktop browser walkthrough confirmed Cost Centers, Chart of Accounts, and read-only Vendors; Chart of Accounts modal now moves focus to the first field and restores it to the Add button on Cancel. Narrow-screen and full assistive-technology walkthrough remain to be recorded. |
-| Migration | Alembic offline upgrade through `20260903_0005` and downgrade to `20260826_0004`. | SQL generated successfully; no live database downgrade was performed. |
-| Regression | Dedicated `_test` PostgreSQL database; `pytest -q` and Ruff. | Full backend suite passed; command output recorded below. |
+- Seven Master Data views: Cost Centers, Vendors, Chart of Accounts, Tax Codes, Currencies, Payment Methods, and Document Types.
+- QuickBooks-specific mapping/import/export is deferred. Stable internal account codes remain for a possible future adapter.
+- No bank connection is planned. Phase 07 will record only the releasing bank name/reference and manual cash-release evidence.
+- The protected Company Bank Accounts page, API routes, model, special permissions, encryption code, and vendor bank fields are removed. Migration `20260922_0007` removes the empty table and permission rows, and refuses to drop a table containing records. Historical migration `20260903_0005` remains immutable.
 
-## Commands and results
+## Evidence
 
-- `..\.venv\Scripts\python.exe -m pytest -q` — **59 passed, 1 warning** on 2026-09-22.
-- `..\.venv\Scripts\python.exe -m pytest tests/test_master_data.py -q` — **8 passed, 1 warning**.
-- `..\.venv\Scripts\ruff.exe check api tests` — **passed**.
-- `pnpm run build` — **passed**.
-- `..\.venv\Scripts\alembic.exe upgrade 20260903_0005 --sql` — **passed**.
-- `..\.venv\Scripts\alembic.exe downgrade 20260903_0005:20260826_0004 --sql` — **passed**.
+| Area | Result |
+|---|---|
+| Master Data | Bounded list pages and frontend aggregation; deterministic seeds, department/cost-center synchronization, duplicate and account-cycle rejection, safe delete/deactivation, vendor search and field exclusion covered by tests. |
+| Removed bank administration | Removed endpoints return 404, do not appear in OpenAPI, and bank permissions are absent from administration. Migration applied to development and isolated test databases after confirming zero account records. On the disposable test database, a single synthetic row caused upgrade to refuse the table drop; the revision stayed at `20260908_0006` and the row survived. After deleting only that fixture, upgrade to `20260922_0007` succeeded. Historical audit events, if any, remain immutable. |
+| Frontend | Production build passed after the mobile correction. Desktop mock-mode walkthrough confirmed the remaining tabs exclude Bank Accounts; the legacy bank-account URL redirects to Cost Centers. At 390 × 844, all seven tabs rendered with no document horizontal overflow. Mobile navigation opens and closes. A legacy stylesheet override that kept the closed sidebar visible was corrected in `boilerplate-shell.css`. At 768 × 900, the document also had no horizontal overflow. |
+| API unavailable and keyboard | Hybrid mode with its API URL pointed to an unavailable local port displayed the mock fallback and a backend-unavailable alert while Cost Centers still rendered. In the Tax Code dialog, focus entered the Code field; Escape closed it and restored focus to `+ Tax Code`. These are focused checks, not a full assistive-technology audit. |
+| Dependencies | `pnpm audit --audit-level high` and `pip-audit -r requirements.txt` reported no known vulnerabilities on 2026-09-22. The unused `cryptography` dependency was removed with the feature. |
+| Backend | `pytest -q`: **58 passed, 1 warning** after removal and again after the mobile check. Focused identity/master-data tests: **20 passed, 1 warning**. Ruff and `git diff --check` passed. Alembic offline upgrade/downgrade SQL generated. |
+| Local container configuration | `docker compose config --quiet` passed. No Docker Desktop installation, service, or daemon was found on this device, so this is configuration validation only; the isolated PostgreSQL-backed tests above did run against the local test database. |
+| CI configuration | The repository-root `.github/workflows/backend-ci-cd.yml` already runs PostgreSQL-backed backend tests and builds a Docker image artifact. A frontend build job was added on 2026-09-22. No hosted run for these uncommitted changes exists yet. |
 
-The warning is emitted by the existing test/runtime dependency stack; it did not fail the suite. Automated tests refuse a database whose name does not end in `_test` and clean up test-created sessions and payment requests.
+The previous baseline had 59 passing tests. One bank-specific test was retired and replaced with removed-route/field-exclusion assertions. The first post-removal run exposed two obsolete test expectations; both were corrected and the full suite passed.
 
-## Still open without a Finance decision
+## Validation still required
 
-- Complete a fresh mobile-width, keyboard, screen-reader-label, and API-unavailable walkthrough of every Master Data administration page after the pagination change. A desktop mock-mode browser walkthrough covered Cost Centers, Chart of Accounts, and Vendors on 2026-09-22; the Chart of Accounts modal's initial and return focus were verified. Existing 2026-09-03 browser evidence predates this change.
-- Record a current CI run, dependency audit, and production-proxy/HTTPS validation before release. Local results alone are not a release approval.
-- Confirm whether existing protected bank-account endpoints should be disabled or omitted from the first production deployment. They remain permission-guarded in code but are not approved for real bank data in this rollout.
+- Complete a full keyboard and screen-reader walkthrough of all seven Master Data pages, including CRUD flows and error states. The 2026-09-22 mobile/hybrid checks and focused dialog-keyboard check do not establish assistive-technology compatibility. Repeat hybrid fallback checks across all seven tabs if this is a release gate; Cost Centers was the explicitly observed unavailable-API state.
+- Hosted CI, production-proxy/HTTPS, release artifact, and cross-browser/accessibility evidence remain production gates. The workflow is present at the repository root, but its next run requires these changes to be committed and pushed or submitted as a pull request. The CI Docker-image artifact cannot substitute for a production-like deployment check.
+- Before authoritative accounting data is used: Finance's initial cost-center effective date, cross-department charging policy, approved internal accounts, and VAT/EWT definitions. One item has exactly one cost center per line.
+- For live vendor lookup: provider URL, authentication, pagination/filtering and error/rate-limit contract, and sandbox access. The deterministic mock remains in place.
 
-## Inputs still required for authoritative business data or live integration
-
-- Finance's initial cost-center effective date and cross-department charging policy. One item and exactly one cost center per line is already confirmed; no split allocation within a line.
-- Finance-approved QuickBooks account codes/names or a sample export, plus tax codes, VAT/EWT classifications, rates, and effective dates.
-- External vendor provider URL, authentication, pagination/filtering behavior, error and rate-limit contract, and sandbox access. Deterministic mock lookup remains in place until then.
-- Only if a later rollout stores real company bank-account numbers: encryption-key ownership/mechanism and sensitive-access minimum-owner or break-glass policy.
-
-Do not change Phase 02 to **Validated** until the remaining applicable gates have an evidence date, reviewer, and accepted limitations recorded in the development/test register.
+Phase 02 should not be marked **Validated** until the applicable gates have evidence dates, reviewers, and accepted limitations in the development/test register.

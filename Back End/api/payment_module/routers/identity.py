@@ -540,11 +540,6 @@ def assign_permissions(
     requested_permissions = list(db.scalars(select(Permission).where(Permission.id.in_(ids))))
     if len({permission.id for permission in requested_permissions}) != len(ids):
         raise HTTPException(422, "One or more permissions do not exist")
-    protected_bank_codes = {"bank_accounts.manage_sensitive", "bank_accounts.manage_access"}
-    if protected_bank_codes.intersection(permission.code for permission in requested_permissions) and (
-        "bank_accounts.manage_access" not in request.state.permissions
-    ):
-        raise HTTPException(403, "Sensitive bank access can only be changed by an authorized Finance Manager")
     db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.user_id == user.id))
     db.add_all(
         UserPermissionOverride(user_id=user.id, permission_id=item.permission_id, is_allowed=item.effect == "allow")

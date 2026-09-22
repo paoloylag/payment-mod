@@ -52,8 +52,8 @@ Record payment preparation, authorization, release, and settlement attempts with
 
 ## Operational and reconciliation requirements
 
-- Record external references and reconciliation status without treating an external response as successful until verified by the approved rule.
-- Provide safe retry/recovery for timeouts and unknown outcomes to prevent duplicate transfers.
+- Record manually entered bank, check, transfer, and reconciliation references with actor, time, and supporting evidence. Bank selection is documentation, not an instruction to a bank.
+- Require controlled correction and duplicate-reference checks for manually recorded transfers; no bank response, callback, or electronic settlement confirmation is expected.
 - Index active queues, voucher, method, state, external reference, and lifecycle timestamps.
 - Preserve enough evidence for later automated reconciliation and audit access.
 
@@ -79,7 +79,7 @@ Record payment preparation, authorization, release, and settlement attempts with
 - Full valid and invalid transition coverage for Check, DigiBanker/Bank Transfer, and Cash.
 - Single, split, partial, final, zero, negative, overpayment, and currency mismatch cases.
 - Preparer/signatory segregation, ineligible/expired assignment, explicit deny, self-authorization, and release permissions.
-- Concurrent authorization/release, duplicate idempotency keys, repeated callbacks, timeouts, unknown outcome, retry, void, and replacement.
+- Concurrent authorization/release, duplicate idempotency keys, duplicate manual references, correction, retry, void, and replacement.
 - Unique references, balance reconciliation, immutable history, audit completeness, migration replay, backup/restore.
 - Browser queues/tracker/pickup/signatory views, responsive/accessibility review, build, security audit, Docker, and CI.
 
@@ -96,4 +96,4 @@ Record payment preparation, authorization, release, and settlement attempts with
 
 ## Exclusions
 
-No live banking connection is enabled; Phase 07 uses development adapters until Phase 09 integration approval.
+No banking connection is planned in Phase 07 or any later phase. Cash release will record the selected releasing bank and manual payment evidence only; it will not transmit bank instructions or query settlement status.

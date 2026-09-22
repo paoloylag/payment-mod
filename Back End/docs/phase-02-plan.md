@@ -10,16 +10,20 @@ Depends on: Phase 01 — Authentication and RBAC
 Implemented locally:
 
 - Reversible PostgreSQL migration `20260903_0005` and SQLAlchemy models for the Phase 02 persisted master data.
-- Granular seeded permissions, Finance-controlled sensitive bank access, audited services and API routes.
+- Granular seeded permissions, audited services, and API routes.
 - Deterministic department/cost-center, currency, payment-method, and document-type seeds.
-- Replaceable vendor adapter using the supplied representative payload with bank-account redaction.
-- Uniform administration pages for all eight Master Data areas.
+- Replaceable vendor adapter using the supplied representative payload, excluding bank-account fields.
+- Uniform administration pages for the seven retained Master Data areas.
 - API-backed department/cost-center, vendor, account, currency, and payment-method sources with hybrid/mock fallback.
-- Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, vendor masking, encryption, and Finance Manager revocation of System Administrator bank access.
+- Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, and vendor field filtering.
 
-Passed on 2026-09-03: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, encryption/redaction checks, and browser walkthrough of all Master Data routes and request dropdown fallbacks. Live PostgreSQL 17 migrations reached `20260903_0005` on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 still encounters a host-level Windows Unix-socket error, so local database validation uses the loopback-only native PostgreSQL service on port `5434`; this does not alter production configuration.
+Historical 2026-09-03 baseline: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, and browser walkthrough of the then-current Master Data routes and request dropdown fallbacks passed. Live PostgreSQL 17 migrations reached `20260903_0005` on isolated development and test databases, and the backend suite passed with 33 tests. The retired bank-account area was present at that time; current evidence is in `docs/phase-02-validation.md`. Docker Desktop 4.89 encountered a host-level Windows Unix-socket error, so local database validation uses the loopback-only native PostgreSQL service on port `5434`; this does not alter production configuration.
 
-2026-09-22 approval-free follow-up: master-data list endpoints now use bounded pages (maximum 100 records) while the frontend loads all pages needed for its lists and dropdowns. Automated tests cover page ordering/filtering, duplicate and cyclic chart accounts, safe deletion, mock vendor search, and wrong-key bank decryption. See `docs/phase-02-validation.md` for current command results and remaining gates.
+2026-09-22 approval-free follow-up: master-data list endpoints now use bounded pages (maximum 100 records) while the frontend loads all pages needed for its lists and dropdowns. Automated tests cover page ordering/filtering, duplicate and cyclic chart accounts, safe deletion, and mock vendor search. See `docs/phase-02-validation.md` for current command results and remaining gates.
+
+2026-09-22 removal: the Company Bank Accounts page, routes, model, encryption code, and special permissions have been retired. Migration `20260922_0007` removes the empty table and permissions but refuses to drop an account table containing records. Vendor bank fields are excluded entirely. Historical `20260903_0005` is retained because it has already been applied; the follow-up migration changes the current schema.
+
+2026-09-22 scope decision: QuickBooks-specific mapping/export and authoritative QuickBooks account imports are deferred. Retain stable internal account codes and names so a later, separately approved export adapter can map them without changing historical requests. There will be no bank connection of any kind. A future cash-release record will identify the releasing bank for documentation only; it will not send instructions, authenticate to a bank, or confirm settlement electronically.
 
 ## Confirmed decisions
 
@@ -30,7 +34,6 @@ The project owner confirmed the following on 2026-09-03:
 - Authorized administrators can add future departments and their corresponding cost centers; the initial catalog is not a fixed enumeration.
 - The chart of accounts is hierarchical and includes code, name, account type, optional parent account, posting/summary classification, normal balance, and active state.
 - Initial supported currencies are PHP, USD, and EUR. Initial payment methods are Check, Bank Transfer/DigiBanker, and Cash. Final Finance-approved tax codes and rates remain required.
-- Company bank-account access is separately governed. Finance Managers can grant or revoke sensitive bank-account access, including revoking that access from System Administrators, without receiving authority to change unrelated System Administrator permissions.
 - Vendors are owned by an external system. The Payment Module will consume them through a replaceable vendor API adapter after the project owner provides the provider contract; it will not become the vendor system of record.
 
 ## Organizational-chart findings
@@ -64,10 +67,9 @@ Replace prototype reference data with persisted, audited API data that payment r
 
 ## Scope
 
-- Extend departments and add cost centers, vendors, vendor contacts, chart of accounts, tax codes, currencies, payment methods, company bank accounts, and document types.
+- Extend departments and add cost centers, vendors, vendor contacts, chart of accounts, tax codes, currencies, payment methods, and document types.
 - Standardize UUIDs, codes, active/inactive states, timestamps, search, filtering, sorting, pagination, and safe deactivation.
-- Encrypt company bank details at rest and mask them in ordinary API and UI responses.
-- Seed deterministic development and test reference data without real vendor or bank information.
+- Exclude vendor bank-account fields from the local adapter and seed deterministic development and test reference data without banking information.
 - Add granular master-data permissions and audited mutations.
 
 ## Planned data model
@@ -95,7 +97,7 @@ Replace prototype reference data with persisted, audited API data that payment r
 - Tax codes: code, description, VAT classification, EWT rate, effective dates, and active state.
 - Currencies: ISO code, display name, symbol, decimal precision, and active state.
 - Payment methods: code, display name, method category, required-reference rules, and active state.
-- Company bank accounts: the protected schema and APIs exist, but full account-number storage and sensitive-access administration are deferred from the current request-documentation rollout. No bank connection is part of Phase 02. Do not provision real bank details or treat this feature as a current-rollout acceptance gate until its need is confirmed.
+- The bank-account administration feature is removed. A later manual cash-release record may contain a releasing bank name/reference, but no account number or bank connection.
 - Document types: code, name, description, allowed request types, hard/soft-copy behavior, and active state.
 
 ## Business and validation rules
@@ -107,20 +109,16 @@ Replace prototype reference data with persisted, audited API data that payment r
 - Parent/child account relationships cannot contain cycles.
 - Currency precision is applied consistently to later calculations; exchange rates are outside this phase.
 - Tax percentages use fixed-precision decimals and cannot be negative or exceed the approved range.
-- Bank-account clear text is accepted only on authorized create/change operations and never returned by list endpoints.
 - All create, edit, activate, deactivate, reveal, and permitted delete operations produce audit events.
 
 ## Authorization model
 
-Planned permissions include `master_data.read`, `master_data.manage`, `vendors.read`, `accounts.read`, `accounts.manage`, `bank_accounts.read`, `bank_accounts.manage_sensitive`, and `bank_accounts.manage_access`.
+Planned permissions include `master_data.read`, `master_data.manage`, `vendors.read`, `accounts.read`, and `accounts.manage`.
 
-- System Administrator: full ordinary master-data administration; sensitive bank-account access is separately revocable.
+- System Administrator: ordinary master-data administration.
 - Finance Manager: financial reference-data administration, subject to final ownership confirmation.
-- Finance Manager with `bank_accounts.manage_access`: grant or revoke `bank_accounts.manage_sensitive` for eligible users or roles, including System Administrators, without changing their unrelated permissions.
 - Finance Associate: read access and any explicitly approved external-vendor lookup capability.
 - Requestors and approvers: read only the active values needed for permitted forms and decisions.
-- Only identities with the sensitive bank-account permission may create, change, or reveal protected values.
-- Every bank-access grant/revocation requires a reason and immutable audit record. The implementation must prevent accidental loss of all authorized bank-access managers through a documented break-glass or minimum-owner rule.
 
 ## API behavior
 
@@ -129,11 +127,10 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 - Mutations use standard problem responses, request IDs, CSRF protection, and permission checks.
 - Duplicate codes return conflict responses; validation failures identify safe field-level details.
 - Deactivation is idempotent. Delete is allowed only for never-referenced records when policy permits it.
-- Bank-account responses contain masked identifiers and safe metadata only.
 
 ## Frontend pages and integration
 
-- Add Master Data navigation for Cost Centers, Vendors, Chart of Accounts, Tax Codes, Currencies, Payment Methods, Company Bank Accounts, and Document Types.
+- Add Master Data navigation for Cost Centers, Vendors, Chart of Accounts, Tax Codes, Currencies, Payment Methods, and Document Types.
 - Reuse the Phase 01 administration list, search, add-button, modal, and three-dot action-menu patterns.
 - Provide loading, empty, validation, duplicate, forbidden, conflict, referenced-record, and API-unavailable states.
 - Confirm mobile containment, keyboard order, focus restoration, labels, menu positioning, and confirmation dialogs.
@@ -141,15 +138,13 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 
 ## Security and operational requirements
 
-- If full bank-account storage is enabled in a later rollout, obtain encryption material from an approved environment or secrets provider; never use a committed default key. No such key or real bank-account number is required for the current documentation-only rollout.
-- Ensure logs, exceptions, audit before/after values, exports, fixtures, screenshots, and tests do not expose bank-account clear text.
+- Ensure vendor-provider bank-account fields do not enter ordinary responses, logs, exports, fixtures, or audit payloads.
 - Use indexed lookup columns and bounded list responses to avoid unbounded administration queries.
-- Backups must contain encrypted bank values, and restore testing must confirm they remain decryptable only with the correct key.
 
 ## Delivery sequence
 
 1. Confirm fields, ownership, uniqueness rules, effective dates, and record-retention behavior.
-2. Add reversible migrations, models, constraints, indexes, and encryption configuration.
+2. Add reversible migrations, models, constraints, and indexes.
 3. Add schemas, services, permission checks, audit events, and CRUD/list APIs.
 4. Create deterministic seeds and isolated database tests.
 5. Build uniform administration lists, action menus, and add/edit modals.
@@ -158,13 +153,13 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 
 ## Planned API areas
 
-`/departments`, `/cost-centers`, `/vendors`, `/chart-of-accounts`, `/tax-codes`, `/currencies`, `/payment-methods`, `/company-bank-accounts`, and `/document-types` under `/api/v1`. The `/vendors` area is a Payment Module facade over the external vendor adapter, not a local vendor CRUD service.
+`/departments`, `/cost-centers`, `/vendors`, `/chart-of-accounts`, `/tax-codes`, `/currencies`, `/payment-methods`, and `/document-types` under `/api/v1`. The `/vendors` area is a Payment Module facade over the external vendor adapter, not a local vendor CRUD service.
 
 ## Acceptance gates
 
 - Every master-data type is persisted, validated, searchable, and safely administered.
 - Duplicate codes, invalid relationships, and destructive deletion of referenced records are rejected.
-- Existing bank-data endpoints remain in the code and are permission-controlled, encrypted, masked, and covered by synthetic-data tests. They are not approved for use with real bank details in the current rollout; disabling or removing these endpoints from a production release remains a separate release-control decision.
+- Bank-account administration routes and navigation are absent; removed routes return 404 and do not appear in OpenAPI.
 - Required prototype dropdowns use API data; standalone mock mode remains runnable.
 - Migrations, deterministic seeds, authorization, audit, coverage, dependency audits, builds, Docker checks, and CI pass.
 
@@ -175,9 +170,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 - CRUD, activate/deactivate, safe-delete, duplicate-code, effective-date, hierarchy-cycle, and referenced-record tests.
 - Initial-catalog tests for all eight approved code/name pairs and atomic department/cost-center creation, synchronization, and rollback.
 - Permission tests for every list, retrieve, and mutation path, including explicit deny precedence.
-- Bank-access administration tests proving that an authorized Finance Manager can revoke System Administrator bank access but cannot modify unrelated administrator permissions.
-- Last-authorized-manager/break-glass safeguards, required reason, and complete access-change audit tests.
-- Encryption round-trip, wrong-key failure, masking, log/audit redaction, and unauthorized reveal tests.
+- Removed-route, permission, OpenAPI, migration guard, and vendor bank-field exclusion tests.
 - Vendor adapter contract tests for lookup, unavailable provider, timeout, invalid payload, inactive vendor, mock fallback, and transaction snapshot preservation.
 - Pagination, sorting, filtering, and search determinism with larger datasets.
 - Integrated browser walkthrough of every administration page and API-backed dropdown.
@@ -196,11 +189,9 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 ## Remaining decisions and external inputs
 
 - The remaining cost-center policy information listed above: initial effective-from date and cross-department charging. One item and one cost center per line is already confirmed.
-- Initial Finance-approved chart-of-account records and official QuickBooks account codes or a representative export; the structure is confirmed, but authoritative account values are not seeded.
+- Finance-approved internal chart-of-account records are needed only before those records are used for authoritative accounting. QuickBooks-specific codes, import, and export are deferred; the existing account-code structure is the future mapping point.
 - Finance-approved tax codes, VAT/EWT classifications, rates, and effective dates.
-- Before any later rollout stores real company bank-account numbers: named encryption-key owner and approved local/staging/production secrets mechanism.
-- A representative vendor payload was supplied on 2026-09-03 and is covered by the mock adapter contract. Its `bankAccountNumber` field is sensitive: ordinary lookup exposes only a masked value and must never log or return the clear value. Base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials remain required.
-- Before any later rollout enables sensitive bank-account administration: minimum-owner or break-glass rule to prevent permanent administrative lockout. This is not a current Phase 02 blocker.
+- A representative vendor payload was supplied on 2026-09-03 and is covered by the mock adapter contract. Its bank fields are discarded entirely. Base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials remain required.
 
 ## Exclusions
 

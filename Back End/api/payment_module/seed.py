@@ -69,9 +69,6 @@ PERMISSIONS = {
     "vendors.read": "Search external vendor reference data",
     "accounts.read": "Read the chart of accounts",
     "accounts.manage": "Create and maintain the chart of accounts",
-    "bank_accounts.read": "Read masked company bank accounts",
-    "bank_accounts.manage_sensitive": "Create, update, and reveal protected company bank accounts",
-    "bank_accounts.manage_access": "Grant or revoke protected bank-account access",
     "requests.create": "Create and maintain owned payment request drafts",
     "requests.read_own": "Read owned payment requests",
     "requests.read_department": "Read payment requests for the user's department",
@@ -80,16 +77,13 @@ PERMISSIONS = {
     "requests.numbering.manage": "Configure the payment request numbering reset month",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
-ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS) - {"bank_accounts.manage_access"}
+ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
 ROLE_PERMISSIONS["finance_manager"] |= {
     "master_data.read",
     "master_data.manage",
     "vendors.read",
     "accounts.read",
     "accounts.manage",
-    "bank_accounts.read",
-    "bank_accounts.manage_sensitive",
-    "bank_accounts.manage_access",
     "requests.read_all",
     "requests.manage_lifecycle",
     "requests.numbering.manage",
@@ -98,7 +92,6 @@ ROLE_PERMISSIONS["finance_associate"] |= {
     "master_data.read",
     "vendors.read",
     "accounts.read",
-    "bank_accounts.read",
     "requests.read_all",
     "requests.manage_lifecycle",
     "requests.numbering.manage",

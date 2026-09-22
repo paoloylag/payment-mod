@@ -178,7 +178,7 @@ The database will retain a permanent trail of important actions, including:
 - completing Finance validation;
 - creating, posting, or voiding a voucher;
 - preparing, authorizing, releasing, clearing, failing, or voiding a payment;
-- changing vendor banking information;
+- changing vendor reference information;
 - changing user permissions, approval policies, or tax rules; and
 - attempting or completing an email notification.
 
@@ -196,7 +196,7 @@ Access will depend on a person's role and responsibilities.
 - Finance Managers and executives can act on approvals assigned to them.
 - Payment preparation and payment authorization can be separated to support segregation of duties.
 
-Bank account information will be encrypted and masked. Only employees who need the complete details for payment processing will be able to view them.
+The module will not keep company or vendor bank-account numbers. Cash release may record a bank name as manual documentation.
 
 The database will not store online banking passwords, PINs, one-time passwords, or digital signing credentials.
 
@@ -208,7 +208,6 @@ The same approach will support future connections to:
 
 - the purchase-order or procurement system;
 - an accounting or ERP system;
-- bank payment services; and
 - document or file-storage services.
 
 Unique processing keys will prevent a retry from accidentally sending the same email twice or creating the same payment instruction twice.
@@ -225,11 +224,11 @@ Add document reviews, taxes, Finance validation, accounting entries, and payment
 
 ### Phase 3: Payment operations
 
-Add payment methods, bank accounts, authorized signatories, pickup and release tracking, and notification delivery.
+Add payment methods, manual releasing-bank references, authorized signatories, pickup and release tracking, and notification delivery.
 
 ### Phase 4: Integrations and configurable policies
 
-Connect the module to purchasing, accounting, banking, and email services. Allow authorized administrators to maintain approval thresholds and tax rules with version history.
+Connect the module to purchasing, accounting, and email services. Record the releasing bank for manual cash release without any banking connection. Allow authorized administrators to maintain approval thresholds and tax rules with version history.
 
 ## Decisions still needed
 
@@ -254,8 +253,8 @@ The technical schema and implementation notes are available in [Payment Module D
 
 ## Phase 02 master data now being implemented
 
-The system now has a defined database structure for cost centers, accounting codes, taxes, currencies, payment methods, company bank accounts, and document types. Each approved department has one matching cost center, and future departments can be added through the administration workflow.
+The system now has a defined database structure for cost centers, accounting codes, taxes, currencies, payment methods, and document types. Each approved department has one matching cost center, and future departments can be added through the administration workflow.
 
-Vendor information will continue to come from the external vendor system. The Payment Module keeps only the external reference and the historical vendor details needed by a submitted transaction. Ordinary vendor lookups mask bank-account numbers.
+Vendor information will continue to come from the external vendor system. The Payment Module keeps only the external reference and the historical vendor details needed by a submitted transaction. Vendor bank-account fields are discarded.
 
-Company bank-account numbers are encrypted rather than stored as readable text. Finance Managers control the separate permission that allows protected bank operations, including the ability to revoke that access from a System Administrator without removing unrelated administrator responsibilities.
+The former company-bank-account administration feature has been removed. Historical migration `20260903_0005` remains in the chain; `20260922_0007` retires its table and permissions, refusing to drop any nonempty account table.

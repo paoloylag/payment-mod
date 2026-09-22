@@ -12,7 +12,7 @@ def normalized(payload: dict) -> dict:
     values = dict(payload)
     if "code" in values and values["code"] is not None:
         values["code"] = values["code"].strip().upper()
-    for field in ("name", "description", "bank_name", "account_name", "branch", "category"):
+    for field in ("name", "description", "category"):
         if field in values and isinstance(values[field], str):
             values[field] = values[field].strip()
     for field in ("effective_from", "effective_to"):

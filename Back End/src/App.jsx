@@ -256,7 +256,7 @@ function getVoucher(request) {
     number: `PV-${request.id.replace("-2026-", "-")}`,
     date: "2026-06-24",
     paymentMethod: "Check payment",
-    bank: "BDO Operating Account - 1284",
+    bank: "BDO",
     checkNumber: request.currentStep >= 11 ? "CHK-004918" : "Pending bank processing",
     ...taxes,
     purpose: `${typeLabel} payment for ${request.vendor}`,
@@ -696,7 +696,7 @@ function VoucherCard({ voucher, request }) {
           <tr><th>Payee</th><td>{request.vendor}</td><th>Department</th><td>{request.department}</td></tr>
           <tr><th>Requestor</th><td>{request.requestor}</td><th>Payment Method</th><td>{voucher.paymentMethod}</td></tr>
           <tr><th>Purpose</th><td colSpan="3">{voucher.purpose}</td></tr>
-          <tr><th>Bank Account</th><td>{voucher.bank}</td><th>Check No.</th><td>{voucher.checkNumber}</td></tr>
+          <tr><th>Releasing Bank</th><td>{voucher.bank}</td><th>Check No.</th><td>{voucher.checkNumber}</td></tr>
         </tbody>
       </table>
       <table className="voucher-table amount-table">

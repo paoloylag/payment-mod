@@ -679,6 +679,11 @@ select:disabled { cursor: not-allowed; opacity: .68; }
   .notification-button { display: none; }
 }
 
+@media screen and (max-width: 639px) {
+  .app-shell:not(.nav-open) > .sidebar { display: none; }
+  .app-shell.nav-open > .sidebar { display: block; }
+}
+
 @media print {
   .topbar { position: static; backdrop-filter: none; }
 }

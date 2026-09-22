@@ -31,7 +31,7 @@ export function createDataSource() {
       ["DT", "Technology / Digital Transformation"], ["ACAD", "Academics / Residential Campus"],
       ["OPS", "Operations"], ["FIN", "Finance"], ["MKTG", "Marketing"],
     ].map(([code, name]) => ({ id: `mock-${code}`, code, name, is_active: true })),
-    vendors: [{ id: "PMC-MNL-01", code: "PMC-MNL-01", name: "Power Mac Center, Inc.", email: "education@powermaccenter.com", status: "active", maskedBankAccountNumber: "•••• 6789" }],
+    vendors: [{ id: "PMC-MNL-01", code: "PMC-MNL-01", name: "Power Mac Center, Inc.", email: "education@powermaccenter.com", status: "active" }],
     "chart-of-accounts": [
       { id: "mock-6000", code: "6000", name: "Operating Expenses", account_type: "expense", normal_balance: "debit", is_active: true },
     ],
@@ -46,7 +46,6 @@ export function createDataSource() {
       { id: "mock-transfer", code: "BANK_TRANSFER", name: "Bank Transfer / DigiBanker", category: "bank_transfer", is_active: true },
       { id: "mock-cash", code: "CASH", name: "Cash", category: "cash", is_active: true },
     ],
-    "company-bank-accounts": [],
     "document-types": [
       { id: "mock-invoice", code: "INVOICE", name: "Invoice / Billing", copy_requirement: "soft", is_active: true },
       { id: "mock-receipt", code: "RECEIPT", name: "Official Receipt", copy_requirement: "soft", is_active: true },
@@ -197,16 +196,6 @@ export function createDataSource() {
     updateRequestNumberingSetting(resetMonth, csrfToken) {
       if (mode === "mock") return Promise.resolve({ reset_month: resetMonth });
       return apiRequest("/api/v1/request-settings/numbering", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reset_month: resetMonth }) });
-    },
-    async listBankAccess() {
-      const fallback = [{ user_id: "mock-admin", display_name: "Development System Administrator", email: "admin@payment.local", has_sensitive_access: true }];
-      if (mode === "mock") return fallback;
-      try { return await apiRequest("/api/v1/bank-access"); }
-      catch (error) { if (mode === "hybrid") return fallback; throw error; }
-    },
-    changeBankAccess(payload, csrfToken) {
-      if (mode === "mock") return Promise.resolve(payload);
-      return apiRequest("/api/v1/bank-access", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
     async getSystemStatus() {
       if (mode === "mock") return { state: "mock", label: "Mock data" };

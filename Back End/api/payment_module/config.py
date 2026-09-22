@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     draft_warning_days: int = 7
     draft_archival_batch_size: int = 500
     development_demo_password: str | None = None
-    bank_encryption_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

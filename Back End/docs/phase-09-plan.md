@@ -12,7 +12,7 @@ Harden administration and connect approved enterprise services through replaceab
 
 - Versioned approval/tax policies, retention controls, monitoring, operational health, and authorized audit access.
 - LifeOS SAML while retaining local email/password authentication as previously confirmed.
-- Private object storage, P.O./procurement, ERP/accounting, production email, banking, webhooks, and reconciliation jobs.
+- Private object storage, P.O./procurement, ERP/accounting, production email, webhooks, and applicable reconciliation jobs. Banking connections are excluded.
 - Adapter contracts, secrets management, timeouts, retries, circuit breaking, idempotency, observability, and manual recovery.
 - Staging/production promotion controls, backup/restore, rollback, incident ownership, and operational runbooks.
 
@@ -34,7 +34,7 @@ Harden administration and connect approved enterprise services through replaceab
 
 ## Integration adapter requirements
 
-- Define typed domain-facing contracts for object storage, procurement/P.O., ERP/accounting, email, banking, and webhooks.
+- Define typed domain-facing contracts for object storage, procurement/P.O., ERP/accounting, email, and webhooks. Do not create a bank adapter.
 - Keep provider SDKs and payload mappings inside adapter boundaries.
 - Use timeouts, bounded retries, idempotency keys, circuit breaking, correlation IDs, and dead-letter/manual recovery where applicable.
 - Record external identifiers and reconciliation status without allowing external systems to silently rewrite immutable local history.
@@ -99,7 +99,7 @@ Harden administration and connect approved enterprise services through replaceab
 ## Decisions required before implementation
 
 - LifeOS SAML metadata, claim mapping, account-linking rules, and identity owner.
-- Selected storage, procurement, ERP, email, and banking providers and their environments.
+- Selected storage, procurement, ERP, and email providers and their environments. No banking provider is required.
 - Secrets manager, monitoring platform, retention schedule, support ownership, and service-level objectives.
 - Staging/production approval, rollback, and incident-response authorities.
 

@@ -170,7 +170,7 @@ The reversible Phase 00 migration `20260819_0001` creates the plural `system_set
 - PostgreSQL as the system of record.
 - SQLAlchemy for persistence and Alembic for schema migrations.
 - Service-layer business rules and an explicit workflow state machine.
-- Adapter interfaces for Life OS identity, document storage, email, procurement/P.O., ERP, and banking.
+- Adapter interfaces for Life OS identity, document storage, email, procurement/P.O., and ERP. No banking adapter or bank connection is planned.
 - Philippine Time (`Asia/Manila`) for business timestamps, returned with UTC+08:00 offsets.
 - Docker-based local development with repeatable migrations and seed data.
 
@@ -294,16 +294,20 @@ Prototype validation: login screen, authenticated user chip, role-driven navigat
 
 Detailed plan: `docs/phase-02-plan.md`.
 
-- Departments, cost centers, chart of accounts, tax codes, currencies, payment methods, and document types. Protected company-bank-account code exists but full account-number storage is deferred from the current request-documentation rollout; there is no direct bank connection.
+- Departments, cost centers, chart of accounts, tax codes, currencies, payment methods, and document types. The protected company-bank-account administration feature has been removed. There will be no bank connection; a later cash-release record will identify the releasing bank for documentation only.
 - Consume vendors and vendor contacts from an external system through a replaceable adapter; preserve external identifiers and transaction-time snapshots rather than creating a local vendor system of record.
-- If protected bank-account storage is enabled later, encrypt and mask sensitive details and govern access separately. Real bank details, encryption-key ownership, and break-glass policy are not current Phase 02 rollout gates.
+- Vendor bank-account fields are discarded by the adapter. Full account numbers and bank-access permissions are not part of the Payment Module's planned scope.
 - Seed the eight approved active department/cost-center pairs (`OCP`, `PNC`, `OOG`, `DT`, `ACAD`, `OPS`, `FIN`, and `MKTG`), with one cost center per department and approval through Finance staff. Preserve administration for future additions.
 
 Prototype validation: replace form dropdown mocks and administration reference lists with API data.
 
-Implementation status (2026-09-03): reversible migration `20260903_0005`, master-data models/services/APIs, deterministic reference seeds, external-vendor adapter contract, protected bank-data handling, Finance-controlled bank-access administration, eight administration pages, and API-backed request dropdowns with standalone mock fallback are implemented locally. Static migration generation, lint, frontend production build, and browser mock-mode walkthrough pass. Live PostgreSQL 17 migrations reached head on isolated development and test databases, and the complete backend suite passed with `33 passed, 1 warning in 33.77s`. Docker Desktop 4.89 continues to encounter a host-level Windows Unix-socket error; local validation therefore uses a loopback-only native PostgreSQL service on port `5434` without changing production configuration.
+Historical implementation (2026-09-03): migration `20260903_0005`, master-data models/services/APIs, deterministic seeds, vendor adapter, and API-backed request dropdowns with standalone mock fallback were implemented. A formerly included protected bank-account administration area was removed by `20260922_0007`; the historical migration is retained because it was already applied. Docker Desktop 4.89 encountered a host-level Windows Unix-socket error, so local PostgreSQL validation uses the loopback-only native service on port `5434` without changing production configuration.
 
 Approval-free follow-up (2026-09-22): bounded master-data API pages and frontend page aggregation are implemented; additional pagination/filtering, chart-account, vendor-mock, and wrong-key tests pass. One item and exactly one cost center per request line is confirmed; split allocation within a line is out of scope. The full backend suite passed with 59 tests. See `docs/phase-02-validation.md` for current evidence and remaining gates.
+
+Scope update (2026-09-22): QuickBooks-specific import/export and code mapping are deferred; preserve internal chart-of-account identifiers for a future optional mapping. No bank integration will be built. Cash release will record which bank is used without connecting to it.
+
+Validation update (2026-09-22): the pre-removal baseline passed 59 tests. After retiring bank-account administration and the unused `cryptography` dependency, the backend suite passed 58 tests; Ruff, frontend build, Python dependency audit, isolated migration downgrade/re-upgrade, and frontend-only navigation/legacy-route checks passed. Remaining gates are tracked in `docs/phase-02-validation.md`.
 
 ### Phase 03 — Payment requests
 
@@ -370,7 +374,7 @@ Prototype validation: show in-app notification state and reconcile dashboard/rep
 Detailed plan: `docs/phase-09-plan.md`.
 
 - User/permission administration, configurable/versioned approval and tax policies, retention, monitoring, and audit access.
-- Life OS SAML, private object storage, P.O./procurement, ERP/accounting, production email, banking, webhooks, and reconciliation jobs through replaceable adapters.
+- Life OS SAML, private object storage, P.O./procurement, ERP/accounting, production email, webhooks, and applicable reconciliation jobs through replaceable adapters. Banking is excluded.
 
 Prototype validation: administer approved configuration safely and demonstrate development adapters before any production connection is enabled.
 
@@ -443,7 +447,7 @@ The first usable backend release includes:
 9. Audit history.
 10. Development notification delivery.
 
-Production SAML, live bank integration, ERP/P.O. synchronization, configurable policies, and production email are post-MVP unless a stakeholder explicitly reprioritizes them.
+Production SAML, ERP/P.O. synchronization, configurable policies, and production email are post-MVP unless a stakeholder explicitly reprioritizes them. Bank integration is excluded entirely.
 
 ## Backend feature inventory
 
@@ -535,7 +539,7 @@ Acceptance gate: repeated identical commands do not create duplicate financial r
 
 Implement versioned routes, Pydantic schemas, standardized validation/problem responses, safe error identifiers, query limits, secure configuration, secret management, financial-data masking, structured logs, correlation IDs, health/readiness endpoints, and OpenAPI documentation. Never store bank passwords, PINs, OTPs, or signing credentials.
 
-Acceptance gate: secrets and full sensitive bank data do not appear in logs or ordinary API responses.
+Acceptance gate: secrets and vendor bank-account fields do not appear in logs or ordinary API responses.
 
 ### BE-16 — Database delivery and recovery
 
@@ -551,7 +555,7 @@ Acceptance gate: required tests run in a repeatable local or CI environment and 
 
 ### BE-18 — External integration adapters
 
-Define replaceable interfaces for Life OS SSO/users, vendor and P.O. master data, object/document storage, email, ERP/accounting posting, and banking/DigiBanker. Provide safe development adapters and contract tests. External failures must not corrupt internal workflow state.
+Define replaceable interfaces for Life OS SSO/users, vendor and P.O. master data, object/document storage, email, and ERP/accounting posting. Provide safe development adapters and contract tests. External failures must not corrupt internal workflow state. No banking interface is planned.
 
 Acceptance gate: a development adapter can be replaced by a contract-compatible provider without changing core workflow services.
 
@@ -563,7 +567,7 @@ Acceptance gate: a development adapter can be replaced by a contract-compatible 
 4. Finance: document review, VAT/EWT, accounting entries, and validation completion.
 5. Vouchers and payments: voucher snapshots, authorization, attempts, pick-up/release, completion, voids, and replacements.
 6. Reporting: dashboards, tracker, aging, archive search, filtered Excel workbooks, print datasets, and unclaimed checks.
-7. Production integrations: Life OS SSO, email, external storage, procurement/P.O., ERP, and banking.
+7. Production integrations: Life OS SSO, email, external storage, procurement/P.O., and ERP; no banking connection.
 
 ## Decisions required before production integration
 
@@ -630,7 +634,7 @@ When backend development resumes:
 11. Phase 02 may use the reviewed Phase 01 baseline. Do not start production promotion until the external Firefox,
     Safari, penetration, and production proxy/HTTPS checks are recorded and approved.
 12. Never enable the retained-session cleanup command in staging or production.
-13. Before Phase 02 financial seed data is authoritative, obtain the initial cost-center effective date and cross-department charging rule, official QuickBooks chart-of-account records, and tax definitions. One cost center per request line is already confirmed. The vendor API may remain behind deterministic mocks until its provider contract and sandbox are supplied. Bank-access lockout and encryption-key ownership decisions are deferred until a later rollout actually needs full company bank-account numbers.
+13. Before Phase 02 financial seed data is authoritative, obtain the initial cost-center effective date, cross-department charging rule, and tax definitions. Finance-approved internal chart-of-account records are required only for authoritative accounting; QuickBooks mapping/export is deferred. One cost center per request line is confirmed. The vendor API may remain behind deterministic mocks until its provider contract and sandbox are supplied. Bank-account administration has been removed; no banking integration is planned.
 
 ## Phase status ledger
 

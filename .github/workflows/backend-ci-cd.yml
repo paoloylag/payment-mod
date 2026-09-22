@@ -20,6 +20,23 @@ defaults:
     working-directory: "Back End"
 
 jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: "Back End/pnpm-lock.yaml"
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build frontend
+        run: pnpm run build
+
   test:
     runs-on: ubuntu-latest
     services:
@@ -68,7 +85,7 @@ jobs:
           PYTHONPATH: api
 
   package:
-    needs: test
+    needs: [frontend, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

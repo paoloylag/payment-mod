@@ -218,7 +218,6 @@ let state = {
   masterDataLoading: false,
   masterDataError: "",
   masterDataEdit: null,
-  bankAccessUsers: null,
   requestNumbering: null,
   cashAdvanceOptions: null,
   cashAdvanceOptionsLoading: false,
@@ -309,7 +308,6 @@ const tabRoutes = {
   taxCodes: "/master-data/tax-codes",
   currencies: "/master-data/currencies",
   paymentMethods: "/master-data/payment-methods",
-  bankAccounts: "/master-data/company-bank-accounts",
   documentTypes: "/master-data/document-types",
 };
 function routeStateFromHash() {
@@ -333,7 +331,10 @@ function routeStateFromHash() {
   if (parts[0] === "guide") return { tab: "guide" };
   if (parts[0] === "administration") return { tab: ["users", "roles", "departments"].includes(parts[1]) ? parts[1] : "users" };
   if (parts[0] === "master-data") {
-    const resourceTabs = { "cost-centers": "costCenters", vendors: "vendors", "chart-of-accounts": "accounts", "tax-codes": "taxCodes", currencies: "currencies", "payment-methods": "paymentMethods", "company-bank-accounts": "bankAccounts", "document-types": "documentTypes" };
+    const resourceTabs = { "cost-centers": "costCenters", vendors: "vendors", "chart-of-accounts": "accounts", "tax-codes": "taxCodes", currencies: "currencies", "payment-methods": "paymentMethods", "document-types": "documentTypes" };
+    if (parts[1] === "company-bank-accounts") {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/master-data/cost-centers`);
+    }
     return { tab: resourceTabs[parts[1]] || "costCenters" };
   }
   if (parts[0] === "dashboard" && parts[1] === "request" && requests.some((r) => r.id === parts[2])) return { tab: "requestDetail", requestDetailId: parts[2], selectedId: parts[2], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
@@ -407,7 +408,7 @@ const voucherFor = (r, allowCreation = false) => {
       <tr><th>Payee</th><td>${r.vendor}</td><th>Department</th><td>${r.department}</td></tr>
       <tr><th>Requestor</th><td>${r.requestor}</td><th>Payment Method</th><td>Check payment</td></tr>
       <tr><th>Purpose</th><td colspan="3">${typeLabel} payment for ${r.vendor}</td></tr>
-      <tr><th>Bank Account</th><td>BDO Operating Account - 1284</td><th>Check No.</th><td>${checkNumber}</td></tr>
+      <tr><th>Releasing Bank</th><td>BDO</td><th>Check No.</th><td>${checkNumber}</td></tr>
     </tbody></table>
     <table class="voucher-table amount-table"><tbody>
       <tr><th>Gross Amount (VAT Inclusive)</th><td>${money(taxes.gross, r.currency || "PHP")}</td></tr>
@@ -726,9 +727,8 @@ const masterDataConfig = {
   vendors: { resource: "vendors", title: "Vendors", description: "Read-only vendor records supplied through the external-system adapter.", readonly: true },
   accounts: { resource: "chart-of-accounts", title: "Chart of Accounts", description: "Hierarchical posting and summary accounts." },
   taxCodes: { resource: "tax-codes", title: "Tax Codes", description: "Finance-approved VAT and EWT definitions." },
-  currencies: { resource: "currencies", title: "Currencies", description: "Supported transaction currencies." },
+  currencies: { resource: "currencies", title: "Currencies", singular: "Currency", description: "Supported transaction currencies." },
   paymentMethods: { resource: "payment-methods", title: "Payment Methods", description: "Supported payment channels and reference rules." },
-  bankAccounts: { resource: "company-bank-accounts", title: "Company Bank Accounts", description: "Masked bank references protected by separate Finance access." },
   documentTypes: { resource: "document-types", title: "Document Types", description: "Reusable request-document definitions." },
 };
 
@@ -739,12 +739,11 @@ async function loadMasterData(tab = state.tab) {
   state.masterDataError = "";
   render();
   try {
-    const [items, bankAccessUsers, requestNumbering] = await Promise.all([
+    const [items, requestNumbering] = await Promise.all([
       dataSource.listMasterData(config.resource),
-      tab === "bankAccounts" ? dataSource.listBankAccess().catch(() => []) : Promise.resolve(state.bankAccessUsers),
       tab === "currencies" ? dataSource.getRequestNumberingSetting().catch(() => null) : Promise.resolve(state.requestNumbering),
     ]);
-    setState({ masterData: { ...state.masterData, [config.resource]: items }, bankAccessUsers, requestNumbering, masterDataLoading: false });
+    setState({ masterData: { ...state.masterData, [config.resource]: items }, requestNumbering, masterDataLoading: false });
   } catch (error) {
     const message = error.status === 403 ? "You do not have permission to view this master data." : error.message;
     setState({ masterDataLoading: false, masterDataError: message, toast: errorToast(message, "Master data unavailable") });
@@ -776,11 +775,10 @@ function masterDataModal() {
   if (edit.tab === "taxCodes") fields += `<label>VAT classification<input name="vat_classification" value="${escapeHtml(item?.vat_classification || "")}" required></label><label>VAT rate<input name="vat_rate" type="number" min="0" max="100" step="0.0001" value="${item?.vat_rate ?? 0}" required></label><label>EWT classification<input name="ewt_classification" value="${escapeHtml(item?.ewt_classification || "")}" required></label><label>EWT rate<input name="ewt_rate" type="number" min="0" max="100" step="0.0001" value="${item?.ewt_rate ?? 0}" required></label>`;
   if (edit.tab === "currencies") fields = `${common}<label>Symbol<input name="symbol" value="${escapeHtml(item?.symbol || "")}" required maxlength="8"></label><label>Decimal precision<input name="decimal_precision" type="number" min="0" max="6" value="${item?.decimal_precision ?? 2}" required></label>`;
   if (edit.tab === "paymentMethods") fields += `<label>Category<input name="category" value="${escapeHtml(item?.category || "")}" required></label><label class="identity-checkbox"><input name="requires_reference" type="checkbox" ${item?.requires_reference ? "checked" : ""}> Requires transaction reference</label>`;
-  if (edit.tab === "bankAccounts") fields = `${isEdit ? `<input type="hidden" name="code" value="${escapeHtml(item.code)}">` : `<label>Code<input name="code" required maxlength="40"></label>`}<label>Bank name<input name="bank_name" value="${escapeHtml(item?.bank_name || "")}" required></label><label>Account name<input name="account_name" value="${escapeHtml(item?.account_name || "")}" required></label><label>Account number<input name="account_number" ${isEdit ? "placeholder=\"Leave blank to keep the current value\"" : "required"} minlength="4"></label><label>Currency<select name="currency_code">${["PHP", "USD", "EUR"].map((code) => `<option ${item?.currency_code === code ? "selected" : ""}>${code}</option>`).join("")}</select></label><label>Branch<input name="branch" value="${escapeHtml(item?.branch || "")}"></label>`;
   if (edit.tab === "documentTypes") fields += `<label>Copy requirement<select name="copy_requirement"><option value="soft">Soft copy</option><option value="hard">Hard copy</option><option value="both">Both</option></select></label>`;
-  if (!isEdit && !["currencies", "bankAccounts"].includes(edit.tab)) fields += `<label>Description<textarea name="description"></textarea></label>`;
+  if (!isEdit && edit.tab !== "currencies") fields += `<label>Description<textarea name="description"></textarea></label>`;
   if (isEdit) fields += `<label class="identity-checkbox"><input name="is_active" type="checkbox" ${item.is_active !== false ? "checked" : ""}> Active</label>`;
-  return `<div class="identity-modal-backdrop" data-master-modal-backdrop><section class="identity-modal" role="dialog" aria-modal="true" aria-labelledby="master-modal-title"><div class="identity-modal-header"><div><span class="eyebrow">Master Data</span><h3 id="master-modal-title">${isEdit ? "Edit" : "Add"} ${config.title.replace(/s$/, "")}</h3><p>Changes are validated and recorded in the audit trail.</p></div><button type="button" class="identity-modal-close" data-cancel-master-edit aria-label="Close">×</button></div><form data-master-form>${fields}<div class="identity-form-actions"><button type="button" data-cancel-master-edit>Cancel</button><button type="submit" class="primary-button">${isEdit ? "Save changes" : "Add record"}</button></div></form></section></div>`;
+  return `<div class="identity-modal-backdrop" data-master-modal-backdrop><section class="identity-modal" role="dialog" aria-modal="true" aria-labelledby="master-modal-title"><div class="identity-modal-header"><div><span class="eyebrow">Master Data</span><h3 id="master-modal-title">${isEdit ? "Edit" : "Add"} ${config.singular || config.title.replace(/s$/, "")}</h3><p>Changes are validated and recorded in the audit trail.</p></div><button type="button" class="identity-modal-close" data-cancel-master-edit aria-label="Close">×</button></div><form data-master-form>${fields}<div class="identity-form-actions"><button type="button" data-cancel-master-edit>Cancel</button><button type="submit" class="primary-button">${isEdit ? "Save changes" : "Add record"}</button></div></form></section></div>`;
 }
 
 function masterDataPage(tab) {
@@ -795,9 +793,8 @@ function masterDataPage(tab) {
     const actions = config.readonly ? "" : `<div class="identity-action-menu"><button type="button" class="identity-action-trigger" data-master-edit="${escapeHtml(id)}" aria-label="Edit ${escapeHtml(item.name)}">⋮</button></div>`;
     return `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(secondary)}</small></div><div><span>${escapeHtml(item.code)}</span><small>Official code</small></div><span class="status-pill ${active ? "success" : "danger"}">${active ? "Active" : "Inactive"}</span>${actions}</article>`;
   }).join("") : `<div class="empty-state">No records are configured yet.</div>`;
-  const accessPanel = tab === "bankAccounts" ? `<section class="panel"><div class="panel-header"><div><h3>Sensitive Bank Access</h3><p>Finance Managers can grant or revoke protected bank access independently of other administrator permissions.</p></div></div><div class="identity-list">${(state.bankAccessUsers || []).map((user) => `<article><div><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email)}</small></div><div><span>Sensitive account values</span><small>Separate permission</small></div><span class="status-pill ${user.has_sensitive_access ? "success" : "danger"}">${user.has_sensitive_access ? "Allowed" : "Denied"}</span><button type="button" data-bank-access-user="${user.user_id}" data-bank-access-allowed="${user.has_sensitive_access ? "false" : "true"}">${user.has_sensitive_access ? "Revoke" : "Grant"}</button></article>`).join("") || `<div class="empty-state">No eligible users are available.</div>`}</div></section>` : "";
   const numberingPanel = tab === "currencies" && state.requestNumbering ? `<section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose the month when the request sequence restarts for the new academic year. Existing request numbers will not change.</p></div></div><form data-numbering-settings class="identity-form numbering-settings-form"><label>Academic year starts<select name="reset_month">${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div class="numbering-settings-summary"><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong></div><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div><button type="submit" class="primary-button">Save numbering setting</button></form></section>` : "";
-  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${numberingPanel}${accessPanel}</div></section>${masterDataModal()}`;
+  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.singular || config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${rows}</div></section>${numberingPanel}</div></section>${masterDataModal()}`;
 }
 
 function masterPayload(tab, form) {
@@ -806,7 +803,6 @@ function masterPayload(tab, form) {
   if (tab === "accounts") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), account_type: text("account_type"), normal_balance: text("normal_balance"), is_posting: form.get("is_posting") === "on" };
   if (tab === "taxCodes") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), vat_classification: text("vat_classification"), vat_rate: Number(text("vat_rate")), ewt_classification: text("ewt_classification"), ewt_rate: Number(text("ewt_rate")) };
   if (tab === "paymentMethods") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), category: text("category"), requires_reference: form.get("requires_reference") === "on" };
-  if (tab === "bankAccounts") return Object.fromEntries(Object.entries({ code: text("code").toUpperCase(), bank_name: text("bank_name"), account_name: text("account_name"), account_number: text("account_number"), currency_code: text("currency_code"), branch: text("branch") }).filter(([, value]) => value !== ""));
   if (tab === "documentTypes") return { code: text("code").toUpperCase(), name: text("name"), description: text("description"), allowed_request_types: [], copy_requirement: text("copy_requirement") };
   return { code: text("code").toUpperCase(), name: text("name"), description: text("description") };
 }
@@ -867,16 +863,6 @@ function bindMasterData() {
       render();
     } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to save numbering settings") }); }
   });
-  document.querySelectorAll("[data-bank-access-user]").forEach((button) => button.addEventListener("click", async () => {
-    const allowed = button.dataset.bankAccessAllowed === "true";
-    const reason = window.prompt(`${allowed ? "Grant" : "Revoke"} sensitive bank access. Enter the audit reason:`);
-    if (!reason || reason.trim().length < 5) return;
-    try {
-      await dataSource.changeBankAccess({ user_id: button.dataset.bankAccessUser, allowed, reason: reason.trim() }, state.csrfToken);
-      state.masterData[config.resource] = [];
-      await loadMasterData(state.tab);
-    } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to update bank access") }); }
-  }));
 }
 
 function updateDraftLineItem(rowIndex, column, value) {
@@ -1218,7 +1204,7 @@ const administrationTabs = [
   ["users", "Users"], ["roles", "Roles & Permissions"], ["departments", "Departments"],
   ["costCenters", "Cost Centers"], ["vendors", "Vendors"], ["accounts", "Chart of Accounts"],
   ["taxCodes", "Tax Codes"], ["currencies", "Currencies"], ["paymentMethods", "Payment Methods"],
-  ["bankAccounts", "Bank Accounts"], ["documentTypes", "Document Types"],
+  ["documentTypes", "Document Types"],
 ];
 const financeAdministrationTabs = administrationTabs.filter(([id]) => !["users", "roles", "departments"].includes(id));
 
@@ -1257,7 +1243,7 @@ function shell(content) {
   const displayName = state.authUser?.display_name || persona.name;
   const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
   const initials = displayName.split(" ").map((part) => part[0]).slice(0, 2).join("");
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", bankAccounts: "Company Bank Accounts", documentTypes: "Document Types" };
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", documentTypes: "Document Types" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>

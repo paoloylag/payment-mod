@@ -3,28 +3,21 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..audit import audit
-from ..bank_crypto import decrypt_account_number, encrypt_account_number
 from ..database import get_db
 from ..models import (
     ChartAccount,
-    CompanyBankAccount,
     Currency,
     DocumentType,
     PaymentMethod,
-    Permission,
     TaxCode,
     User,
-    UserPermissionOverride,
 )
 from ..schemas import (
-    BankAccessChange,
-    BankAccountCreate,
-    BankAccountUpdate,
     ChartAccountCreate,
     ChartAccountUpdate,
     CurrencyCreate,
@@ -36,7 +29,7 @@ from ..schemas import (
     TaxCodeCreate,
     TaxCodeUpdate,
 )
-from ..security import effective_permissions, require_permission
+from ..security import require_permission
 from ..services.master_data import ensure_account_parent, ensure_unique, normalized
 from ..vendor_adapter import get_vendor_adapter
 
@@ -45,7 +38,6 @@ router = APIRouter(prefix="/api/v1", tags=["master data"])
 
 def row(item) -> dict:
     result = {column.name: getattr(item, column.name) for column in item.__table__.columns}
-    result.pop("encrypted_account_number", None)
     for key, value in tuple(result.items()):
         if isinstance(value, UUID):
             result[key] = str(value)
@@ -53,8 +45,6 @@ def row(item) -> dict:
             result[key] = float(value)
         elif isinstance(value, date | datetime):
             result[key] = value.isoformat()
-    if isinstance(item, CompanyBankAccount):
-        result["masked_account_number"] = f"•••• {item.account_number_last4}"
     return result
 
 
@@ -442,158 +432,3 @@ def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read"))
     if not item:
         raise HTTPException(404, "Vendor not found")
     return item
-
-
-@router.get("/company-bank-accounts")
-def bank_accounts(
-    response: Response,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=100, ge=1, le=100),
-    _: User = Depends(require_permission("bank_accounts.read")),
-    db: Session = Depends(get_db),
-):
-    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(CompanyBankAccount)) or 0)
-    response.headers["X-Page"] = str(page)
-    response.headers["X-Page-Size"] = str(page_size)
-    query = select(CompanyBankAccount).order_by(CompanyBankAccount.bank_name, CompanyBankAccount.id)
-    return [row(item) for item in db.scalars(query.offset((page - 1) * page_size).limit(page_size))]
-
-
-@router.post("/company-bank-accounts", status_code=201)
-def create_bank(
-    payload: BankAccountCreate,
-    request: Request,
-    actor: User = Depends(require_permission("bank_accounts.manage_sensitive")),
-    db: Session = Depends(get_db),
-):
-    if db.scalar(select(CompanyBankAccount).where(CompanyBankAccount.code == payload.code)):
-        raise HTTPException(409, "Bank account code already exists")
-    if not db.get(Currency, payload.currency_code):
-        raise HTTPException(422, "Currency does not exist")
-    values = normalized(payload.model_dump())
-    number = values.pop("account_number").strip()
-    item = CompanyBankAccount(
-        **values, encrypted_account_number=encrypt_account_number(number), account_number_last4=number[-4:]
-    )
-    db.add(item)
-    db.flush()
-    audit(
-        db,
-        actor_id=actor.id,
-        action="bank_account.created",
-        entity_type="company_bank_account",
-        entity_id=item.id,
-        request_id=request.state.request_id,
-        after=row(item),
-    )
-    db.commit()
-    return row(item)
-
-
-@router.patch("/company-bank-accounts/{item_id}")
-def update_bank(
-    item_id: UUID,
-    payload: BankAccountUpdate,
-    request: Request,
-    actor: User = Depends(require_permission("bank_accounts.manage_sensitive")),
-    db: Session = Depends(get_db),
-):
-    item = db.get(CompanyBankAccount, item_id)
-    if not item:
-        raise HTTPException(404, "Bank account not found")
-    before = row(item)
-    changes = normalized(payload.model_dump(exclude_unset=True))
-    number = changes.pop("account_number", None)
-    if changes.get("currency_code") and not db.get(Currency, changes["currency_code"]):
-        raise HTTPException(422, "Currency does not exist")
-    if number:
-        changes.update(encrypted_account_number=encrypt_account_number(number), account_number_last4=number[-4:])
-    for key, value in changes.items():
-        setattr(item, key, value)
-    safe_changes = {key: value for key, value in changes.items() if key != "encrypted_account_number"}
-    audit(
-        db,
-        actor_id=actor.id,
-        action="bank_account.updated",
-        entity_type="company_bank_account",
-        entity_id=item.id,
-        request_id=request.state.request_id,
-        before=before,
-        after=safe_changes,
-    )
-    db.commit()
-    return row(item)
-
-
-@router.post("/company-bank-accounts/{item_id}/reveal")
-def reveal_bank(
-    item_id: UUID,
-    request: Request,
-    actor: User = Depends(require_permission("bank_accounts.manage_sensitive")),
-    db: Session = Depends(get_db),
-):
-    item = db.get(CompanyBankAccount, item_id)
-    if not item:
-        raise HTTPException(404, "Bank account not found")
-    audit(
-        db,
-        actor_id=actor.id,
-        action="bank_account.revealed",
-        entity_type="company_bank_account",
-        entity_id=item.id,
-        request_id=request.state.request_id,
-        after={"reason": "authorized reveal"},
-    )
-    db.commit()
-    return {**row(item), "account_number": decrypt_account_number(item.encrypted_account_number)}
-
-
-@router.put("/bank-access")
-def change_bank_access(
-    payload: BankAccessChange,
-    request: Request,
-    actor: User = Depends(require_permission("bank_accounts.manage_access")),
-    db: Session = Depends(get_db),
-):
-    target = db.get(User, payload.user_id)
-    permission = db.scalar(select(Permission).where(Permission.code == "bank_accounts.manage_sensitive"))
-    if not target or not permission:
-        raise HTTPException(404, "User or bank permission not found")
-    before = db.scalar(
-        select(UserPermissionOverride).where(
-            UserPermissionOverride.user_id == target.id, UserPermissionOverride.permission_id == permission.id
-        )
-    )
-    db.execute(
-        delete(UserPermissionOverride).where(
-            UserPermissionOverride.user_id == target.id, UserPermissionOverride.permission_id == permission.id
-        )
-    )
-    db.add(UserPermissionOverride(user_id=target.id, permission_id=permission.id, is_allowed=payload.allowed))
-    audit(
-        db,
-        actor_id=actor.id,
-        action="bank_access.changed",
-        entity_type="user",
-        entity_id=target.id,
-        request_id=request.state.request_id,
-        before={"override": before.is_allowed if before else None},
-        after={"allowed": payload.allowed, "reason": payload.reason},
-    )
-    db.commit()
-    return {"user_id": str(target.id), "allowed": payload.allowed, "reason": payload.reason}
-
-
-@router.get("/bank-access")
-def bank_access_users(
-    _: User = Depends(require_permission("bank_accounts.manage_access")), db: Session = Depends(get_db)
-):
-    return [
-        {
-            "user_id": str(user.id),
-            "display_name": user.display_name,
-            "email": user.email,
-            "has_sensitive_access": "bank_accounts.manage_sensitive" in effective_permissions(db, user.id),
-        }
-        for user in db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.display_name))
-    ]

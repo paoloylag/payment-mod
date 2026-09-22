@@ -9,7 +9,7 @@ from .identity import (
     UserPermissionOverride,
     UserRole,
 )
-from .master_data import ChartAccount, CompanyBankAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode
+from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode
 from .requests import (
     PaymentRequest,
     PaymentRequestLine,
@@ -32,7 +32,6 @@ __all__ = [
     "UserPermissionOverride",
     "UserRole",
     "ChartAccount",
-    "CompanyBankAccount",
     "CostCenter",
     "Currency",
     "DocumentType",

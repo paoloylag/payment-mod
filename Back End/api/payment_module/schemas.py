@@ -181,24 +181,6 @@ class PaymentMethodUpdate(ReferenceUpdate):
     requires_reference: bool | None = None
 
 
-class BankAccountCreate(BaseModel):
-    code: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
-    bank_name: str = Field(min_length=1, max_length=160)
-    account_name: str = Field(min_length=1, max_length=160)
-    account_number: str = Field(min_length=4, max_length=80)
-    currency_code: str = Field(pattern=r"^[A-Z]{3}$")
-    branch: str = Field(default="", max_length=160)
-
-
-class BankAccountUpdate(BaseModel):
-    bank_name: str | None = Field(default=None, min_length=1, max_length=160)
-    account_name: str | None = Field(default=None, min_length=1, max_length=160)
-    account_number: str | None = Field(default=None, min_length=4, max_length=80)
-    currency_code: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
-    branch: str | None = Field(default=None, max_length=160)
-    is_active: bool | None = None
-
-
 class DocumentTypeCreate(ReferenceCreate):
     allowed_request_types: list[str] = Field(default_factory=list)
     copy_requirement: Literal["soft", "hard", "both"] = "soft"
@@ -207,9 +189,3 @@ class DocumentTypeCreate(ReferenceCreate):
 class DocumentTypeUpdate(ReferenceUpdate):
     allowed_request_types: list[str] | None = None
     copy_requirement: Literal["soft", "hard", "both"] | None = None
-
-
-class BankAccessChange(BaseModel):
-    user_id: UUID
-    allowed: bool
-    reason: str = Field(min_length=5, max_length=500)

@@ -96,24 +96,6 @@ class PaymentMethod(ReferenceRecordMixin, Base):
     requires_reference: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
-class CompanyBankAccount(Base):
-    __tablename__ = "company_bank_accounts"
-
-    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
-    code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
-    bank_name: Mapped[str] = mapped_column(String(160), nullable=False)
-    account_name: Mapped[str] = mapped_column(String(160), nullable=False)
-    encrypted_account_number: Mapped[str] = mapped_column(Text, nullable=False)
-    account_number_last4: Mapped[str] = mapped_column(String(4), nullable=False)
-    currency_code: Mapped[str] = mapped_column(ForeignKey("currencies.code", ondelete="RESTRICT"), nullable=False)
-    branch: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
-    )
-
-
 class DocumentType(ReferenceRecordMixin, Base):
     __tablename__ = "document_types"
 

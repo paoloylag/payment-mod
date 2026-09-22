@@ -16,7 +16,7 @@ The recommended database is PostgreSQL. The schema is normalized around a centra
 - Store uploaded files in object storage and retain only metadata and storage references in PostgreSQL.
 - Separate a payment request, its voucher, and its settlement so partial, failed, retried, or replacement payments remain possible.
 - Snapshot tax calculations and approval-policy versions used by a submitted request.
-- Protect sensitive bank information with encryption, access control, and masking.
+- Do not store company or vendor account numbers; retain only manual releasing-bank references where required for cash-release records.
 
 ## 3. Philippine Time policy
 
@@ -118,7 +118,7 @@ Fields unique to a request type should live in one-to-one extension tables rathe
 - `event_start_date`
 - `event_end_date`
 - `liquidation_due_date`
-- `return_bank_account_id`
+- `return_bank_name`, nullable manual reference
 
 The application calculates the current prototype's liquidation deadline as 15 days after the event end date. The calculated date should be persisted so later policy changes do not alter an existing request.
 
@@ -303,7 +303,7 @@ Finance validation cannot be completed unless total debits equal total credits w
 - `payment_method`: bank transfer, check, or cash
 - `amount`
 - `currency_code`
-- `bank_account_id`, nullable
+- `releasing_bank_name`, nullable manual reference
 - `check_number`, nullable
 - `external_reference`, nullable
 - `idempotency_key`
@@ -331,11 +331,10 @@ The complete schema will also require:
 
 - `users`, `roles`, and `user_roles`
 - `departments` and `cost_centers`
-- `vendors` and encrypted `vendor_bank_accounts`
+- external vendor references without vendor bank-account fields
 - `chart_of_accounts`
 - `tax_codes` and versioned tax rules
 - `purchase_orders` or references to an external PO system
-- `company_bank_accounts`
 - `approval_policies` and `approval_policy_rules` when policies become configurable
 - `notification_deliveries`
 - a system-wide `audit_log`
@@ -373,7 +372,7 @@ The audit log should capture security-sensitive and financially significant acti
 - finance validation and accounting-entry completion;
 - voucher creation, posting, and voiding;
 - payment preparation, authorization, release, clearing, failure, and voiding;
-- vendor, bank-account, role, permission, policy, and tax-rule changes;
+- vendor-reference, role, permission, policy, and tax-rule changes;
 - notification attempts and delivery outcomes.
 
 Every audit record should contain the actor, action, entity type, entity ID, before-and-after values where appropriate, source IP or client context when available, correlation ID, and a Philippine Time `occurred_at` timestamp. Audit rows should be append-only and unavailable to ordinary update or delete operations.
@@ -417,7 +416,7 @@ The following operations must be atomic database transactions:
 - releasing, clearing, failing, or voiding a payment;
 - creating an audit event and the outbox event for a notification or integration.
 
-An outbox table is recommended for backend integrations. Business changes and outbox events are committed together, after which a worker performs email, banking, ERP, or PO-system communication safely.
+An outbox table is recommended for backend integrations. Business changes and outbox events are committed together, after which a worker performs email, ERP, or PO-system communication safely. Bank release is recorded internally and does not create a banking message.
 
 ## 17. Security and access control
 
@@ -425,7 +424,7 @@ An outbox table is recommended for backend integrations. Business changes and ou
 - Department Heads may review requests routed to their department.
 - Finance Associates may validate documents and prepare vouchers or payments within their assigned duties.
 - Finance Managers and executive approvers may act only on approvals assigned to their role or identity.
-- Bank details must be masked by default and decrypted only for authorized payment processing.
+- Vendor account numbers must be discarded by the adapter and never enter application logs or responses.
 - Payment preparation and payment authorization should be separated where organizational policy requires segregation of duties.
 - Every privileged read or mutation of sensitive data should be auditable.
 
@@ -441,11 +440,11 @@ Add document reviews, tax codes, finance validation, chart of accounts, accounti
 
 ### Phase 3: Payment execution
 
-Add payments, bank accounts, signatory authorizations, pickup and release tracking, notification delivery, and the transactional outbox.
+Add payment attempts, manual releasing-bank references, signatory authorizations, pickup and release tracking, notification delivery, and the transactional outbox.
 
 ### Phase 4: Integrations and policy administration
 
-Add PO/ERP synchronization, bank integration, configurable approval policies, configurable tax rules, retention policies, and operational monitoring.
+Add PO/ERP synchronization, configurable approval policies, configurable tax rules, retention policies, and operational monitoring. No bank integration is planned; cash release records only the selected bank and manual evidence.
 
 ## 19. Open decisions before implementation
 
@@ -469,9 +468,8 @@ Migration `20260903_0005` introduces these PostgreSQL tables:
 - `tax_codes`: effective-dated VAT and EWT classifications with fixed-precision rates constrained to 0–100%;
 - `currencies`: ISO-style three-character codes, display metadata, precision, and active state;
 - `payment_methods`: effective-dated payment channels and transaction-reference requirements;
-- `company_bank_accounts`: encrypted account-number ciphertext, a last-four display fragment, currency, and safe metadata; and
 - `document_types`: effective-dated document definitions, allowed request types, and hard/soft-copy requirements.
 
-Vendors remain externally mastered. The local `/api/v1/vendors` facade uses a replaceable adapter and does not create a vendor table. Provider bank-account numbers are removed from ordinary responses and replaced by a masked last-four display value.
+Vendors remain externally mastered. The local `/api/v1/vendors` facade uses a replaceable adapter and does not create a vendor table. Provider bank-account fields are discarded entirely.
 
-The migration is reversible to `20260826_0004`. Destructive deletion of referenced master data is rejected; records already used by transactions will be deactivated instead.
+Historical migration `20260903_0005` is reversible to `20260826_0004`; follow-up migration `20260922_0007` removes the empty company-bank-account table and related permissions. It refuses to drop the table if records exist. Destructive deletion of referenced master data is rejected; records already used by transactions will be deactivated instead.
