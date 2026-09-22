@@ -307,7 +307,7 @@ Approval-free follow-up (2026-09-22): bounded master-data API pages and frontend
 
 Scope update (2026-09-22): QuickBooks-specific import/export and code mapping are deferred; preserve internal chart-of-account identifiers for a future optional mapping. No bank integration will be built. Cash release will record which bank is used without connecting to it.
 
-Validation update (2026-09-22): the pre-removal baseline passed 59 tests. After retiring bank-account administration and the unused `cryptography` dependency, the backend suite passed 58 tests; Ruff, frontend build, Python dependency audit, isolated migration downgrade/re-upgrade, and frontend-only navigation/legacy-route checks passed. Remaining gates are tracked in `docs/phase-02-validation.md`.
+Validation update (2026-09-22): the pre-removal baseline passed 59 tests. After retiring bank-account administration and the unused `cryptography` dependency, the backend suite passed 58 tests; Ruff, frontend build, Python dependency audit, isolated migration downgrade/re-upgrade and populated-table refusal, and mobile/hybrid navigation checks passed. Hosted CI run `35691873675` passed its frontend build, PostgreSQL-backed backend checks, and Docker-image artifact job. Remaining gates are tracked in `docs/phase-02-validation.md`.
 
 ### Phase 03 — Payment requests
 

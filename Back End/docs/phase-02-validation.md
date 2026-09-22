@@ -21,14 +21,14 @@ Status: In progress. Local checks are recorded below; Finance reference-data and
 | Dependencies | `pnpm audit --audit-level high` and `pip-audit -r requirements.txt` reported no known vulnerabilities on 2026-09-22. The unused `cryptography` dependency was removed with the feature. |
 | Backend | `pytest -q`: **58 passed, 1 warning** after removal and again after the mobile check. Focused identity/master-data tests: **20 passed, 1 warning**. Ruff and `git diff --check` passed. Alembic offline upgrade/downgrade SQL generated. |
 | Local container configuration | `docker compose config --quiet` passed. No Docker Desktop installation, service, or daemon was found on this device, so this is configuration validation only; the isolated PostgreSQL-backed tests above did run against the local test database. |
-| CI configuration | The repository-root `.github/workflows/backend-ci-cd.yml` already runs PostgreSQL-backed backend tests and builds a Docker image artifact. A frontend build job was added on 2026-09-22. No hosted run for these uncommitted changes exists yet. |
+| Hosted CI and Docker package | [Run 35691873675](https://github.com/paoloylag/payment-mod/actions/runs/35691873675) for commit `5060c20` completed successfully on 2026-09-22: frontend build, PostgreSQL-backed backend test/migration job, and Docker image build/package job all passed. GitHub reports uploaded artifact `payment-module-image-5060c204863cebe637907d8831fbb8d6b2383b35` (67,878,509 bytes; seven-day retention). This confirms image build, not a deployed container smoke test. |
 
 The previous baseline had 59 passing tests. One bank-specific test was retired and replaced with removed-route/field-exclusion assertions. The first post-removal run exposed two obsolete test expectations; both were corrected and the full suite passed.
 
 ## Validation still required
 
 - Complete a full keyboard and screen-reader walkthrough of all seven Master Data pages, including CRUD flows and error states. The 2026-09-22 mobile/hybrid checks and focused dialog-keyboard check do not establish assistive-technology compatibility. Repeat hybrid fallback checks across all seven tabs if this is a release gate; Cost Centers was the explicitly observed unavailable-API state.
-- Hosted CI, production-proxy/HTTPS, release artifact, and cross-browser/accessibility evidence remain production gates. The workflow is present at the repository root, but its next run requires these changes to be committed and pushed or submitted as a pull request. The CI Docker-image artifact cannot substitute for a production-like deployment check.
+- Production-proxy/HTTPS, deployed-container smoke test, and cross-browser/accessibility evidence remain production gates. The successful CI Docker-image artifact cannot substitute for a production-like deployment check.
 - Before authoritative accounting data is used: Finance's initial cost-center effective date, cross-department charging policy, approved internal accounts, and VAT/EWT definitions. One item has exactly one cost center per line.
 - For live vendor lookup: provider URL, authentication, pagination/filtering and error/rate-limit contract, and sandbox access. The deterministic mock remains in place.
 
