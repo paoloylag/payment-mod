@@ -5,6 +5,8 @@ Last decision update: 2026-09-21
 Status: In progress
 Depends on: Phase 02 — Master Data
 
+2026-09-22 approval-independent validation: the 21 focused request API tests and full 58-test backend regression passed against the dedicated PostgreSQL test database; the production frontend build passed. API-connected Requestor draft save/reload and incomplete-submit feedback passed. All five API-connected form routes rendered; all five standalone forms fit a 390 × 844 viewport without page-level horizontal overflow. Standalone mock drafts now survive reload. The full five-type browser lifecycle remains open. See `docs/phase-03-validation.md` and the development/test register for evidence.
+
 ## Implementation progress — 2026-09-20
 
 - All five request forms now map their visible shared fields, type-specific fields, line details, master-data IDs,

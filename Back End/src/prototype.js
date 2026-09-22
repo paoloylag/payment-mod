@@ -2,6 +2,26 @@ import { createDataSource } from "./data-source.js";
 import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260920-backend-integration";
 
 const dataSource = createDataSource();
+const mockDraftStorageKey = "payment-module-mock-drafts-v1";
+
+function loadMockDrafts(fallback) {
+  if (dataSource.mode !== "mock") return fallback;
+  try {
+    const stored = JSON.parse(localStorage.getItem(mockDraftStorageKey) || "null");
+    return Array.isArray(stored) ? stored : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistMockDrafts(drafts) {
+  if (dataSource.mode !== "mock") return;
+  try {
+    localStorage.setItem(mockDraftStorageKey, JSON.stringify(drafts));
+  } catch (error) {
+    console.warn("Mock draft storage is unavailable.", error);
+  }
+}
 
 const paymentTypes = {
   reimbursement: {
@@ -242,7 +262,7 @@ let state = {
   activeDraftId: null,
   requestFieldBuffer: {},
   requestDocumentBuffer: {},
-  drafts: Object.entries(paymentTypes).map(([type], index) => ({
+  drafts: loadMockDrafts(Object.entries(paymentTypes).map(([type], index) => ({
     id: `DRAFT-2026-${String(index + 1).padStart(4, "0")}`,
     type,
     requestor: "Mika Santos",
@@ -255,7 +275,7 @@ let state = {
     liquidationAdvanceAmount: type === "liquidation" ? 50000 : 0,
     lineItems: (lineItemExamples[type] || []).slice(0, 1).map((item) => ({ ...item })),
     controls: [],
-  })),
+  }))),
   draftType: "reimbursement",
   draftCurrency: "PHP",
   otherCurrency: "",
@@ -1045,11 +1065,12 @@ function saveDraft({ silent = false } = {}) {
     backendStatus: existing?.backendStatus,
   };
   state.drafts = existing ? state.drafts.map((item) => item.id === draft.id ? draft : item) : [...state.drafts, draft];
+  persistMockDrafts(state.drafts);
   state.activeDraftId = draft.id;
   state.draftDirty = false;
   void persistDraft(draft);
   if (!silent) {
-    state.toast = successToast(`${draft.id} has been saved and can be continued later.`, "Draft saved");
+    state.toast = successToast("Your draft has been saved and can be continued later.", "Draft saved");
     render();
   }
 }
@@ -1153,6 +1174,7 @@ async function submitSavedDraft(id) {
     bankSubmittedAt: "", bankSubmittedBy: "", bankAuthorizedAt: "", bankAuthorizedBy: "", vendorNotifiedAt: "", vendorNotifiedBy: "", pickupAvailableAt: "", pickupAvailableBy: "",
   });
   state = { ...state, drafts: state.drafts.filter((item) => item.id !== id), activeDraftId: null, selectedId: idValue, requestMode: "new", cashAdvanceOptions: draft.type === "cashAdvance" ? null : state.cashAdvanceOptions };
+  persistMockDrafts(state.drafts);
   navigate(`/requests/${idValue}`);
 }
 
@@ -2437,7 +2459,9 @@ function render() {
     if (!draft || !window.confirm(`Delete ${draft.id}?`)) return;
     try {
       if (draft.backendId) await dataSource.deletePaymentRequest(draft.backendId, state.csrfToken);
-      setState({ drafts: state.drafts.filter((item) => item.id !== draft.id), activeDraftId: state.activeDraftId === draft.id ? null : state.activeDraftId });
+      const remainingDrafts = state.drafts.filter((item) => item.id !== draft.id);
+      persistMockDrafts(remainingDrafts);
+      setState({ drafts: remainingDrafts, activeDraftId: state.activeDraftId === draft.id ? null : state.activeDraftId });
     } catch (error) { showErrorToast(error.message || "The draft could not be deleted.", "Draft not deleted"); }
   }));
   document.querySelectorAll("[data-edit-returned]").forEach((button) => button.addEventListener("click", () => {
