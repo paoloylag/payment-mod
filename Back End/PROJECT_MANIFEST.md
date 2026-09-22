@@ -642,7 +642,7 @@ When backend development resumes:
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
-| 02 — Master data | In progress | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` |
+| 02 — Master data | Ready for validation | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` (automated/local gates passed; Finance, vendor, accessibility, and deployment review pending) |
 | 03 — Payment requests | In progress | `docs/phase-03-plan.md` (API form integration and five-type validation updated 2026-09-20) |
 | 04 — Documents | Not started | `docs/phase-04-plan.md` |
 | 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |

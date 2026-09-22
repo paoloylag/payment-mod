@@ -1,7 +1,7 @@
 # Phase 02 — Validation record
 
 Date: 2026-09-22
-Status: In progress. Local checks are recorded below; Finance reference-data and live vendor integration remain open.
+Status: Ready for validation. Implementation and automated checks are recorded below; Finance reference-data, live vendor integration, and remaining human/environmental acceptance remain open. This is not a `Validated` sign-off.
 
 ## Current scope
 
