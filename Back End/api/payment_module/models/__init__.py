@@ -1,3 +1,4 @@
+from .documents import Document, DocumentVersion
 from .identity import (
     AuditEvent,
     AuthSession,
@@ -37,6 +38,8 @@ __all__ = [
     "DocumentType",
     "PaymentMethod",
     "TaxCode",
+    "Document",
+    "DocumentVersion",
     "PaymentRequest",
     "PaymentRequestLine",
     "PaymentRequestStatusHistory",

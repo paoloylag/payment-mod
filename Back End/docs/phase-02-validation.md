@@ -1,6 +1,6 @@
 # Phase 02 — Validation record
 
-Date: 2026-09-22
+Date: 2026-09-23
 Status: Ready for validation. Implementation and automated checks are recorded below; Finance reference-data, live vendor integration, and remaining human/environmental acceptance remain open. This is not a `Validated` sign-off.
 
 ## Current scope
@@ -20,7 +20,7 @@ Status: Ready for validation. Implementation and automated checks are recorded b
 | API unavailable and keyboard | Hybrid mode with its API URL pointed to an unavailable local port displayed the mock fallback and a backend-unavailable alert while Cost Centers still rendered. In the Tax Code dialog, focus entered the Code field; Escape closed it and restored focus to `+ Tax Code`. These are focused checks, not a full assistive-technology audit. |
 | Dependencies | `pnpm audit --audit-level high` and `pip-audit -r requirements.txt` reported no known vulnerabilities on 2026-09-22. The unused `cryptography` dependency was removed with the feature. |
 | Backend | `pytest -q`: **58 passed, 1 warning** after removal and again after the mobile check. Focused identity/master-data tests: **20 passed, 1 warning**. Ruff and `git diff --check` passed. Alembic offline upgrade/downgrade SQL generated. |
-| Local container configuration | `docker compose config --quiet` passed. No Docker Desktop installation, service, or daemon was found on this device, so this is configuration validation only; the isolated PostgreSQL-backed tests above did run against the local test database. |
+| Local Docker acceptance | Docker Desktop 4.92.0 / Engine 29.8.0 built and ran the current image with PostgreSQL 16. The complete 60-test suite passed against an isolated Docker database. Live Master Data lists and pagination passed; vendor results contained no bank fields; removed bank routes returned 404 and were absent from OpenAPI. A populated historical bank table correctly blocked migration `20260922_0007`, preserved the row and prior revision, and upgraded only after the synthetic fixture was removed. Full migration replay and logical backup/restore also passed. See `docs/local-docker-acceptance-2026-09-23.md`. |
 | Hosted CI and Docker package | [Run 35691873675](https://github.com/paoloylag/payment-mod/actions/runs/35691873675) for commit `5060c20` completed successfully on 2026-09-22: frontend build, PostgreSQL-backed backend test/migration job, and Docker image build/package job all passed. GitHub reports uploaded artifact `payment-module-image-5060c204863cebe637907d8831fbb8d6b2383b35` (67,878,509 bytes; seven-day retention). This confirms image build, not a deployed container smoke test. |
 
 The previous baseline had 59 passing tests. One bank-specific test was retired and replaced with removed-route/field-exclusion assertions. The first post-removal run exposed two obsolete test expectations; both were corrected and the full suite passed.
@@ -28,7 +28,7 @@ The previous baseline had 59 passing tests. One bank-specific test was retired a
 ## Validation still required
 
 - Complete a full keyboard and screen-reader walkthrough of all seven Master Data pages, including CRUD flows and error states. The 2026-09-22 mobile/hybrid checks and focused dialog-keyboard check do not establish assistive-technology compatibility. Repeat hybrid fallback checks across all seven tabs if this is a release gate; Cost Centers was the explicitly observed unavailable-API state.
-- Production-proxy/HTTPS, deployed-container smoke test, and cross-browser/accessibility evidence remain production gates. The successful CI Docker-image artifact cannot substitute for a production-like deployment check.
+- Production-proxy/HTTPS and cross-browser/accessibility evidence remain production gates. The live local container smoke test now passes, but it cannot substitute for a production-like deployment check.
 - Before authoritative accounting data is used: Finance's initial cost-center effective date, cross-department charging policy, approved internal accounts, and VAT/EWT definitions. One item has exactly one cost center per line.
 - For live vendor lookup: provider URL, authentication, pagination/filtering and error/rate-limit contract, and sandbox access. The deterministic mock remains in place.
 

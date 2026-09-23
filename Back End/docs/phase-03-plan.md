@@ -180,8 +180,8 @@ Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidat
 
 - Confirm lifecycle-state names and which fields may be edited after return or authorized reopen.
 - Resolve the remaining source discrepancies listed above, particularly the General Payment particulars and document rules.
-- Confirm duplicate-invoice matching criteria. The source requires invoice numbers and per-line invoices for Reimbursement but does not define exact duplicate behavior.
-- Foreign-currency conversion is out of the initial implementation. Before conversion is enabled, Finance must approve the rate source, rate timestamp/date, rounding, base currency, and immutable exchange-rate snapshot policy.
+- Duplicate-invoice behavior is confirmed: Reimbursement and Liquidation submissions compare a normalized invoice reference and all available invoice-line business fields. A complete match is tagged `exact`; the same reference with any differing field is a non-blocking `warning`. Both require Finance verification and retain the matched/differing-field evidence.
+- Currency conversion is not required. Requests retain the entered amount and ISO currency as an inseparable pair; the system does not calculate a converted or base-currency amount.
 
 ## Exclusions
 

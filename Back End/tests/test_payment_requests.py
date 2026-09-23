@@ -168,6 +168,81 @@ def test_mixed_currency_rejected_and_visibility_enforced(client):
     assert client.get(f"/api/v1/requests/{created['id']}", headers=other_headers).status_code == 404
 
 
+def test_duplicate_invoice_checks_distinguish_exact_and_warning_matches(client):
+    seed()
+    headers = login(client)
+    invoice_number = f"INV-DUP-{uuid4()}"
+
+    original_payload = payload()
+    original_payload["lines"][0]["invoice_number"] = invoice_number
+    original = client.post("/api/v1/requests", json=original_payload, headers=headers).json()
+    original = client.post(
+        f"/api/v1/requests/{original['id']}/submit",
+        json={"version": original["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    assert original["type_data"]["duplicate_invoice_review_status"] == "no_match"
+
+    exact_payload = payload()
+    exact_payload["lines"][0]["invoice_number"] = f"  {invoice_number.lower()}  "
+    exact = client.post("/api/v1/requests", json=exact_payload, headers=headers).json()
+    exact = client.post(
+        f"/api/v1/requests/{exact['id']}/submit",
+        json={"version": exact["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    exact_checks = exact["type_data"]["duplicate_invoice_checks"]
+    assert exact["type_data"]["duplicate_invoice_review_status"] == "finance_verification_required"
+    assert any(check["match_level"] == "exact" for check in exact_checks)
+    assert all(check["finance_verification_required"] is True for check in exact_checks)
+
+    changed_payload = payload()
+    changed_payload["lines"][0].update({"invoice_number": invoice_number, "amount": "900.00"})
+    changed = client.post("/api/v1/requests", json=changed_payload, headers=headers).json()
+    changed = client.post(
+        f"/api/v1/requests/{changed['id']}/submit",
+        json={"version": changed["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    warning_checks = changed["type_data"]["duplicate_invoice_checks"]
+    assert warning_checks
+    assert all(check["match_level"] == "warning" for check in warning_checks)
+    assert all("amount" in check["differing_fields"] for check in warning_checks)
+
+
+def test_foreign_currency_amount_is_logged_without_conversion(client):
+    seed()
+    headers = login(client)
+    invoice_number = f"INV-CURRENCY-{uuid4()}"
+
+    php_payload = payload("PHP")
+    php_payload["lines"][0]["invoice_number"] = invoice_number
+    php = client.post("/api/v1/requests", json=php_payload, headers=headers).json()
+    submitted_php = client.post(
+        f"/api/v1/requests/{php['id']}/submit",
+        json={"version": php["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_php.status_code == 200
+
+    usd_payload = payload("USD")
+    usd_payload["lines"][0].update({"invoice_number": invoice_number, "amount": "1250.50"})
+    usd = client.post("/api/v1/requests", json=usd_payload, headers=headers).json()
+    submitted_usd = client.post(
+        f"/api/v1/requests/{usd['id']}/submit",
+        json={"version": usd["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_usd.status_code == 200
+    result = submitted_usd.json()
+    assert result["currency_code"] == "USD" and result["gross_amount"] == 1250.5
+    assert result["lines"][0]["currency_code"] == "USD" and result["lines"][0]["amount"] == 1250.5
+    assert "converted_amount" not in result and "exchange_rate" not in result
+    checks = result["type_data"]["duplicate_invoice_checks"]
+    assert checks and all(check["match_level"] == "warning" for check in checks)
+    assert all("currency_code" in check["differing_fields"] for check in checks)
+
+
 def test_department_head_can_return_submitted_department_request(client):
     seed()
     headers = login(client)

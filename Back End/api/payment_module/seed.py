@@ -75,8 +75,12 @@ PERMISSIONS = {
     "requests.read_all": "Read all payment requests",
     "requests.manage_lifecycle": "Return and administer submitted payment requests",
     "requests.numbering.manage": "Configure the payment request numbering reset month",
+    "documents.read": "Read document metadata and authorized content",
+    "documents.manage_own": "Upload and replace documents on owned editable requests",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
+for role_code in ROLES:
+    ROLE_PERMISSIONS[role_code].add("documents.read")
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
 ROLE_PERMISSIONS["finance_manager"] |= {
     "master_data.read",
@@ -99,12 +103,14 @@ ROLE_PERMISSIONS["finance_associate"] |= {
 for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
     ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "accounts.read"}
 ROLE_PERMISSIONS["requestor"] |= {"requests.create", "requests.read_own"}
+ROLE_PERMISSIONS["requestor"].add("documents.manage_own")
 ROLE_PERMISSIONS["department_head"] |= {
     "requests.create",
     "requests.read_own",
     "requests.read_department",
     "requests.manage_lifecycle",
 }
+ROLE_PERMISSIONS["department_head"].add("documents.manage_own")
 ROLE_PERMISSIONS["system_administrator"] |= {
     "requests.create",
     "requests.read_own",
@@ -112,6 +118,7 @@ ROLE_PERMISSIONS["system_administrator"] |= {
     "requests.read_all",
     "requests.manage_lifecycle",
 }
+ROLE_PERMISSIONS["system_administrator"].add("documents.manage_own")
 DEMO_USERS = [
     ("requestor", "requestor@payment.local", "Development Requestor", "MKTG"),
     ("department_head", "department.head@payment.local", "Development Department Head", "MKTG"),

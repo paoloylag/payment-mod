@@ -20,11 +20,20 @@ services:
       # Keep disabled in the application container. Run maintenance explicitly from a local one-off command.
       SESSION_CLEANUP_ENABLED: "false"
       DEVELOPMENT_DEMO_PASSWORD: ${DEVELOPMENT_DEMO_PASSWORD:-}
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_REGION: ap-southeast-1
+      S3_BUCKET: payment-module-documents
+      S3_ACCESS_KEY_ID: payment-module-local
+      S3_SECRET_ACCESS_KEY: payment-module-local-secret
+      # Local MinIO has no KMS. Deployed AWS environments must set AES256 or aws:kms.
+      S3_SERVER_SIDE_ENCRYPTION: ""
     ports:
       - "127.0.0.1:8002:8002"
     depends_on:
       db:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readyz')"]
       interval: 10s
@@ -48,5 +57,28 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: payment-module-local
+      MINIO_ROOT_PASSWORD: payment-module-local-secret
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59001:9001"
+    volumes:
+      - payment-module-minio:/data
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 payment-module-local payment-module-local-secret; do sleep 1; done;
+      mc mb --ignore-existing local/payment-module-documents;
+      mc version enable local/payment-module-documents;
+      mc anonymous set none local/payment-module-documents"
+
 volumes:
   payment-module-postgres:
+  payment-module-minio:

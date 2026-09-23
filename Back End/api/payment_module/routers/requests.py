@@ -333,6 +333,88 @@ def ensure_submittable(db: Session, item: PaymentRequest) -> None:
         raise HTTPException(422, detail={"message": "Request is incomplete", "errors": errors})
 
 
+def _normalized_invoice_reference(value: str | None) -> str:
+    return "".join((value or "").casefold().split())
+
+
+def _normalized_match_text(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
+    """Store non-blocking invoice matches for Finance review at submission time."""
+    data = dict(item.type_data or {})
+    if item.request_type not in {"reimbursement", "liquidation"}:
+        data.pop("duplicate_invoice_checks", None)
+        data.pop("duplicate_invoice_review_status", None)
+        item.type_data = data
+        return
+
+    lines = list(
+        db.scalars(
+            select(PaymentRequestLine)
+            .where(PaymentRequestLine.request_id == item.id)
+            .order_by(PaymentRequestLine.position)
+        )
+    )
+    checks: list[dict] = []
+    for line in lines:
+        reference = _normalized_invoice_reference(line.invoice_number)
+        if not reference:
+            continue
+        candidates = db.execute(
+            select(PaymentRequestLine, PaymentRequest)
+            .join(PaymentRequest, PaymentRequest.id == PaymentRequestLine.request_id)
+            .where(
+                PaymentRequestLine.request_id != item.id,
+                PaymentRequest.status.in_(("submitted", "returned", "cancelled")),
+                func.lower(func.regexp_replace(PaymentRequestLine.invoice_number, r"\s+", "", "g")) == reference,
+            )
+            .order_by(PaymentRequest.submitted_at.desc().nullslast(), PaymentRequestLine.position)
+        ).all()
+        for candidate, prior_request in candidates:
+            compared = {
+                "invoice_number": _normalized_invoice_reference(candidate.invoice_number) == reference,
+                "vendor_name": _normalized_match_text(candidate.vendor_name)
+                == _normalized_match_text(line.vendor_name),
+                "invoice_date": candidate.invoice_date == line.invoice_date,
+                "amount": candidate.amount == line.amount,
+                "currency_code": candidate.currency_code == line.currency_code,
+                "particulars": _normalized_match_text(candidate.particulars)
+                == _normalized_match_text(line.particulars),
+                "chart_account_id": candidate.chart_account_id == line.chart_account_id,
+                "cost_center_id": candidate.cost_center_id == line.cost_center_id,
+            }
+            exact = all(compared.values())
+            checks.append(
+                {
+                    "line_position": line.position,
+                    "match_level": "exact" if exact else "warning",
+                    "finance_verification_required": True,
+                    "message": (
+                        "Exact invoice match found; Finance verification is required."
+                        if exact
+                        else (
+                            "Invoice reference matches but other information differs; "
+                            "Finance verification is required."
+                        )
+                    ),
+                    "matched_fields": [field for field, matches in compared.items() if matches],
+                    "differing_fields": [field for field, matches in compared.items() if not matches],
+                    "prior_request_id": str(prior_request.id),
+                    "prior_request_number": prior_request.request_number,
+                    "prior_request_status": prior_request.status,
+                    "prior_line_id": str(candidate.id),
+                    "invoice_number": line.invoice_number,
+                    "prior_amount": str(candidate.amount),
+                    "prior_currency_code": candidate.currency_code,
+                }
+            )
+    data["duplicate_invoice_checks"] = checks
+    data["duplicate_invoice_review_status"] = "finance_verification_required" if checks else "no_match"
+    item.type_data = data
+
+
 def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
     db.execute(delete(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
     for position, line in enumerate(payload.lines, 1):
@@ -636,6 +718,7 @@ def submit_payment_request(
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
     ensure_submittable(db, item)
+    record_duplicate_invoice_checks(db, item)
     previous = item.status
     item.status = "submitted"
     item.submitted_at = datetime.now(UTC)
@@ -797,6 +880,7 @@ def resubmit_payment_request(
     if not payload.note.strip():
         raise HTTPException(422, "A resubmission note is required")
     ensure_submittable(db, item)
+    record_duplicate_invoice_checks(db, item)
     result = lifecycle_change(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
     )

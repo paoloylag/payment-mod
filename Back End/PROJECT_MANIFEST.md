@@ -301,7 +301,7 @@ Detailed plan: `docs/phase-02-plan.md`.
 
 Prototype validation: replace form dropdown mocks and administration reference lists with API data.
 
-Historical implementation (2026-09-03): migration `20260903_0005`, master-data models/services/APIs, deterministic seeds, vendor adapter, and API-backed request dropdowns with standalone mock fallback were implemented. A formerly included protected bank-account administration area was removed by `20260922_0007`; the historical migration is retained because it was already applied. Docker Desktop 4.89 encountered a host-level Windows Unix-socket error, so local PostgreSQL validation uses the loopback-only native service on port `5434` without changing production configuration.
+Historical implementation (2026-09-03): migration `20260903_0005`, master-data models/services/APIs, deterministic seeds, vendor adapter, and API-backed request dropdowns with standalone mock fallback were implemented. A formerly included protected bank-account administration area was removed by `20260922_0007`; the historical migration is retained because it was already applied. Docker Desktop was repaired and upgraded to 4.92.0 / Engine 29.8.0 on 2026-09-23; current local container validation uses isolated loopback ports without changing production configuration.
 
 Approval-free follow-up (2026-09-22): bounded master-data API pages and frontend page aggregation are implemented; additional pagination/filtering, chart-account, vendor-mock, and wrong-key tests pass. One item and exactly one cost center per request line is confirmed; split allocation within a line is out of scope. The full backend suite passed with 59 tests. See `docs/phase-02-validation.md` for current evidence and remaining gates.
 
@@ -309,12 +309,15 @@ Scope update (2026-09-22): QuickBooks-specific import/export and code mapping ar
 
 Validation update (2026-09-22): the pre-removal baseline passed 59 tests. After retiring bank-account administration and the unused `cryptography` dependency, the backend suite passed 58 tests; Ruff, frontend build, Python dependency audit, isolated migration downgrade/re-upgrade and populated-table refusal, and mobile/hybrid navigation checks passed. Hosted CI run `35691873675` passed its frontend build, PostgreSQL-backed backend checks, and Docker-image artifact job. Remaining gates are tracked in `docs/phase-02-validation.md`.
 
+Local Docker acceptance update (2026-09-23): the current image and PostgreSQL 16 stack passed complete migration replay, double seed, all 60 backend tests, live health/authentication/session-restart/Master-Data checks, populated-table migration refusal, and logical backup/restore. Non-local and Finance-owned gates are itemized in `docs/local-docker-acceptance-2026-09-23.md`.
+
 ### Phase 03 — Payment requests
 
 Detailed plan: `docs/phase-03-plan.md`.
 
 - Draft create, autosave, retrieve, edit, delete, submit, cancel, reopen, return, and resubmit.
 - Request numbering, request versions, optimistic locking, request-type extension data, line items with one cost center each, currency rules, totals, and duplicate invoice checks.
+- Duplicate invoice checks compare all available invoice-line business fields. Exact matches and partial same-reference matches are retained as non-blocking Finance-verification evidence. Amounts remain paired with their entered currency; currency conversion is out of scope.
 - Request types: Reimbursement, Cash Advance, Liquidation, P.O. Payment, and General Payment.
 
 Prototype validation: create and persist each request type, reload it, submit it, list it, filter it, and enforce ownership/department visibility.
@@ -324,10 +327,13 @@ Prototype validation: create and persist each request type, reload it, submit it
 Detailed plan: `docs/phase-04-plan.md`.
 
 - Private upload/download, metadata, checksums, versions, replacements, required-document rules, request- and line-level links, and hard/soft-copy status.
-- Storage adapter with protected local development storage first.
+- S3-compatible storage adapter with private AWS S3 buckets for deployed environments and MinIO for local Docker/test validation; no file binaries in PostgreSQL or application containers.
 - Malware-scanning integration point for production.
+- Initial rules: PDF/JPG/JPEG/PNG/XLSX/XLS/DOCX/DOC; 50 MB per file and 100 MB active-document total per request; PDF/image preview; Office download; duplicate-checksum warning with authorized links to prior request usage; Finance hard-copy tracking; post-submission replacement only while returned for correction. Submitted documents are retained indefinitely until a formal production retention policy is approved.
 
 Prototype validation: upload, replace, preview, download, and review document requirements against persisted requests.
+
+Implementation update (2026-09-23): Phase 04 is `In progress`. Reversible migration `20260923_0008`, private S3/MinIO storage, document permissions, upload, metadata listing, authorized preview/download, immutable replacement/version history, checksum duplicate-use warnings, file signature/size/aggregate validation, and audit events are implemented. Ruff passed, the complete PostgreSQL-backed suite passed 62 tests, and a live Docker/MinIO upload-preview-replacement smoke test passed. Removal, required-document evaluation, Finance hard-copy/reviewer mutation APIs, frontend wiring, and production AWS/malware integration remain in the next slice. See `docs/phase-04-api.md` and `docs/phase-04-validation.md`.
 
 ### Phase 05 — Workflow and approvals
 
@@ -606,7 +612,7 @@ For a phase-level completion decision, all of the following must also be true:
 
 - Use local development authentication first; keep Life OS SAML behind an identity adapter for a later phase.
 - Use PostgreSQL as the authoritative workflow, financial-record, and audit database.
-- Use protected local file storage for development and an S3-compatible private object-storage adapter for production.
+- Use private S3-compatible object storage in every backend environment: MinIO for local Docker/tests and AWS S3 for deployed environments. Keep binaries out of PostgreSQL and application containers, use environment-isolated credentials/buckets, block public access, and require server-side encryption.
 - Keep approval thresholds coded but version-identified for the MVP; add administrator-configurable policies only after workflow behavior is validated.
 - Use a development mailbox or notification log before enabling live email.
 - Treat departments and cost centers as local master data until another authoritative owner is confirmed. Vendors are externally owned and must be accessed through a replaceable adapter.
@@ -644,7 +650,7 @@ When backend development resumes:
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
 | 02 — Master data | Ready for validation | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` (automated/local gates passed; Finance, vendor, accessibility, and deployment review pending) |
 | 03 — Payment requests | In progress | `docs/phase-03-plan.md`; `docs/phase-03-validation.md` (2026-09-22 focused regression/browser checks; full lifecycle and Finance decisions pending) |
-| 04 — Documents | Not started | `docs/phase-04-plan.md` |
+| 04 — Documents | In progress | `docs/phase-04-plan.md` (S3/MinIO foundation and first four document API capabilities) |
 | 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |
 | 06 — Finance validation and vouchers | Not started | `docs/phase-06-plan.md` |
 | 07 — Payment execution | Not started | `docs/phase-07-plan.md` |

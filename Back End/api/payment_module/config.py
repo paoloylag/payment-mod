@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     draft_warning_days: int = 7
     draft_archival_batch_size: int = 500
     development_demo_password: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_region: str = "ap-southeast-1"
+    s3_bucket: str = "payment-module-documents"
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_server_side_encryption: str = "AES256"
+    document_max_file_mb: int = 50
+    document_max_request_mb: int = 100
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

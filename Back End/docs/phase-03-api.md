@@ -71,6 +71,22 @@ expected HTTP `422` into an internal error.
 - General Payment does not use a request-level particulars field. Empty frontend breakdown rows are omitted; once any
   value is entered in a row, every required field for that row must be completed before submission.
 - The exact Decimal sum of all lines is the authoritative request total.
+- Amounts are stored and returned only in their entered currency. No exchange rate, converted amount, or base-currency equivalent is calculated.
+
+## Duplicate-invoice review
+
+Reimbursement and Liquidation submission/resubmission checks prior submitted, returned, and cancelled invoice lines with
+the same normalized invoice number. Matching ignores invoice-number case and whitespace. It then compares vendor, invoice
+date, amount, currency, particulars, expense account, and cost center.
+
+- If every compared field matches, `type_data.duplicate_invoice_checks[].match_level` is `exact`.
+- If the invoice number matches but any other field differs, `match_level` is `warning` and `differing_fields` identifies
+  the differences.
+- Both outcomes set `finance_verification_required` to `true` and are non-blocking; Finance makes the final determination.
+- `type_data.duplicate_invoice_review_status` is `finance_verification_required` when matches exist and `no_match` otherwise.
+
+The check result is stored in the request snapshot for an auditable record of the information available at submission.
+Drafts and archived drafts are not duplicate candidates.
 
 ## Draft retention
 

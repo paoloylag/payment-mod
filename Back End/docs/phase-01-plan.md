@@ -97,3 +97,9 @@ Reviewed implementation commit: `44e876e`
 Phase 01 is locally validated with the external browser and production-environment checks above recorded as accepted
 limitations. No automatic staging or production deployment is enabled, and retained-session cleanup hard-refuses both
 environments.
+
+On 2026-09-23, the current Docker image and PostgreSQL 16 stack revalidated login, authenticated session continuity
+across an application-container restart, logout/revocation, the full identity regression, cleanup protections, and a
+logical backup/restore. The full current backend suite passed 60 tests. Production proxy/HTTPS, penetration testing,
+Firefox, Safari, LifeOS SAML, and full accessibility remain non-local gates; see
+`docs/local-docker-acceptance-2026-09-23.md`.

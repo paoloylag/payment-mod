@@ -54,3 +54,11 @@ environment gate. The stable `main` Pages workflow is retained, and hybrid/mock 
 
 Phase 00 is approved as `Validated`. Re-run all gates after changes to configuration, database foundations, middleware,
 migrations, seed behavior, Docker packaging, or system endpoints.
+
+## 2026-09-23 Docker revalidation
+
+The current image was rebuilt under Docker Desktop 4.92.0 / Engine 29.8.0. PostgreSQL 16 was started on an isolated
+loopback port; the complete migration upgrade, downgrade, and replay passed; the deterministic seed passed twice; and
+the current 60-test suite passed against the Docker database. The live health, readiness, API root, system status, and
+documentation endpoints returned HTTP 200 with request IDs. A custom-format logical backup restored with matching
+schema revision and sampled record counts. See `docs/local-docker-acceptance-2026-09-23.md`.
