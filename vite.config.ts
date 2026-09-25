@@ -5,6 +5,9 @@ export default defineConfig({
   base: "/payment-mod/",
   plugins: [react()],
   server: {
+    watch: {
+      ignored: ["**/.pnpm-store/**", "**/.worktrees/**", "**/output/**", "**/tmp/**"],
+    },
     proxy: {
       "/api": "http://127.0.0.1:8002",
       "/healthz": "http://127.0.0.1:8002",

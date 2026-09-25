@@ -1,5 +1,5 @@
 import { createDataSource } from "./data-source.js";
-import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js";
+import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260909-navigation-steps";
 
 const dataSource = createDataSource();
 
@@ -620,7 +620,7 @@ function shell(content) {
         <nav class="nav-list" aria-label="Primary">${navGroups.map(([group, links]) => `<div class="nav-group"><span class="nav-group-label">${group}</span><div class="nav-group-links">${links.map(([id, label, icon]) => `<button data-tab="${id}" class="${state.tab === id ? "active" : ""}"><span>${icon}</span>${label}</button>`).join("")}</div></div>`).join("")}</nav>
         <div class="sidebar-footer backend-${state.backendStatus.state}"><span class="sidebar-status-icon" aria-hidden="true">${state.backendStatus.state === "connected" ? "✓" : state.backendStatus.state === "unavailable" ? "!" : "•"}</span><span>${state.backendStatus.label}</span></div>
       </aside>
-      <main>
+      <main class="${state.tab === "guide" ? "guide-main" : ""}">
         <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button><div class="persona-control"><label for="personaSwitcher">View As</label><select id="personaSwitcher">${Object.entries(personas).map(([id, option]) => `<option value="${id}" ${state.persona === id ? "selected" : ""}>${option.label}</option>`).join("")}</select></div><div class="user-chip" aria-label="Current prototype user"><span class="user-chip-avatar">${persona.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span><span class="user-chip-copy"><strong>${persona.name}</strong><small>${persona.label}</small></span></div></div></header>
         ${content}
         ${unlockRequestModal()}
@@ -1235,13 +1235,12 @@ function systemGuide() {
   </section>`).join("");
   return `<section class="system-guide-page">
     <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
-    <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
+    <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}" data-guide-anchor="guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
     <div class="guide-content">
       <search class="guide-search"><label for="guideSearch">Search the Payment Module guide</label><div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" placeholder="Search procedures, roles, or payment stages" autocomplete="off" data-guide-search></div><p role="status" data-guide-search-status>Search procedures, approval rules, documents, and controls.</p></search>
       <section class="guide-workflow" aria-labelledby="guide-workflow-title"><div class="guide-section-heading compact"><div><span class="eyebrow">${isOverallGuide ? "End to end" : "Your workflow"}</span><h3 id="guide-workflow-title">Payment workflow at a glance</h3><p>${isOverallGuide ? "Each completed stage hands the request to the next responsible role." : "These are the payment stages most relevant to your role."}</p></div></div><div class="guide-stage-list">${visibleStages.map(([number, name, owner, detail]) => `<article data-guide-card><span>${number}</span><div><h4>${name}</h4><small>${owner}</small><p>${detail}</p></div></article>`).join("")}</div></section>
       ${sections}
       <div class="guide-empty" data-guide-empty hidden><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>
-      <footer class="guide-footer"><strong>Time standard</strong><p>All system timestamps use Philippine Time, Asia/Manila (UTC+08:00).</p></footer>
     </div>
   </section>`;
 }
@@ -1316,6 +1315,15 @@ function render() {
     render();
   });
   document.querySelector("[data-guide-print]")?.addEventListener("click", () => window.print());
+  document.querySelectorAll("[data-guide-anchor]").forEach((anchor) => anchor.addEventListener("click", (event) => {
+    event.preventDefault();
+    const search = document.querySelector("[data-guide-search]");
+    if (search?.value) {
+      search.value = "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    document.getElementById(anchor.dataset.guideAnchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
   document.querySelector("[data-guide-search]")?.addEventListener("input", (event) => {
     const query = event.currentTarget.value.trim().toLocaleLowerCase();
     let visibleCards = 0;

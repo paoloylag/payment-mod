@@ -381,7 +381,7 @@ function App() {
         <div className="sidebar-footer"><span className="sidebar-status-icon">✓</span><span>Prototype access enabled</span></div>
       </aside>
 
-      <main>
+      <main className={activeTab === "guide" ? "guide-main" : undefined}>
         <header className="topbar">
           <div className="mobile-title-row">
             <button type="button" className="hamburger-button icon-button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation"><span /><span /><span /></button>
@@ -1005,7 +1005,7 @@ function SystemGuide() {
         <button type="button" className="guide-print-button" onClick={() => window.print()}>Print / Save PDF</button>
       </header>
       <nav className="guide-anchor-nav" aria-label="Guide sections">
-        {guideSections.map((section) => <a key={section.id} href={`#guide-${section.id}`}><span>{section.number}</span>{section.title}</a>)}
+        {guideSections.map((section) => <a key={section.id} href={`#guide-${section.id}`} onClick={(event) => { event.preventDefault(); setQuery(""); requestAnimationFrame(() => document.getElementById(`guide-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })); }}><span>{section.number}</span>{section.title}</a>)}
       </nav>
       <div className="guide-content">
         <search className="guide-search">
@@ -1023,7 +1023,6 @@ function SystemGuide() {
           <p className="guide-note"><strong>Remember:</strong> {section.note}</p>
         </section>)}
         {resultCount === 0 && <div className="guide-empty"><strong>No matching procedures</strong><p>Try a role, request type, status, or task such as voucher, cash advance, approval, or report.</p></div>}
-        <footer className="guide-footer"><strong>Time standard</strong><p>All system timestamps use Philippine Time, Asia/Manila (UTC+08:00).</p></footer>
       </div>
     </section>
   );
