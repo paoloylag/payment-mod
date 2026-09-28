@@ -15,6 +15,9 @@ from ..models import (
     CostCenter,
     Currency,
     Department,
+    Document,
+    DocumentRequirementRule,
+    DocumentType,
     PaymentRequest,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
@@ -24,8 +27,10 @@ from ..models import (
     SystemSetting,
     User,
 )
+from ..procurement_adapter import get_procurement_adapter
 from ..schemas import PaymentRequestCreate, PaymentRequestUpdate, RequestNumberingSettingUpdate, RequestTransition
 from ..security import current_user
+from ..vendor_adapter import get_vendor_adapter
 
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
@@ -75,9 +80,7 @@ def serialize(
 ) -> dict:
     requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
     department = (
-        departments.get(item.department_id)
-        if departments is not None
-        else db.get(Department, item.department_id)
+        departments.get(item.department_id) if departments is not None else db.get(Department, item.department_id)
     )
     lines = (
         lines_by_request.get(item.id, [])
@@ -240,15 +243,60 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             )
         require(data.get("proof_of_payment_refs"), "type_data.proof_of_payment_refs", "Proof of payment is required")
     elif item.request_type == "cashAdvance":
+        event_end_date = data.get("event_end_date")
+        liquidation_due_date = data.get("liquidation_due_date")
         require(
-            valid_date(data.get("event_end_date")),
+            valid_date(event_end_date),
             "type_data.event_end_date",
             "A valid last day of the event is required",
         )
         require(
-            valid_date(data.get("liquidation_due_date")),
+            valid_date(liquidation_due_date),
             "type_data.liquidation_due_date",
             "A valid liquidation due date is required",
+        )
+        if valid_date(event_end_date) and valid_date(liquidation_due_date):
+            expected_due_date = date.fromisoformat(str(event_end_date)) + timedelta(days=15)
+            require(
+                date.fromisoformat(str(liquidation_due_date)) == expected_due_date,
+                "type_data.liquidation_due_date",
+                "Liquidation is due exactly 15 calendar days after the event",
+            )
+        if item.currency_code == "PHP":
+            require(
+                item.gross_amount <= Decimal("40000"),
+                "gross_amount",
+                "Cash Advance amount cannot exceed PHP 40,000",
+            )
+        prior_advances = list(
+            db.scalars(
+                select(PaymentRequest).where(
+                    PaymentRequest.id != item.id,
+                    PaymentRequest.requestor_id == item.requestor_id,
+                    PaymentRequest.request_type == "cashAdvance",
+                    PaymentRequest.status == "submitted",
+                    PaymentRequest.request_number.is_not(None),
+                )
+            )
+        )
+        liquidated_references = {
+            str(candidate.type_data.get("cash_advance_reference"))
+            for candidate in db.scalars(
+                select(PaymentRequest).where(
+                    PaymentRequest.requestor_id == item.requestor_id,
+                    PaymentRequest.request_type == "liquidation",
+                    PaymentRequest.status == "submitted",
+                )
+            )
+            if candidate.type_data and candidate.type_data.get("cash_advance_reference")
+        }
+        outstanding = [
+            advance for advance in prior_advances if str(advance.request_number) not in liquidated_references
+        ]
+        require(
+            not outstanding,
+            "requestor_id",
+            "The requestor already has an outstanding Cash Advance that must be liquidated first",
         )
         require(
             data.get("accountability_acknowledged") is True,
@@ -287,29 +335,65 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
                 line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
             )
             require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
-            require(
-                line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
-            )
         if decimal_value(data.get("liquidation_advance_amount")) > item.gross_amount:
+            expected_return = decimal_value(data.get("liquidation_advance_amount")) - item.gross_amount
             require(
-                data.get("proof_of_return_refs"),
-                "type_data.proof_of_return_refs",
-                "Proof of unused cash return is required",
+                decimal_value(data.get("liquidation_return_amount")) == expected_return,
+                "type_data.liquidation_return_amount",
+                "Amount returned offline must equal the excess Cash Advance balance",
             )
     elif item.request_type == "poPayment":
-        require(data.get("po_reference"), "type_data.po_reference", "Approved P.O. reference is required")
+        po_reference = str(data.get("po_reference") or "").strip()
+        require(po_reference, "type_data.po_reference", "Approved P.O. reference is required")
         require(item.payee_name.strip(), "payee_name", "P.O. supplier is required")
+        purchase_order = get_procurement_adapter().get(po_reference) if po_reference else None
+        require(purchase_order, "type_data.po_reference", "P.O. reference was not found in Procurement")
+        if purchase_order:
+            require(
+                purchase_order.get("paymentEligible") is True,
+                "type_data.po_reference",
+                "P.O. is not approved and eligible for payment",
+            )
+            require(
+                item.currency_code == purchase_order.get("currency"),
+                "currency_code",
+                "Request currency must match the approved P.O.",
+            )
+            require(
+                item.gross_amount == Decimal(str(purchase_order.get("amount", 0))),
+                "gross_amount",
+                "Request amount must match the approved P.O.",
+            )
+            require(
+                _normalized_match_text(item.payee_name) == _normalized_match_text(purchase_order.get("vendorName")),
+                "payee_name",
+                "Payee must match the approved P.O. vendor",
+            )
+            duplicate = next(
+                (
+                    candidate
+                    for candidate in db.scalars(
+                        select(PaymentRequest).where(
+                            PaymentRequest.id != item.id,
+                            PaymentRequest.request_type == "poPayment",
+                            PaymentRequest.status.in_(("submitted", "returned")),
+                        )
+                    )
+                    if str((candidate.type_data or {}).get("po_reference") or "").strip() == po_reference
+                ),
+                None,
+            )
+            require(
+                duplicate is None,
+                "type_data.po_reference",
+                "This P.O. is already linked to another active payment request",
+            )
         for position, line in enumerate(lines, 1):
             prefix = f"lines.{position - 1}"
             require(
                 line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
             )
             require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
-        require(
-            data.get("approved_po_refs") or any(line.attachment_refs for line in lines),
-            "type_data.approved_po_refs",
-            "Approved P.O. document is required",
-        )
     elif item.request_type == "general":
         require(item.payee_name.strip(), "payee_name", "Payee or vendor is required")
         for position, line in enumerate(lines, 1):
@@ -328,9 +412,79 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
 
 
 def ensure_submittable(db: Session, item: PaymentRequest) -> None:
-    errors = submission_validation_errors(db, item)
+    errors = submission_validation_errors(db, item) + document_requirement_errors(db, item)
     if errors:
         raise HTTPException(422, detail={"message": "Request is incomplete", "errors": errors})
+
+
+def lock_submission_constraints(db: Session, item: PaymentRequest) -> None:
+    """Serialize rules whose result depends on other submitted requests."""
+    if item.request_type == "poPayment":
+        reference = str((item.type_data or {}).get("po_reference") or "").strip()
+        if reference:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"po:{reference}"})
+    elif item.request_type == "cashAdvance":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"ca:{item.requestor_id}"})
+
+
+def record_procurement_snapshot(item: PaymentRequest) -> None:
+    """Freeze safe Procurement and vendor facts used to approve a P.O. submission."""
+    if item.request_type != "poPayment":
+        return
+    data = dict(item.type_data or {})
+    reference = str(data.get("po_reference") or "").strip()
+    purchase_order = get_procurement_adapter().get(reference)
+    if not purchase_order:
+        return
+    vendor = get_vendor_adapter().get(str(purchase_order.get("vendorId") or ""))
+    data["procurement_snapshot"] = {
+        "captured_at": datetime.now(UTC).isoformat(),
+        "purchase_order": purchase_order,
+        "vendor": vendor,
+    }
+    item.type_data = data
+
+
+def document_requirement_errors(db: Session, item: PaymentRequest) -> list[dict]:
+    """Evaluate only active configured rules; an unconfigured request type remains non-blocking."""
+    rules = list(
+        db.scalars(
+            select(DocumentRequirementRule).where(
+                DocumentRequirementRule.request_type == item.request_type,
+                DocumentRequirementRule.is_active.is_(True),
+            )
+        )
+    )
+    if not rules:
+        return []
+    documents = list(db.scalars(select(Document).where(Document.request_id == item.id, Document.removed_at.is_(None))))
+    lines = list(db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)))
+    errors = []
+    for rule in rules:
+        document_type = db.get(DocumentType, rule.document_type_id)
+        conditionally_required = bool(
+            item.request_type == "general"
+            and document_type
+            and document_type.code == "BIR_2303"
+            and (item.type_data or {}).get("new_supplier") is True
+        )
+        if not rule.is_required and not conditionally_required:
+            continue
+        label = document_type.name if document_type else "Required document"
+        matching = [document for document in documents if document.document_type_id == rule.document_type_id]
+        if rule.scope == "line":
+            for line in lines:
+                count = len([document for document in matching if document.line_id == line.id])
+                if count < rule.minimum_count:
+                    errors.append(
+                        {
+                            "field": f"lines.{line.position - 1}.documents",
+                            "message": f"Line {line.position}: {label} is required",
+                        }
+                    )
+        elif len([document for document in matching if document.line_id is None]) < rule.minimum_count:
+            errors.append({"field": "documents", "message": f"{label} is required"})
+    return errors
 
 
 def _normalized_invoice_reference(value: str | None) -> str:
@@ -395,8 +549,7 @@ def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
                         "Exact invoice match found; Finance verification is required."
                         if exact
                         else (
-                            "Invoice reference matches but other information differs; "
-                            "Finance verification is required."
+                            "Invoice reference matches but other information differs; Finance verification is required."
                         )
                     ),
                     "matched_fields": [field for field, matches in compared.items() if matches],
@@ -524,11 +677,7 @@ def list_payment_requests(
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
     items = list(
-        db.scalars(
-            query.order_by(order, PaymentRequest.id.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
+        db.scalars(query.order_by(order, PaymentRequest.id.desc()).offset((page - 1) * page_size).limit(page_size))
     )
     return serialize_many(db, items)
 
@@ -575,6 +724,29 @@ def get_payment_request(
         )
         db.commit()
     return result
+
+
+@router.get("/{request_id}/history")
+def get_payment_request_history(
+    request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    item = get_visible(db, request, actor, request_id)
+    history = db.scalars(
+        select(PaymentRequestStatusHistory)
+        .where(PaymentRequestStatusHistory.request_id == item.id)
+        .order_by(PaymentRequestStatusHistory.occurred_at, PaymentRequestStatusHistory.id)
+    )
+    return [
+        {
+            "id": str(entry.id),
+            "from_status": entry.from_status,
+            "to_status": entry.to_status,
+            "actor_user_id": str(entry.actor_user_id),
+            "note": entry.note,
+            "occurred_at": entry.occurred_at.isoformat(),
+        }
+        for entry in history
+    ]
 
 
 @router.patch("/{request_id}")
@@ -717,7 +889,9 @@ def submit_payment_request(
         raise HTTPException(409, "Request cannot be submitted")
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
+    lock_submission_constraints(db, item)
     ensure_submittable(db, item)
+    record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     previous = item.status
     item.status = "submitted"
@@ -879,7 +1053,9 @@ def resubmit_payment_request(
         raise HTTPException(409, "Only the owner can resubmit a returned request at its current version")
     if not payload.note.strip():
         raise HTTPException(422, "A resubmission note is required")
+    lock_submission_constraints(db, item)
     ensure_submittable(db, item)
+    record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     result = lifecycle_change(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False

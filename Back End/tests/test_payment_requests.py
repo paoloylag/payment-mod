@@ -101,16 +101,19 @@ def payload_for_type(request_type: str):
             "liquidation_due_date": "2026-09-30",
             "actual_liquidation_date": "2026-09-28",
             "liquidation_advance_amount": "1500.00",
-            "proof_of_return_refs": ["return-proof.pdf"],
+            "liquidation_return_amount": "249.50",
         }
+        result["lines"][0]["attachment_refs"] = []
     elif request_type == "poPayment":
-        result["payee_name"] = "Approved Supplier"
-        result["type_data"] = {"po_reference": "PO-2026-0106", "approved_po_refs": ["approved-po.pdf"]}
+        result["payee_name"] = "Sample BrightTech Supply"
+        result["type_data"] = {"po_reference": "PO-DEMO-1001"}
         result["lines"][0].update(
             {
                 "invoice_date": None,
-                "invoice_number": "PO-2026-0106",
-                "vendor_name": "Approved Supplier",
+                "invoice_number": "PO-DEMO-1001",
+                "vendor_name": "Sample BrightTech Supply",
+                "particulars": "Two sample staff laptops",
+                "amount": "89000.00",
                 "attachment_refs": ["approved-po.pdf"],
             }
         )
@@ -314,6 +317,16 @@ def test_request_lifecycle_return_resubmit_cancel_and_reopen(client):
         headers=finance_headers,
     )
     assert reopened.status_code == 200 and reopened.json()["status"] == "draft"
+    history = client.get(f"/api/v1/requests/{created['id']}/history")
+    assert history.status_code == 200
+    assert [entry["to_status"] for entry in history.json()] == [
+        "submitted",
+        "returned",
+        "submitted",
+        "cancelled",
+        "draft",
+    ]
+    assert all(entry["actor_user_id"] and entry["occurred_at"] for entry in history.json())
 
 
 def test_academic_year_numbering_boundary_and_finance_setting(client):
@@ -374,6 +387,131 @@ def test_all_five_request_types_pass_confirmed_submission_rules(client):
         assert submitted.json()["status"] == "submitted"
 
 
+def test_po_submission_uses_authoritative_procurement_data_and_safe_snapshot(client):
+    seed()
+    headers = login(client)
+    created = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200, submitted.text
+    snapshot = submitted.json()["type_data"]["procurement_snapshot"]
+    assert snapshot["purchase_order"]["poNumber"] == "PO-DEMO-1001"
+    assert snapshot["purchase_order"]["paymentEligible"] is True
+    assert snapshot["vendor"]["id"] == "VEND-DEMO-001"
+    assert not any("bank" in key.casefold() for key in snapshot["vendor"])
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_field"),
+    (
+        (lambda body: body["type_data"].update({"po_reference": "PO-DEMO-1003"}), "type_data.po_reference"),
+        (lambda body: body["lines"][0].update({"amount": "88000.00"}), "gross_amount"),
+        (
+            lambda body: body.update(
+                {"currency_code": "USD", "lines": [{**body["lines"][0], "currency_code": "USD"}]}
+            ),
+            "currency_code",
+        ),
+        (lambda body: body.update({"payee_name": "Different Vendor"}), "payee_name"),
+    ),
+)
+def test_po_submission_rejects_procurement_mismatches(client, mutate, expected_field):
+    seed()
+    headers = login(client)
+    request_payload = payload_for_type("poPayment")
+    mutate(request_payload)
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+    assert created.status_code == 201, created.text
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 422
+    assert expected_field in {error["field"] for error in submitted.json()["errors"]}
+
+
+def test_po_cannot_be_submitted_twice(client):
+    seed()
+    headers = login(client)
+    first = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers).json()
+    second = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers).json()
+    first_submit = client.post(
+        f"/api/v1/requests/{first['id']}/submit",
+        json={"version": first["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    second_submit = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert first_submit.status_code == 200
+    assert second_submit.status_code == 422
+    assert "already linked" in second_submit.text
+
+
+def test_cash_advance_enforces_limit_due_date_and_one_outstanding_request(client):
+    seed()
+    headers = login(client)
+
+    over_limit = payload_for_type("cashAdvance")
+    over_limit["lines"][0]["amount"] = "40000.01"
+    created = client.post("/api/v1/requests", json=over_limit, headers=headers).json()
+    response = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert response.status_code == 422 and "PHP 40,000" in response.text
+
+    wrong_due_date = payload_for_type("cashAdvance")
+    wrong_due_date["type_data"]["liquidation_due_date"] = "2026-09-29"
+    created = client.post("/api/v1/requests", json=wrong_due_date, headers=headers).json()
+    response = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert response.status_code == 422 and "15 calendar days" in response.text
+
+    first = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    first = client.post(
+        f"/api/v1/requests/{first['id']}/submit",
+        json={"version": first["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    second = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    blocked = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked.status_code == 422 and "outstanding Cash Advance" in blocked.text
+
+    liquidation = payload_for_type("liquidation")
+    liquidation["type_data"]["cash_advance_reference"] = first["request_number"]
+    liquidation["type_data"]["liquidation_advance_amount"] = "1250.50"
+    liquidation["type_data"]["liquidation_return_amount"] = "0.00"
+    liquidation_draft = client.post("/api/v1/requests", json=liquidation, headers=headers).json()
+    liquidation_submit = client.post(
+        f"/api/v1/requests/{liquidation_draft['id']}/submit",
+        json={"version": liquidation_draft["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert liquidation_submit.status_code == 200, liquidation_submit.text
+    allowed = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
 def test_type_specific_submission_errors_are_field_scoped(client):
     seed()
     headers = login(client)
@@ -387,6 +525,10 @@ def test_type_specific_submission_errors_are_field_scoped(client):
     liquidation = payload_for_type("liquidation")
     liquidation["type_data"].pop("cash_advance_reference")
     cases.append((liquidation, "type_data.cash_advance_reference"))
+    liquidation_return = payload_for_type("liquidation")
+    liquidation_return["type_data"]["liquidation_advance_amount"] = "3000.00"
+    liquidation_return["type_data"]["liquidation_return_amount"] = "0.00"
+    cases.append((liquidation_return, "type_data.liquidation_return_amount"))
     po_payment = payload_for_type("poPayment")
     po_payment["type_data"].pop("po_reference")
     cases.append((po_payment, "type_data.po_reference"))

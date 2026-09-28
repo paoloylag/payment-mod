@@ -31,7 +31,10 @@ export function createDataSource() {
       ["DT", "Technology / Digital Transformation"], ["ACAD", "Academics / Residential Campus"],
       ["OPS", "Operations"], ["FIN", "Finance"], ["MKTG", "Marketing"],
     ].map(([code, name]) => ({ id: `mock-${code}`, code, name, is_active: true })),
-    vendors: [{ id: "PMC-MNL-01", code: "PMC-MNL-01", name: "Power Mac Center, Inc.", email: "education@powermaccenter.com", status: "active" }],
+    vendors: [
+      { id: "VEND-DEMO-001", code: "000", name: "Sample BrightTech Supply", email: "brighttech@example.test", status: "active", businessDocuments: [{ id: "DOC-001", name: "registration.pdf", kind: "Business registration (SEC / DTI)" }] },
+      { id: "VEND-DEMO-002", code: "OW-MNL-01", name: "Sample OfficeWorks Trading", email: "officeworks@example.test", status: "active", businessDocuments: [{ id: "DOC-002", name: "bir-2303.pdf", kind: "BIR 2303" }, { id: "DOC-003", name: "business-permit.pdf", kind: "Business Permit" }] },
+    ],
     "chart-of-accounts": [
       { id: "mock-6000", code: "6000", name: "Operating Expenses", account_type: "expense", normal_balance: "debit", is_active: true },
     ],
@@ -47,10 +50,19 @@ export function createDataSource() {
       { id: "mock-cash", code: "CASH", name: "Cash", category: "cash", is_active: true },
     ],
     "document-types": [
-      { id: "mock-invoice", code: "INVOICE", name: "Invoice / Billing", copy_requirement: "soft", is_active: true },
+      { id: "mock-invoice", code: "INVOICE", name: "Invoice", copy_requirement: "soft", is_active: true },
+      { id: "mock-billing", code: "BILLING_SOA", name: "Billing / Quotation / SOA", copy_requirement: "soft", is_active: true },
+      { id: "mock-proof", code: "PROOF_PAYMENT", name: "Proof of Payment", copy_requirement: "soft", is_active: true },
+      { id: "mock-bir", code: "BIR_2303", name: "BIR 2303", copy_requirement: "soft", is_active: true },
       { id: "mock-receipt", code: "RECEIPT", name: "Official Receipt", copy_requirement: "soft", is_active: true },
+      { id: "mock-delivery-receipt", code: "DELIVERY_RECEIPT", name: "Delivery Receipt", allowed_request_types: ["poPayment"], copy_requirement: "soft", is_active: true },
+      { id: "mock-business-permit", code: "BUSINESS_PERMIT", name: "Business Permit", allowed_request_types: ["poPayment"], copy_requirement: "soft", is_active: true },
     ],
   };
+  const mockPurchaseOrders = [
+    { poNumber: "PO-DEMO-1001", requester: "Angela Mendoza", vendorId: "VEND-DEMO-001", vendorName: "Sample BrightTech Supply", amount: 89000, currency: "PHP", department: "Academics / Residential Campus", departmentCode: "ACAD", status: "Approved", newSupplier: false, paymentEligible: true, items: [{ name: "Sample Staff Laptop", description: "14-inch laptop, 16 GB RAM, 512 GB SSD", quantity: 2, unitPrice: 44500 }] },
+    { poNumber: "PO-DEMO-1002", requester: "Development Requestor", vendorId: "VEND-DEMO-003", vendorName: "Sample NewBuild Services", amount: 125000, currency: "PHP", department: "Operations", departmentCode: "OPS", status: "Approved", newSupplier: true, paymentEligible: true, items: [{ name: "Repair materials lot", description: "Sample construction and repair materials", quantity: 1, unitPrice: 125000 }] },
+  ];
 
   async function masterDataRequest(resource, options) {
     if (mode === "mock") return options ? null : mockMasterData[resource] || [];
@@ -125,6 +137,11 @@ export function createDataSource() {
         throw error;
       }
     },
+    async listPurchaseOrders() {
+      if (mode === "mock") return mockPurchaseOrders;
+      try { return await apiRequest("/api/v1/purchase-orders?eligible_only=true&page=1&page_size=100"); }
+      catch (error) { if (mode === "hybrid") return mockPurchaseOrders; throw error; }
+    },
     createMasterData(resource, payload, csrfToken) {
       return masterDataRequest(resource, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
@@ -196,6 +213,73 @@ export function createDataSource() {
     updateRequestNumberingSetting(resetMonth, csrfToken) {
       if (mode === "mock") return Promise.resolve({ reset_month: resetMonth });
       return apiRequest("/api/v1/request-settings/numbering", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reset_month: resetMonth }) });
+    },
+    listDocuments(requestId) {
+      if (mode === "mock") return Promise.resolve([]);
+      return apiRequest(`/api/v1/requests/${requestId}/documents`);
+    },
+    getDocumentRequirements(requestId) {
+      if (mode === "mock") return Promise.resolve({ requirements: [], can_submit_documents: true });
+      return apiRequest(`/api/v1/requests/${requestId}/document-requirements`);
+    },
+    uploadDocument(requestId, file, documentTypeId, lineId, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      const body = new FormData();
+      body.append("file", file);
+      if (documentTypeId) body.append("document_type_id", documentTypeId);
+      if (lineId) body.append("line_id", lineId);
+      return apiRequest(`/api/v1/requests/${requestId}/documents`, {
+        method: "POST", headers: { "X-CSRF-Token": csrfToken }, body,
+      });
+    },
+    replaceDocument(documentId, file, csrfToken) {
+      const body = new FormData();
+      body.append("file", file);
+      return apiRequest(`/api/v1/documents/${documentId}/versions`, {
+        method: "POST", headers: { "X-CSRF-Token": csrfToken }, body,
+      });
+    },
+    removeDocument(documentId, reason, csrfToken) {
+      return apiRequest(`/api/v1/documents/${documentId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({ reason }),
+      });
+    },
+    recordDocumentHardCopy(documentId, status, note, csrfToken) {
+      return apiRequest(`/api/v1/documents/${documentId}/hard-copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({ status, note }),
+      });
+    },
+    reviewDocument(documentId, decision, comment, csrfToken) {
+      return apiRequest(`/api/v1/documents/${documentId}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({ decision, comment }),
+      });
+    },
+    documentContentUrl(documentId, download = false) {
+      return `${apiBaseUrl}/api/v1/documents/${documentId}/content${download ? "?download=true" : ""}`;
+    },
+    listDocumentRules() {
+      if (mode === "mock") return Promise.resolve([
+        { id: "mock-rule-invoice", request_type: "reimbursement", document_type_id: "mock-invoice", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
+        { id: "mock-rule-proof", request_type: "reimbursement", document_type_id: "mock-proof", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
+        { id: "mock-rule-billing", request_type: "reimbursement", document_type_id: "mock-billing", scope: "request", minimum_count: 1, is_required: false, guidance: "If available", is_active: true },
+        { id: "mock-rule-po-delivery", request_type: "poPayment", document_type_id: "mock-delivery-receipt", scope: "request", minimum_count: 1, is_required: false, guidance: "If applicable", is_active: true },
+        { id: "mock-rule-po-business-permit", request_type: "poPayment", document_type_id: "mock-business-permit", scope: "request", minimum_count: 1, is_required: false, guidance: "If new supplier", is_active: true },
+        { id: "mock-rule-general-billing", request_type: "general", document_type_id: "mock-billing", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
+        { id: "mock-rule-general-bir", request_type: "general", document_type_id: "mock-bir", scope: "request", minimum_count: 1, is_required: false, guidance: "If new supplier", is_active: true },
+      ]);
+      return apiRequest("/api/v1/document-requirement-rules");
+    },
+    createDocumentRule(payload, csrfToken) {
+      return apiRequest("/api/v1/document-requirement-rules", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
+    updateDocumentRule(id, payload, csrfToken) {
+      return apiRequest(`/api/v1/document-requirement-rules/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
     async getSystemStatus() {
       if (mode === "mock") return { state: "mock", label: "Mock data" };

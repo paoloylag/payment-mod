@@ -17,6 +17,7 @@ from ..models import (
     TaxCode,
     User,
 )
+from ..procurement_adapter import get_procurement_adapter
 from ..schemas import (
     ChartAccountCreate,
     ChartAccountUpdate,
@@ -431,4 +432,28 @@ def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read"))
     item = get_vendor_adapter().get(vendor_id)
     if not item:
         raise HTTPException(404, "Vendor not found")
+    return item
+
+
+@router.get("/purchase-orders")
+def purchase_orders(
+    response: Response,
+    search: str = "",
+    eligible_only: bool = True,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("procurement.read")),
+):
+    items = get_procurement_adapter().list(search, eligible_only)
+    response.headers["X-Total-Count"] = str(len(items))
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return items[(page - 1) * page_size : page * page_size]
+
+
+@router.get("/purchase-orders/{po_number}")
+def purchase_order(po_number: str, _: User = Depends(require_permission("procurement.read"))):
+    item = get_procurement_adapter().get(po_number)
+    if not item:
+        raise HTTPException(404, "Purchase order not found")
     return item

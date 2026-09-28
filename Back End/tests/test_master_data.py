@@ -91,7 +91,7 @@ def test_master_data_crud_permissions_and_vendor_masking(client) -> None:
     )
     assert created.status_code in {201, 409}
     vendors = client.get("/api/v1/vendors").json()
-    assert vendors[0]["name"] == "Power Mac Center, Inc."
+    assert vendors[0]["name"] == "Sample BrightTech Supply"
     assert "bankAccountNumber" not in vendors[0]
     assert not any(key.lower().startswith("bank") for key in vendors[0])
 
@@ -128,7 +128,7 @@ def test_master_data_lists_are_bounded_searchable_and_stably_ordered(client) -> 
     assert [item["code"] for item in match.json()] == ["OCP"]
     assert client.get("/api/v1/cost-centers?page_size=101").status_code == 422
     assert client.get("/api/v1/currencies?page=1&page_size=2").headers["X-Page-Size"] == "2"
-    assert client.get("/api/v1/vendors?page=2&page_size=1").json() == []
+    assert len(client.get("/api/v1/vendors?page=2&page_size=1").json()) == 1
 
 
 def test_chart_account_duplicate_cycle_and_referenced_delete_are_rejected(client) -> None:
@@ -179,8 +179,8 @@ def test_chart_account_duplicate_cycle_and_referenced_delete_are_rejected(client
 def test_vendor_mock_search_and_removed_bank_routes(client) -> None:
     seed()
     assert login(client).status_code == 200
-    assert [item["name"] for item in client.get("/api/v1/vendors?search=power%20mac").json()] == [
-        "Power Mac Center, Inc."
+    assert [item["name"] for item in client.get("/api/v1/vendors?search=brighttech").json()] == [
+        "Sample BrightTech Supply"
     ]
     assert client.get("/api/v1/vendors?search=not-a-vendor").json() == []
     assert client.get("/api/v1/vendors/unknown-vendor").status_code == 404
@@ -191,3 +191,22 @@ def test_vendor_mock_search_and_removed_bank_routes(client) -> None:
     assert not any("bank_accounts." in permission["code"] for permission in client.get("/api/v1/permissions").json())
     schema = client.get("/api/v1/openapi.json").json()
     assert not any("bank-access" in path or "company-bank-accounts" in path for path in schema["paths"])
+
+
+def test_procurement_mock_exposes_only_eligible_purchase_orders_by_default(client) -> None:
+    seed()
+    assert login(client, "requestor@payment.local").status_code == 200
+    eligible = client.get("/api/v1/purchase-orders")
+    assert eligible.status_code == 200
+    assert eligible.headers["X-Total-Count"] == "2"
+    assert {item["poNumber"] for item in eligible.json()} == {"PO-DEMO-1001", "PO-DEMO-1002"}
+    assert all(item["paymentEligible"] for item in eligible.json())
+
+    all_orders = client.get("/api/v1/purchase-orders?eligible_only=false")
+    assert all_orders.status_code == 200
+    assert all_orders.headers["X-Total-Count"] == "3"
+    filed = client.get("/api/v1/purchase-orders/PO-DEMO-1003")
+    assert filed.status_code == 200
+    assert filed.json()["status"] == "Filed"
+    assert filed.json()["paymentEligible"] is False
+    assert filed.json()["apsPayment"]["paymentReference"] == "APS-PAY-001"

@@ -23,7 +23,7 @@ os.environ["DATABASE_URL"] = configured_database_url
 
 from payment_module.database import SessionLocal  # noqa: E402
 from payment_module.main import app  # noqa: E402
-from payment_module.models import AuthSession, PaymentRequest  # noqa: E402
+from payment_module.models import AuthSession, DocumentRequirementRule, PaymentRequest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -32,16 +32,21 @@ def remove_records_created_by_test():
     with SessionLocal() as db:
         existing_session_ids = set(db.scalars(select(AuthSession.id)))
         existing_request_ids = set(db.scalars(select(PaymentRequest.id)))
+        existing_document_rule_ids = set(db.scalars(select(DocumentRequirementRule.id)))
     yield
     with SessionLocal.begin() as db:
         session_delete = delete(AuthSession)
         request_delete = delete(PaymentRequest)
+        rule_delete = delete(DocumentRequirementRule)
         if existing_session_ids:
             session_delete = session_delete.where(AuthSession.id.not_in(existing_session_ids))
         if existing_request_ids:
             request_delete = request_delete.where(PaymentRequest.id.not_in(existing_request_ids))
+        if existing_document_rule_ids:
+            rule_delete = rule_delete.where(DocumentRequirementRule.id.not_in(existing_document_rule_ids))
         db.execute(session_delete)
         db.execute(request_delete)
+        db.execute(rule_delete)
 
 
 @pytest.fixture()

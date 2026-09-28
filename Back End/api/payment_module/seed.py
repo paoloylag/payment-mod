@@ -8,6 +8,7 @@ from .models import (
     CostCenter,
     Currency,
     Department,
+    DocumentRequirementRule,
     DocumentType,
     PaymentMethod,
     Permission,
@@ -67,6 +68,7 @@ PERMISSIONS = {
     "master_data.read": "Read active master data",
     "master_data.manage": "Create and maintain master data",
     "vendors.read": "Search external vendor reference data",
+    "procurement.read": "Read eligible purchase orders from Procurement",
     "accounts.read": "Read the chart of accounts",
     "accounts.manage": "Create and maintain the chart of accounts",
     "requests.create": "Create and maintain owned payment request drafts",
@@ -77,6 +79,9 @@ PERMISSIONS = {
     "requests.numbering.manage": "Configure the payment request numbering reset month",
     "documents.read": "Read document metadata and authorized content",
     "documents.manage_own": "Upload and replace documents on owned editable requests",
+    "documents.review": "Record document review and hard-copy tracking decisions",
+    "documents.rules.manage": "Configure required-document rules",
+    "documents.cleanup": "Retry protected document object cleanup",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 for role_code in ROLES:
@@ -86,22 +91,27 @@ ROLE_PERMISSIONS["finance_manager"] |= {
     "master_data.read",
     "master_data.manage",
     "vendors.read",
+    "procurement.read",
     "accounts.read",
     "accounts.manage",
     "requests.read_all",
     "requests.manage_lifecycle",
     "requests.numbering.manage",
+    "documents.review",
+    "documents.rules.manage",
 }
 ROLE_PERMISSIONS["finance_associate"] |= {
     "master_data.read",
     "vendors.read",
+    "procurement.read",
     "accounts.read",
     "requests.read_all",
     "requests.manage_lifecycle",
     "requests.numbering.manage",
+    "documents.review",
 }
 for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
-    ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "accounts.read"}
+    ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "procurement.read", "accounts.read"}
 ROLE_PERMISSIONS["requestor"] |= {"requests.create", "requests.read_own"}
 ROLE_PERMISSIONS["requestor"].add("documents.manage_own")
 ROLE_PERMISSIONS["department_head"] |= {
@@ -131,13 +141,41 @@ DEMO_USERS = [
     ("system_administrator", "admin@payment.local", "Development System Administrator", "DT"),
 ]
 
+DOCUMENT_TYPES = (
+    ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general"], "soft"),
+    ("BILLING_SOA", "Billing / Quotation / SOA", ["reimbursement", "poPayment", "general"], "soft"),
+    ("PROOF_PAYMENT", "Proof of Payment", ["reimbursement"], "soft"),
+    ("BIR_2303", "BIR 2303", ["poPayment", "general"], "soft"),
+    ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
+    ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
+    ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
+    ("DELIVERY_RECEIPT", "Delivery Receipt", ["poPayment"], "soft"),
+    ("BUSINESS_PERMIT", "Business Permit", ["poPayment"], "soft"),
+)
+
+DOCUMENT_REQUIREMENT_RULES = (
+    ("reimbursement", "INVOICE", True, None),
+    ("reimbursement", "BILLING_SOA", False, "If available"),
+    ("reimbursement", "PROOF_PAYMENT", True, None),
+    ("poPayment", "BIR_2303", False, "If new supplier"),
+    ("poPayment", "BILLING_SOA", True, None),
+    ("poPayment", "INVOICE", False, "If available"),
+    ("poPayment", "DELIVERY_RECEIPT", False, "If applicable"),
+    ("poPayment", "BUSINESS_PERMIT", False, "If new supplier"),
+    ("general", "BIR_2303", False, "If new supplier"),
+    ("general", "BILLING_SOA", True, None),
+    ("general", "INVOICE", False, "If available"),
+)
+
 
 def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
 
 
-def seed() -> None:
+def seed(*, include_document_requirement_rules: bool | None = None) -> None:
     settings = get_settings()
+    if include_document_requirement_rules is None:
+        include_document_requirement_rules = settings.app_env != "test"
     with SessionLocal.begin() as session:
         for key, value in SEED_SETTINGS.items():
             setting = session.scalar(select(SystemSetting).where(SystemSetting.key == key))
@@ -186,23 +224,45 @@ def seed() -> None:
                         requires_reference=required,
                     )
                 )
-        for code, name, request_types, copy_requirement in (
-            ("INVOICE", "Invoice / Billing", ["reimbursement", "poPayment", "general"], "soft"),
-            ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
-            ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
-            ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
-        ):
+        document_type_ids = {}
+        for code, name, request_types, copy_requirement in DOCUMENT_TYPES:
             item = session.scalar(select(DocumentType).where(DocumentType.code == code))
             if item is None:
-                session.add(
-                    DocumentType(
-                        id=stable_id("document-type", code),
-                        code=code,
-                        name=name,
-                        allowed_request_types=request_types,
-                        copy_requirement=copy_requirement,
+                item = DocumentType(
+                    id=stable_id("document-type", code),
+                    code=code,
+                    name=name,
+                    allowed_request_types=request_types,
+                    copy_requirement=copy_requirement,
+                )
+                session.add(item)
+            else:
+                item.name = name
+                item.allowed_request_types = request_types
+                item.copy_requirement = copy_requirement
+                item.is_active = True
+            session.flush()
+            document_type_ids[code] = item.id
+        if include_document_requirement_rules:
+            for request_type, document_code, is_required, guidance in DOCUMENT_REQUIREMENT_RULES:
+                rule_id = stable_id("document-requirement-rule", f"{request_type}:{document_code}:request")
+                item = session.scalar(
+                    select(DocumentRequirementRule).where(
+                        DocumentRequirementRule.request_type == request_type,
+                        DocumentRequirementRule.document_type_id == document_type_ids[document_code],
+                        DocumentRequirementRule.scope == "request",
                     )
                 )
+                if item is None:
+                    item = DocumentRequirementRule(id=rule_id)
+                    session.add(item)
+                item.request_type = request_type
+                item.document_type_id = document_type_ids[document_code]
+                item.scope = "request"
+                item.minimum_count = 1
+                item.is_required = is_required
+                item.guidance = guidance
+                item.is_active = True
         for code, name in ROLES.items():
             item = session.get(Role, stable_id("role", code))
             if item is None:

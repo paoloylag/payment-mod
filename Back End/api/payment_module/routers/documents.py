@@ -1,19 +1,31 @@
 import hashlib
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..config import get_settings
 from ..database import get_db
-from ..models import Document, DocumentVersion, PaymentRequest, PaymentRequestLine, User
+from ..models import (
+    Document,
+    DocumentHardCopyEvent,
+    DocumentRequirementRule,
+    DocumentReviewDecision,
+    DocumentType,
+    DocumentVersion,
+    PaymentRequest,
+    PaymentRequestLine,
+    User,
+)
 from ..routers.requests import get_visible, permissions, visible_query
 from ..security import current_user
 from ..storage import get_storage
@@ -40,6 +52,30 @@ SIGNATURES = {
     ".xls": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
     ".doc": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
 }
+
+
+class RemovalPayload(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class HardCopyPayload(BaseModel):
+    status: str
+    note: str = Field(default="", max_length=2000)
+
+
+class ReviewPayload(BaseModel):
+    decision: str
+    comment: str = Field(default="", max_length=4000)
+
+
+class RequirementRulePayload(BaseModel):
+    request_type: str
+    document_type_id: UUID
+    scope: str = "request"
+    minimum_count: int = Field(default=1, ge=1, le=100)
+    is_required: bool = True
+    guidance: str | None = Field(default=None, max_length=200)
+    is_active: bool = True
 
 
 def _current_version(db: Session, document: Document) -> DocumentVersion:
@@ -80,16 +116,33 @@ def _serialize(db: Session, request: Request, actor: User, document: Document) -
             .order_by(DocumentVersion.version.desc())
         )
     )
+    hard_copy = list(
+        db.scalars(
+            select(DocumentHardCopyEvent)
+            .where(DocumentHardCopyEvent.document_id == document.id)
+            .order_by(DocumentHardCopyEvent.created_at.desc())
+        )
+    )
+    reviews = list(
+        db.scalars(
+            select(DocumentReviewDecision)
+            .where(DocumentReviewDecision.document_id == document.id)
+            .order_by(DocumentReviewDecision.created_at.desc())
+        )
+    )
     return {
         "id": str(document.id),
         "request_id": str(document.request_id),
         "line_id": str(document.line_id) if document.line_id else None,
+        "document_type_id": str(document.document_type_id) if document.document_type_id else None,
         "current_version": document.current_version,
         "filename": current.original_filename,
         "media_type": current.media_type,
         "byte_size": current.byte_size,
         "sha256": current.sha256,
         "state": current.state,
+        "removed_at": document.removed_at.isoformat() if document.removed_at else None,
+        "cleanup_state": current.cleanup_state,
         "previewable": current.media_type == "application/pdf" or current.media_type.startswith("image/"),
         "duplicate_warning": bool(duplicates),
         "duplicate_uses": [
@@ -107,6 +160,26 @@ def _serialize(db: Session, request: Request, actor: User, document: Document) -
                 "created_at": item.created_at.isoformat(),
             }
             for item in versions
+        ],
+        "hard_copy_status": hard_copy[0].status if hard_copy else "not_required",
+        "hard_copy_history": [
+            {
+                "status": item.status,
+                "note": item.note,
+                "actor_user_id": str(item.actor_user_id),
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in hard_copy
+        ],
+        "review_decision": reviews[0].decision if reviews else None,
+        "review_history": [
+            {
+                "decision": item.decision,
+                "comment": item.comment,
+                "actor_user_id": str(item.actor_user_id),
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in reviews
         ],
     }
 
@@ -128,6 +201,14 @@ def _validate_context(db: Session, request_item, line_id: UUID | None) -> None:
         )
     ):
         raise HTTPException(422, "The selected request line does not belong to this request")
+
+
+def _validate_document_type(db: Session, request_item: PaymentRequest, document_type_id: UUID | None) -> None:
+    if not document_type_id:
+        return
+    item = db.get(DocumentType, document_type_id)
+    if not item or not item.is_active or request_item.request_type not in item.allowed_request_types:
+        raise HTTPException(422, "The selected document type is not available for this request type")
 
 
 def _prepare(file: UploadFile):
@@ -237,6 +318,7 @@ def upload_document(
     request: Request,
     file: UploadFile = File(...),
     line_id: UUID | None = Form(None),
+    document_type_id: UUID | None = Form(None),
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
@@ -244,7 +326,10 @@ def upload_document(
     request_item = get_visible(db, request, actor, request_id, lock_for_update=True)
     _ensure_mutable(request_item, actor)
     _validate_context(db, request_item, line_id)
-    document = Document(request_id=request_id, line_id=line_id, owner_user_id=actor.id)
+    _validate_document_type(db, request_item, document_type_id)
+    document = Document(
+        request_id=request_id, line_id=line_id, owner_user_id=actor.id, document_type_id=document_type_id
+    )
     db.add(document)
     db.flush()
     _store_version(db, request, actor, document, 1, file)
@@ -260,7 +345,11 @@ def list_documents(
     get_visible(db, request, actor, request_id)
     return [
         _serialize(db, request, actor, item)
-        for item in db.scalars(select(Document).where(Document.request_id == request_id).order_by(Document.created_at))
+        for item in db.scalars(
+            select(Document)
+            .where(Document.request_id == request_id, Document.removed_at.is_(None))
+            .order_by(Document.created_at)
+        )
     ]
 
 
@@ -276,6 +365,8 @@ def document_content(
     document = db.get(Document, document_id)
     if not document:
         raise HTTPException(404, "Document not found")
+    if document.removed_at:
+        raise HTTPException(410, "Document has been removed")
     get_visible(db, request, actor, document.request_id)
     version = _current_version(db, document)
     try:
@@ -314,6 +405,8 @@ def replace_document(
     document = db.get(Document, document_id)
     if not document:
         raise HTTPException(404, "Document not found")
+    if document.removed_at:
+        raise HTTPException(410, "Document has been removed")
     request_item = get_visible(db, request, actor, document.request_id, lock_for_update=True)
     document = db.scalar(select(Document).where(Document.id == document_id).with_for_update())
     _ensure_mutable(request_item, actor)
@@ -322,4 +415,291 @@ def replace_document(
     document.current_version += 1
     _store_version(db, request, actor, document, document.current_version, file, previous.byte_size)
     db.refresh(document)
+    return _serialize(db, request, actor, document)
+
+
+def _cleanup_versions(db: Session, document: Document) -> bool:
+    storage = get_storage()
+    success = True
+    versions = list(db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == document.id)))
+    for version in versions:
+        if version.cleanup_state == "completed":
+            continue
+        version.cleanup_attempts += 1
+        try:
+            storage.delete(version.object_key, version.storage_version_id)
+            version.cleanup_state = "completed"
+            version.cleanup_error = None
+            version.cleaned_at = datetime.now(UTC)
+        except (BotoCoreError, ClientError, OSError) as error:
+            version.cleanup_state = "failed"
+            version.cleanup_error = str(error)[:500]
+            success = False
+    db.commit()
+    return success
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+def remove_document(
+    document_id: UUID,
+    request: Request,
+    payload: RemovalPayload,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    _require(request, "documents.manage_own")
+    document = db.scalar(select(Document).where(Document.id == document_id).with_for_update())
+    if not document:
+        raise HTTPException(404, "Document not found")
+    request_item = get_visible(db, request, actor, document.request_id, lock_for_update=True)
+    _ensure_mutable(request_item, actor)
+    if document.removed_at:
+        return Response(status_code=204)
+    document.removed_at = datetime.now(UTC)
+    document.removed_by_user_id = actor.id
+    document.removal_reason = payload.reason.strip()
+    for version in db.scalars(select(DocumentVersion).where(DocumentVersion.document_id == document.id)):
+        version.is_current = False
+        version.cleanup_state = "pending"
+    audit(
+        db,
+        actor_id=actor.id,
+        action="document.removed",
+        entity_type="document",
+        entity_id=document.id,
+        request_id=request.state.request_id,
+        after={"reason": document.removal_reason},
+    )
+    db.commit()
+    _cleanup_versions(db, document)
+    return Response(status_code=204)
+
+
+@router.post("/documents/{document_id}/cleanup/retry")
+def retry_document_cleanup(
+    document_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    document = db.get(Document, document_id)
+    if not document or not document.removed_at:
+        raise HTTPException(404, "Removed document not found")
+    get_visible(db, request, actor, document.request_id)
+    codes = permissions(request)
+    if document.owner_user_id != actor.id and "documents.cleanup" not in codes:
+        raise HTTPException(403, "Permission required: documents.cleanup")
+    if document.owner_user_id == actor.id and "documents.manage_own" not in codes:
+        raise HTTPException(403, "Permission required: documents.manage_own")
+    return {"cleanup_complete": _cleanup_versions(db, document)}
+
+
+@router.get("/requests/{request_id}/document-requirements")
+def document_requirements(
+    request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    _require(request, "documents.read")
+    request_item = get_visible(db, request, actor, request_id)
+    rules = list(
+        db.scalars(
+            select(DocumentRequirementRule)
+            .where(
+                DocumentRequirementRule.request_type == request_item.request_type,
+                DocumentRequirementRule.is_active.is_(True),
+            )
+            .order_by(DocumentRequirementRule.created_at)
+        )
+    )
+    documents = list(
+        db.scalars(select(Document).where(Document.request_id == request_id, Document.removed_at.is_(None)))
+    )
+    result = []
+    for rule in rules:
+        document_type = db.get(DocumentType, rule.document_type_id)
+        required = bool(
+            rule.is_required
+            or (
+                request_item.request_type == "general"
+                and document_type.code == "BIR_2303"
+                and (request_item.type_data or {}).get("new_supplier") is True
+            )
+        )
+        matching = [item for item in documents if item.document_type_id == rule.document_type_id]
+        if rule.scope == "line":
+            line_ids = list(
+                db.scalars(select(PaymentRequestLine.id).where(PaymentRequestLine.request_id == request_id))
+            )
+            complete = bool(line_ids) and all(
+                len([item for item in matching if item.line_id == line_id]) >= rule.minimum_count
+                for line_id in line_ids
+            )
+        else:
+            complete = len([item for item in matching if item.line_id is None]) >= rule.minimum_count
+        result.append(
+            {
+                "rule_id": str(rule.id),
+                "document_type_id": str(rule.document_type_id),
+                "document_type_code": document_type.code,
+                "document_type_name": document_type.name,
+                "scope": rule.scope,
+                "minimum_count": rule.minimum_count,
+                "required": required,
+                "guidance": rule.guidance,
+                "complete": complete,
+            }
+        )
+    return {
+        "requirements": result,
+        "can_submit_documents": all(not item["required"] or item["complete"] for item in result),
+    }
+
+
+@router.get("/document-requirement-rules")
+def list_requirement_rules(request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    _require(request, "documents.rules.manage")
+    return [
+        {
+            "id": str(item.id),
+            "request_type": item.request_type,
+            "document_type_id": str(item.document_type_id),
+            "scope": item.scope,
+            "minimum_count": item.minimum_count,
+            "is_required": item.is_required,
+            "guidance": item.guidance,
+            "is_active": item.is_active,
+        }
+        for item in db.scalars(select(DocumentRequirementRule).order_by(DocumentRequirementRule.request_type))
+    ]
+
+
+@router.post("/document-requirement-rules", status_code=201)
+def create_requirement_rule(
+    payload: RequirementRulePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    _require(request, "documents.rules.manage")
+    if payload.request_type not in {"reimbursement", "cashAdvance", "liquidation", "poPayment", "general"}:
+        raise HTTPException(422, "Unsupported request type")
+    if payload.scope not in {"request", "line"} or not db.get(DocumentType, payload.document_type_id):
+        raise HTTPException(422, "Invalid document rule")
+    if db.scalar(
+        select(DocumentRequirementRule.id).where(
+            DocumentRequirementRule.request_type == payload.request_type,
+            DocumentRequirementRule.document_type_id == payload.document_type_id,
+            DocumentRequirementRule.scope == payload.scope,
+        )
+    ):
+        raise HTTPException(409, "A matching document rule already exists")
+    item = DocumentRequirementRule(**payload.model_dump())
+    db.add(item)
+    db.flush()
+    audit(
+        db,
+        actor_id=actor.id,
+        action="document_rule.created",
+        entity_type="document_requirement_rule",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        after=payload.model_dump(mode="json"),
+    )
+    db.commit()
+    return {"id": str(item.id)}
+
+
+@router.patch("/document-requirement-rules/{rule_id}")
+def update_requirement_rule(
+    rule_id: UUID,
+    payload: RequirementRulePayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    _require(request, "documents.rules.manage")
+    item = db.get(DocumentRequirementRule, rule_id)
+    if not item:
+        raise HTTPException(404, "Document rule not found")
+    if payload.scope not in {"request", "line"} or not db.get(DocumentType, payload.document_type_id):
+        raise HTTPException(422, "Invalid document rule")
+    for key, value in payload.model_dump().items():
+        setattr(item, key, value)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="document_rule.updated",
+        entity_type="document_requirement_rule",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        after=payload.model_dump(mode="json"),
+    )
+    db.commit()
+    return {"id": str(item.id)}
+
+
+@router.post("/documents/{document_id}/hard-copy", status_code=201)
+def record_hard_copy(
+    document_id: UUID,
+    payload: HardCopyPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    _require(request, "documents.review")
+    document = db.get(Document, document_id)
+    if not document or document.removed_at:
+        raise HTTPException(404, "Document not found")
+    get_visible(db, request, actor, document.request_id)
+    if payload.status not in {"not_required", "required", "received", "missing", "waived"}:
+        raise HTTPException(422, "Invalid hard-copy status")
+    if payload.status == "waived" and not payload.note.strip():
+        raise HTTPException(422, "A note is required when hard copy is waived")
+    item = DocumentHardCopyEvent(
+        document_id=document.id, status=payload.status, note=payload.note.strip(), actor_user_id=actor.id
+    )
+    db.add(item)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="document.hard_copy_updated",
+        entity_type="document",
+        entity_id=document.id,
+        request_id=request.state.request_id,
+        after=payload.model_dump(),
+    )
+    db.commit()
+    return _serialize(db, request, actor, document)
+
+
+@router.post("/documents/{document_id}/reviews", status_code=201)
+def review_document(
+    document_id: UUID,
+    payload: ReviewPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    _require(request, "documents.review")
+    document = db.get(Document, document_id)
+    if not document or document.removed_at:
+        raise HTTPException(404, "Document not found")
+    get_visible(db, request, actor, document.request_id)
+    if payload.decision not in {"accepted", "rejected", "replacement_required"}:
+        raise HTTPException(422, "Invalid document review decision")
+    if payload.decision != "accepted" and not payload.comment.strip():
+        raise HTTPException(422, "A comment is required for rejected or replacement-required documents")
+    item = DocumentReviewDecision(
+        document_id=document.id, decision=payload.decision, comment=payload.comment.strip(), actor_user_id=actor.id
+    )
+    db.add(item)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="document.reviewed",
+        entity_type="document",
+        entity_id=document.id,
+        request_id=request.state.request_id,
+        after=payload.model_dump(),
+    )
+    db.commit()
     return _serialize(db, request, actor, document)

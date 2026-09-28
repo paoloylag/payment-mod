@@ -1,12 +1,28 @@
 # Phase 09 — Administration and Integrations
 
 Date prepared: 2026-08-28  
+Last updated: 2026-09-25
 Status: Not started  
 Depends on: Phases 00–08
 
 ## Objective
 
 Harden administration and connect approved enterprise services through replaceable, monitored adapters without weakening local authentication or audit controls.
+
+Phase 09 is also the single production-readiness phase. Production-only acceptance work discovered during Phases 00–08 is recorded here as it becomes known and does not block a phase from being validated for local development.
+
+## Consolidated production-readiness backlog
+
+- Production reverse proxy, TLS/HTTPS, CORS, trusted-host, cookie, and network-boundary validation.
+- Staging and production environment provisioning, deployment smoke tests, promotion approvals, rollback, and release evidence.
+- Penetration testing, production security review, dependency/container scanning, secrets ownership, and rotation procedures.
+- Hosted Chrome, Firefox, and Safari compatibility plus production accessibility acceptance.
+- Production AWS S3 buckets, IAM/workload identity, encryption, private-access controls, monitoring, backup/recovery, and staging validation.
+- Malware-scanning provider selection, integration, alerting, retry behavior, and approved fail-open/fail-closed policy.
+- Formal document and audit retention, archival tier, legal hold, deletion approval, and S3 lifecycle activation.
+- LifeOS SAML metadata, certificate rotation, claim mapping, account linking, deprovisioning, and production enablement while retaining local login.
+- Live vendor, P.O./procurement, ERP/accounting, email, and webhook credentials, sandbox/staging evidence, monitoring, reconciliation, and support ownership. Banking integrations remain excluded.
+- Production database backup/restore, object-store recovery, disaster recovery, monitoring/alert routing, incident response, operational runbooks, and service-level objectives.
 
 ## Scope
 

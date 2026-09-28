@@ -5,7 +5,7 @@ Last updated: 2026-09-23
 Status: In progress
 Depends on: Phase 03 — Payment Requests
 
-Current delivery slice: implement through the first four document API capabilities—upload, metadata listing, authorized download/preview, and immutable replacement/version history. Removal, required-document evaluation, Finance hard-copy mutation, and document-review APIs remain in the next Phase 04 slice.
+Current delivery: the local S3/MinIO document workflow is implemented through upload, metadata, authorized preview/download, immutable replacement history, audited removal and cleanup retry, persisted requirements, hard-copy history, Finance review decisions, and frontend API wiring. The confirmed Reimbursement, P.O. Payment, and General Payment document rules are seeded. Production AWS, malware scanning, formal retention activation, and the Cash Advance/Liquidation rule content remain gated.
 
 ## Objective
 
@@ -17,9 +17,14 @@ Provide a secure, versioned document service for request- and line-level support
 - Maximum size: 50 MB per file and 100 MB in aggregate per request. Only active document versions attached to the request count toward the aggregate limit; retained historical versions do not.
 - Submitted-request documents are retained indefinitely for the initial implementation. Eligible draft files may be removed with audit evidence. A formal fixed retention period, archival tier, and legal-hold policy must be confirmed before production lifecycle rules are enabled.
 - PDF and image files are previewable in the application. Office documents are download-only in the initial implementation.
-- Finance tracks hard-copy state as `Not required`, `Pending`, or `Received`, including the actor and timestamp of each change.
+- Finance tracks hard-copy state as `Not required`, `Required`, `Received`, `Missing`, or `Waived`, including the actor, timestamp, and applicable note for each change.
 - Duplicate content is accepted with a warning rather than blocked. The warning records the matching document checksum and linked request identifier/number so Finance can identify where the same file was already used. Requestors see linked-request details only when authorized to view that request; Finance users with the applicable request scope can review all matching links.
 - After submission, a requestor may replace or remove a document only while the request is in a returned-for-correction state. Finance/reviewer status changes do not overwrite the stored file or document version history.
+- Confirmed initial document matrix:
+  - Reimbursement: Invoice and Proof of Payment are required; Billing / Quotation / SOA is conditional when available.
+  - P.O. Payment: Billing Invoice / Statement of Account is required; BIR 2303 and Business Permit are conditional for a new supplier; Delivery Receipt is conditional when applicable; Invoice is conditional when available. Approved P.O. and Quotation/Contract come from Procurement rather than requiring duplicate uploads.
+  - General Payment: an uploaded Billing / SOA / Quotation file is required. BIR 2303 becomes a blocking requirement when the request is marked as involving a new supplier.
+  - Cash Advance and Liquidation remain intentionally non-blocking for document uploads. Their system request forms satisfy the form requirement. Liquidation receipt uploads are optional per breakdown line because original hard copies are submitted offline. Proof of Return is not uploaded; the Liquidation records the amount returned offline.
 
 ## Scope
 
@@ -108,13 +113,20 @@ Included now:
 3. File type, MIME, size, checksum, aggregate-limit, duplicate-warning, authorization, and audit controls.
 4. Upload, metadata list, authorized content/preview, and replacement/version-history APIs.
 
-Deferred to the next slice:
+Implemented in the second local slice:
 
-- Draft document removal and storage cleanup workflow.
-- Persisted required-document rule evaluation.
-- Finance hard-copy status mutation and history APIs.
-- Finance/reviewer document-decision APIs.
-- Full frontend API wiring for the deferred operations.
+- Draft document removal with retained audit metadata and retryable storage cleanup state.
+- Persisted request- and line-level required-document rule evaluation, including submission/resubmission enforcement.
+- Finance hard-copy status mutation and append-only history APIs.
+- Finance/reviewer accepted, rejected, and replacement-required decision APIs.
+- Frontend API wiring for upload, preview, replacement, removal, requirement status, duplicate warning, hard-copy state, and reviewer decisions, with standalone sample fallback retained.
+
+Deferred to production readiness:
+
+- Reimbursement document-rule clarification, including whether Proof of Payment remains required and Billing / Quotation / SOA remains conditional.
+- Formal retention duration, archival tier, legal hold, and S3 lifecycle activation.
+- Production AWS bucket/IAM/encryption/monitoring validation.
+- Malware-provider integration and approved failure policy.
 
 ## Acceptance gates
 
@@ -148,6 +160,13 @@ These do not block local implementation against MinIO:
 - Formal production retention duration, archival tier, legal-hold process, and approved S3 lifecycle rules. Initial behavior retains submitted-request documents indefinitely.
 - AWS account/bucket owner, region, environment-specific bucket names, encryption choice, IAM/workload identity, monitoring owner, and approved presigned URL lifetime.
 - Malware-scanning provider and production fail-open/fail-closed policy.
+
+## Cross-phase validation update — 2026-09-28
+
+- Standardized every active file field on the accessible line-item upload icon pattern while preserving filenames,
+  multi-file selection, document status, preview, replacement and removal actions.
+- The production frontend build and complete 73-test Docker/PostgreSQL regression passed.
+- The API-backed role/accessibility walkthrough and Reimbursement document-rule clarification remain local gates.
 
 ## Exclusions
 

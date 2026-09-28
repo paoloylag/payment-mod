@@ -28,7 +28,7 @@ services:
       # Local MinIO has no KMS. Deployed AWS environments must set AES256 or aws:kms.
       S3_SERVER_SIDE_ENCRYPTION: ""
     ports:
-      - "127.0.0.1:8002:8002"
+      - "127.0.0.1:${PAYMENT_API_PORT:-58002}:8002"
     depends_on:
       db:
         condition: service_healthy
@@ -48,7 +48,7 @@ services:
       POSTGRES_PASSWORD: payment_module
       TZ: Asia/Manila
     ports:
-      - "127.0.0.1:5434:5432"
+      - "127.0.0.1:${PAYMENT_DB_PORT:-55434}:5432"
     volumes:
       - payment-module-postgres:/var/lib/postgresql/data
     healthcheck:

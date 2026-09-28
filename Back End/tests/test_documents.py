@@ -1,7 +1,8 @@
 from uuid import uuid4
 
 from payment_module.database import SessionLocal
-from payment_module.models import Currency, Department, PaymentRequest, User
+from payment_module.models import Currency, Department, DocumentType, PaymentRequest, User
+from payment_module.routers.requests import document_requirement_errors
 from payment_module.seed import seed
 from sqlalchemy import select
 
@@ -43,7 +44,7 @@ def login(client, email="requestor@payment.local"):
     return {"X-CSRF-Token": response.json()["csrf_token"]}
 
 
-def create_request(status="draft"):
+def create_request(status="draft", request_type="reimbursement", type_data=None):
     seed()
     with SessionLocal.begin() as db:
         user = db.scalar(select(User).where(User.email == "requestor@payment.local"))
@@ -51,7 +52,7 @@ def create_request(status="draft"):
         assert db.get(Currency, "PHP")
         item = PaymentRequest(
             id=uuid4(),
-            request_type="reimbursement",
+            request_type=request_type,
             status=status,
             requestor_id=user.id,
             department_id=department.id,
@@ -59,10 +60,35 @@ def create_request(status="draft"):
             purpose="Document test",
             currency_code="PHP",
             gross_amount=0,
+            type_data=type_data or {},
         )
         db.add(item)
         db.flush()
         return item.id
+
+
+def test_general_payment_new_supplier_requires_bir_2303(client):
+    seed(include_document_requirement_rules=True)
+    existing_supplier_id = create_request(request_type="general", type_data={"new_supplier": False})
+    new_supplier_id = create_request(request_type="general", type_data={"new_supplier": True})
+
+    with SessionLocal() as db:
+        existing_errors = document_requirement_errors(db, db.get(PaymentRequest, existing_supplier_id))
+        new_errors = document_requirement_errors(db, db.get(PaymentRequest, new_supplier_id))
+
+    assert [error["message"] for error in existing_errors] == ["Billing / Quotation / SOA is required"]
+    assert {error["message"] for error in new_errors} == {
+        "Billing / Quotation / SOA is required",
+        "BIR 2303 is required",
+    }
+
+    headers = login(client)
+    requirements = client.get(f"/api/v1/requests/{new_supplier_id}/document-requirements", headers=headers)
+    assert requirements.status_code == 200
+    by_code = {item["document_type_code"]: item for item in requirements.json()["requirements"]}
+    assert by_code["BILLING_SOA"]["required"] is True
+    assert by_code["BIR_2303"]["required"] is True
+    assert requirements.json()["can_submit_documents"] is False
 
 
 def test_upload_list_preview_replace_and_duplicate_warning(client, monkeypatch):
@@ -138,3 +164,90 @@ def test_document_validation_authorization_and_submitted_replacement(client, mon
     login(client, "coo@payment.local")
     assert client.get(f"/api/v1/requests/{request_id}/documents").status_code == 404
     assert client.get(f"/api/v1/documents/{document_id}/content").status_code == 404
+
+
+def test_remove_document_preserves_history_and_cleans_storage(client, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr("payment_module.routers.documents.get_storage", lambda: storage)
+    request_id = create_request()
+    headers = login(client)
+    uploaded = client.post(
+        f"/api/v1/requests/{request_id}/documents",
+        headers=headers,
+        files={"file": ("receipt.pdf", b"%PDF-1.7 remove", "application/pdf")},
+    )
+    assert uploaded.status_code == 201
+    document_id = uploaded.json()["id"]
+    assert storage.objects
+
+    removed = client.request(
+        "DELETE",
+        f"/api/v1/documents/{document_id}",
+        headers=headers,
+        json={"reason": "Incorrect attachment"},
+    )
+    assert removed.status_code == 204
+    assert not storage.objects
+    assert client.get(f"/api/v1/requests/{request_id}/documents").json() == []
+    assert client.get(f"/api/v1/documents/{document_id}/content").status_code == 410
+
+
+def test_required_document_rules_and_finance_histories(client, monkeypatch):
+    monkeypatch.setattr("payment_module.routers.documents.get_storage", lambda: FakeStorage())
+    request_id = create_request()
+    with SessionLocal() as db:
+        invoice = db.scalar(select(DocumentType).where(DocumentType.code == "INVOICE"))
+        invoice_id = invoice.id
+
+    admin_headers = login(client, "admin@payment.local")
+    rule = client.post(
+        "/api/v1/document-requirement-rules",
+        headers=admin_headers,
+        json={
+            "request_type": "reimbursement",
+            "document_type_id": str(invoice_id),
+            "scope": "request",
+            "minimum_count": 1,
+            "is_required": True,
+            "is_active": True,
+        },
+    )
+    assert rule.status_code == 201, rule.text
+
+    client.cookies.clear()
+    requestor_headers = login(client)
+    pending = client.get(f"/api/v1/requests/{request_id}/document-requirements")
+    assert pending.status_code == 200
+    assert pending.json()["can_submit_documents"] is False
+    assert pending.json()["requirements"][0]["guidance"] is None
+    with SessionLocal() as db:
+        assert document_requirement_errors(db, db.get(PaymentRequest, request_id))[0]["field"] == "documents"
+    uploaded = client.post(
+        f"/api/v1/requests/{request_id}/documents",
+        headers=requestor_headers,
+        data={"document_type_id": str(invoice_id)},
+        files={"file": ("invoice.pdf", b"%PDF-1.7 invoice", "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    document_id = uploaded.json()["id"]
+    assert client.get(f"/api/v1/requests/{request_id}/document-requirements").json()["can_submit_documents"] is True
+    with SessionLocal() as db:
+        assert document_requirement_errors(db, db.get(PaymentRequest, request_id)) == []
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.associate@payment.local")
+    hard_copy = client.post(
+        f"/api/v1/documents/{document_id}/hard-copy",
+        headers=finance_headers,
+        json={"status": "received", "note": "Original received by Finance"},
+    )
+    assert hard_copy.status_code == 201, hard_copy.text
+    assert hard_copy.json()["hard_copy_status"] == "received"
+    review = client.post(
+        f"/api/v1/documents/{document_id}/reviews",
+        headers=finance_headers,
+        json={"decision": "replacement_required", "comment": "Image is unreadable"},
+    )
+    assert review.status_code == 201, review.text
+    assert review.json()["review_decision"] == "replacement_required"
+    assert len(review.json()["review_history"]) == 1

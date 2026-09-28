@@ -191,7 +191,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 - The remaining cost-center policy information listed above: initial effective-from date and cross-department charging. One item and one cost center per line is already confirmed.
 - Finance-approved internal chart-of-account records are needed only before those records are used for authoritative accounting. QuickBooks-specific codes, import, and export are deferred; the existing account-code structure is the future mapping point.
 - Finance-approved tax codes, VAT/EWT classifications, rates, and effective dates.
-- A representative vendor payload was supplied on 2026-09-03 and is covered by the mock adapter contract. Its bank fields are discarded entirely. Base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, and sandbox credentials remain required.
+- The representative vendor payload was refreshed on 2026-09-25 with contact, commercial, status, and `businessDocuments` metadata and is covered by the mock adapter contract. Its bank fields are discarded entirely. An immutable external vendor ID, base URL, authentication, pagination/filtering, error/rate-limit behavior, timeout/SLA expectations, document access, and sandbox credentials remain required. See `docs/procurement-integration-contract.md`.
 
 ## Exclusions
 

@@ -10,7 +10,7 @@ const paymentTypes = {
       { label: "Date", kind: "date", value: "2026-07-18" },
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
-    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Payment", "Cash Advance Form (If Applicable)", "Other Supporting Document"],
+    uploadDocuments: ["Invoice", "Billing / Quotation / SOA (if available)", "Proof of Payment"],
     lineColumns: ["Merchant Name", "Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   cashAdvance: {
@@ -28,7 +28,7 @@ const paymentTypes = {
   liquidation: {
     label: "Liquidation",
     prefix: "LIQ",
-    required: ["Cash Advance Reference Number", "Cash Advance Requestor", "Department", "Date to Be Liquidated", "Actual Date of Liquidation", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
+    required: ["Cash Advance Reference Number", "Cash Advance Requestor", "Department", "Date to Be Liquidated", "Actual Date of Liquidation", "Event / Purpose"],
     mandatoryFields: [
       { label: "Cash Advance Reference Number", kind: "input", value: "CA-2026-0049" },
       { label: "Department", kind: "input", value: "People Operations" },
@@ -36,23 +36,23 @@ const paymentTypes = {
       { label: "Actual Date of Liquidation", kind: "date", value: "2026-07-30" },
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop liquidation" },
     ],
-    uploadDocuments: ["BIR-Recognized Invoice(s) / Official Receipt(s)", "Proof of Unused Cash Return (If Applicable)", "Other Supporting Document"],
+    uploadDocuments: [],
     lineColumns: ["Merchant Name", "Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   poPayment: {
     label: "P.O. Payment",
     prefix: "PO",
-    required: ["Department / Cost Center for Each Line Item", "Approved P.O."],
+    required: ["Department / Cost Center for Each Line Item", "P.O. Reference from Procurement"],
     mandatoryFields: [],
-    uploadDocuments: ["Approved P.O.", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    uploadDocuments: ["BIR 2303 (if new supplier)", "Business Permit (if new supplier)", "Delivery Receipt (if applicable)", "Billing Invoice / Statement of Account", "Invoice (if available)"],
     lineColumns: ["P.O. Number", "Supplier", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
   general: {
     label: "General Payment",
     prefix: "GEN",
-    required: ["Complete Request Breakdown Row(s)", "Billing or Invoice"],
+    required: ["Complete Request Breakdown Row(s)", "Billing / SOA / Quotation"],
     mandatoryFields: [],
-    uploadDocuments: ["Billing or Invoice", "BIR 2303 (If New Supplier)", "Billing / Quotation / SOA", "Invoice (If Available)"],
+    uploadDocuments: ["Billing / SOA / Quotation", "BIR 2303 (if new supplier)"],
     lineColumns: ["Merchant Name", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"],
   },
 };
@@ -117,13 +117,15 @@ const uploadSamples = [
     { name: "Supporting Budget / Itinerary", required: true, file: "event-budget-and-itinerary.xlsx", size: "92 KB" },
   ] },
   { id: "PO-2026-0102", type: "poPayment", requestor: "Bea Tan", department: "Procurement", vendor: "Atlas Office Systems", amount: 141750, documents: [
-    { name: "Approved P.O.", required: true, file: "PO-2026-0102-approved.pdf", size: "411 KB" },
+    { name: "Delivery Receipt (If Applicable)", required: false },
+    { name: "Business Permit (New Supplier)", required: false },
     { name: "BIR 2303 (New Supplier)", required: false, file: "atlas-bir-2303.pdf", size: "205 KB" },
     { name: "Billing / Quotation / SOA", required: true, file: "atlas-soa-june.pdf", size: "176 KB" },
     { name: "Invoice", required: false },
   ] },
   { id: "PO-2026-0105", type: "poPayment", requestor: "Jon Reyes", department: "Operations", vendor: "Northstar Supplies", amount: 98200, documents: [
-    { name: "Approved P.O.", required: true },
+    { name: "Delivery Receipt (If Applicable)", required: false },
+    { name: "Business Permit (New Supplier)", required: false },
     { name: "BIR 2303 (New Supplier)", required: false },
     { name: "Billing / Quotation / SOA", required: true, file: "northstar-quotation.pdf", size: "238 KB" },
     { name: "Invoice", required: false },
@@ -717,6 +719,12 @@ function VoucherCard({ voucher, request }) {
   );
 }
 
+function UploadControl({ label, multiple = false, filenames, onFiles, showFilename = true }) {
+  const [localNames, setLocalNames] = useState([]);
+  const displayedNames = filenames ?? localNames;
+  return <div className="upload-row-selection"><label className="line-upload-control" title={label}><input type="file" multiple={multiple} aria-label={label} onChange={(event) => { const files = [...(event.target.files || [])]; setLocalNames(files.map((file) => file.name)); onFiles?.(files); }} /><span className="line-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg></span></label>{showFilename && <span className="line-upload-filename" title={displayedNames.join(", ")}>{displayedNames.length ? displayedNames.join(", ") : "No files selected"}</span>}</div>;
+}
+
 function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updateLineItem, addLineItem, removeLineItem, budgeted, setBudgeted, draftRequest }) {
   const config = paymentTypes[draftType];
   const isReimbursement = draftType === "reimbursement";
@@ -771,7 +779,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
                   const isFile = column === "Receipt" || column === "Attachment";
                   const example = lineItemExamples[draftType]?.[0]?.[column] ?? column;
                   const incomplete = active && (column === "Amount" ? Number(item[column]) <= 0 : isFile ? attachments.length === 0 : !String(item[column] || "").trim());
-                  if (isFile) return <label className={`line-card-field line-card-attachments${incomplete ? " line-field-required" : ""}`} key={column}>{column}<input type="file" multiple required={incomplete} aria-required={active} aria-label={`${column} files for line ${rowIndex + 1}`} onChange={(event) => updateLineItem(rowIndex, column, [...(event.target.files || [])].map((file) => file.name).slice(0, 20))} /><span className="line-upload-filename">{attachments.length ? attachments.join(", ") : "No files selected"}</span></label>;
+                  if (isFile) return <div className={`line-card-field line-card-attachments${incomplete ? " line-field-required" : ""}`} key={column}><span>{column}</span><UploadControl label={`Choose files for line ${rowIndex + 1}`} multiple filenames={attachments} onFiles={(files) => updateLineItem(rowIndex, column, files.map((file) => file.name).slice(0, 20))} /></div>;
                   return <label className={`line-card-field${incomplete ? " line-field-required" : ""}`} key={column}>{column}<input type={column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"} required={active} value={item[column] || ""} placeholder={String(example)} onChange={(event) => updateLineItem(rowIndex, column, event.target.value)} /></label>;
                 })}</div><div className="line-card-actions"><button type="button" className="remove-line-button" disabled={lineItems.length === 1} onClick={() => removeLineItem(rowIndex)}>Remove line</button></div></div>
               </details>;
@@ -779,7 +787,7 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
           </div>
           <div className="line-card-footer"><button type="button" className="add-line-button" onClick={addLineItem}>+ Add Line Item</button><div className="line-card-total"><span>{isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : "Total"}</span><strong>{formatCurrency(draftAmount)}</strong></div></div>
         </div>
-        {isCashAdvance && <><section className="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required /> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section className="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Full-time employees may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due on the 15th or 30th after the event, whichever is later.</li><li>Partial liquidation is required for projects lasting more than one month; receipts older than 30 days are not accepted.</li></ul></section></>}
+        {isCashAdvance && <><section className="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" required /> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section className="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Staff may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due within 15 days after the event or project.</li><li>Excess cash must be returned directly to Finance.</li></ul></section></>}
       </div>
       <div className="panel">
         <div className="panel-header">
@@ -797,10 +805,10 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
         <h4>Document Uploads</h4>
         <div className="upload-list">
           {config.uploadDocuments.map((documentName) => (
-            <label key={documentName} className="upload-row">
+            <div key={documentName} className="upload-row">
               <span>{documentName}</span>
-              <input type="file" />
-            </label>
+              <UploadControl label={`Upload ${documentName}`} multiple={documentName.includes("Billing / Quotation / SOA")} />
+            </div>
           ))}
         </div>
         <div className="route-box">
@@ -931,10 +939,7 @@ function DocumentUploads({ selectedId, onSelect }) {
                 <div><strong>{document.name}</strong><span className={document.required ? "required-tag" : "conditional-tag"}>{document.required ? "Required" : "Conditional"}</span></div>
                 {document.file ? <p><span className="file-icon">{document.file.split(".").pop().toUpperCase()}</span>{document.file} <small>{document.size}</small></p> : <p className="missing-file">No File Uploaded</p>}
               </div>
-              <label className="file-picker">
-                <span>{document.file ? "Replace File" : "Add File"}</span>
-                <input type="file" aria-label={`${document.file ? "Replace" : "Add"} ${document.name}`} />
-              </label>
+              <UploadControl label={`${document.file ? "Replace" : "Upload"} ${document.name}`} showFilename={false} />
             </article>
           ))}
         </div>

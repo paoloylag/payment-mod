@@ -1,11 +1,11 @@
 # Phase 03 — Payment Requests
 
 Date prepared: 2026-08-28  
-Last decision update: 2026-09-21
+Last decision update: 2026-09-25
 Status: In progress
 Depends on: Phase 02 — Master Data
 
-2026-09-22 approval-independent validation: the 21 focused request API tests and full 58-test backend regression passed against the dedicated PostgreSQL test database; the production frontend build passed. API-connected Requestor draft save/reload and incomplete-submit feedback passed. All five API-connected form routes rendered; all five standalone forms fit a 390 × 844 viewport without page-level horizontal overflow. Standalone mock drafts now survive reload. The full five-type browser lifecycle remains open. See `docs/phase-03-validation.md` and the development/test register for evidence.
+2026-09-28 validation update: the complete 73-test Docker/PostgreSQL regression and production frontend build passed. The Playwright five-role Chrome lifecycle also passed against its dedicated disposable database for return, resubmit, cancel and reopen across all five request types. Finance/external-system decisions and final reviewer acceptance remain open. See `docs/phase-03-validation.md` and the development/test register for evidence.
 
 ## Implementation progress — 2026-09-20
 
@@ -14,11 +14,14 @@ Depends on: Phase 02 — Master Data
 - Submission-time validation is type-specific and returns field-scoped errors; incomplete drafts remain eligible for
   autosave and later completion.
 - Reimbursement validates merchant, invoice date/number, account, cost center, amount, receipt, and proof of payment.
-- Cash Advance validates event and liquidation dates, positive lines, and accountability acknowledgement without
-  enforcing the still-unapproved amount, outstanding-advance, or deadline policies.
+- Cash Advance validates event and liquidation dates, positive lines, accountability acknowledgement, the hard PHP
+  40,000 cap, liquidation exactly 15 calendar days after the event end date, and one submitted/unliquidated advance per
+  requestor. A submitted Liquidation referencing the prior request releases the requestor for another advance.
 - Liquidation validates its Cash Advance reference, dates, advance amount, detailed expense lines, receipts, and proof
   of return when the advance exceeds recorded expenses.
 - P.O. Payment validates the P.O. reference, supplier, account/cost-center treatment, amount, and approved-P.O. support.
+  Submission independently checks the Procurement source for eligibility, amount, currency and vendor, prevents reuse
+  by another active request, and freezes a safe P.O./vendor snapshot without bank fields.
 - General Payment has no request-level `Particulars of Payment` field. Particulars are entered in the request breakdown;
   untouched rows stay optional, while every started row must be complete before submission.
 - Ruff, 13 focused request API tests, the complete `46 passed` backend regression, production frontend build, and
@@ -57,7 +60,7 @@ Source: `https://docs.google.com/spreadsheets/d/1jgfaA-KFPBO3rwEUrxlUr3IKt2gSw-l
 - Reimbursement requires an event/purpose and one or more departments/cost centers. Its repeatable lines contain invoice date, invoice number, vendor/merchant, particulars/details, amount plus currency, and one uploaded invoice/receipt per line. The system computes the total.
 - Cash Advance requires an event/purpose and one or more departments/cost centers. Its repeatable lines contain particulars and amount plus currency. The system computes the total.
 - P.O. Payment requires an approved P.O., particulars, and one or more departments/cost centers.
-- General Payment requires a billing document or invoice and one or more departments/cost centers. The source's mandatory-field text says `Particulars of P.O. payment`; this is treated as an unresolved copy/paste ambiguity, not silently enforced as a General Payment label.
+- General Payment requires an uploaded Billing / SOA / Quotation file and one or more departments/cost centers. When the requestor marks the payee as a new supplier, BIR 2303 is also required.
 - The Department Head receives the submitted request details and attachments for review. Return-for-information permits the requestor to edit, comment, add required documents where applicable, and resubmit to the returning reviewer.
 - Disapproval requires a reason and notifications to the roles already involved. Comments/notes are permitted at review steps.
 
@@ -65,21 +68,25 @@ Source: `https://docs.google.com/spreadsheets/d/1jgfaA-KFPBO3rwEUrxlUr3IKt2gSw-l
 
 - Reimbursement: Invoice; Billing / Quotation / SOA when available; Proof of Payment.
 - P.O. Payment: BIR 2303 for a new supplier; Billing / Quotation / SOA; Invoice when available.
-- General Payment: BIR 2303 for a new supplier; Billing / Quotation / SOA; Invoice when available.
+- General Payment: Billing / SOA / Quotation is required; BIR 2303 becomes required for a new supplier.
 
 The source also records later-phase approval, notification, payment, tracking, archiving, and accounting-posting behavior. Those rules remain authoritative inputs to Phases 04–08 rather than expanding Phase 03 implementation scope.
 
 ### Source discrepancies requiring confirmation
 
 - `Sheet1` omits Liquidation, but the owner subsequently confirmed and implemented it as the fifth request type.
-- General Payment uses complete request-breakdown rows instead of a request-level particulars field. Its final document rules remain pending Finance confirmation because the source sheet contains ambiguous P.O. wording.
-- `Sheet3` lists Cash Advance guidelines and policies as outstanding work. The source does not approve an amount limit, one-outstanding-advance rule, or liquidation deadline; those policies must not be enforced as authoritative until separately confirmed.
+- General Payment uses complete request-breakdown rows instead of a request-level particulars field. Finance confirmed its document rules on 2026-09-25: Billing / SOA / Quotation is always required, and BIR 2303 is additionally required for a new supplier.
+- `Sheet3` originally listed Cash Advance policies as outstanding. The Finance orientation and owner direction on
+  2026-09-25 supersede that gap: PHP 40,000 is a hard cap, only one submitted/unliquidated advance is allowed per
+  requestor, and liquidation is due exactly 15 calendar days after the event end date.
 - `Sheet2` does not specify Cash Advance or Liquidation documents. Confirm their required-document lists before Phase 04.
 - The source mentions auto-numbering during document upload. The later confirmed rule governs implementation: the permanent `PR-{YEAR}-{sequence}` number is assigned exactly once on successful submission.
 
 ## Objective
 
 Persist the complete request lifecycle for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and General Payment.
+
+Browser acceptance is automated with Playwright. It runs Chromium against a dedicated `payment_module_e2e` PostgreSQL database and creates isolated Requestor, Department Head, Finance Associate, Finance Manager, and System Administrator sessions. API setup creates deterministic real records; every lifecycle transition under acceptance is performed through the visible UI and verified against persisted history.
 
 ## Scope
 
