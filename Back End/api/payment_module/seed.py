@@ -153,17 +153,17 @@ DOCUMENT_TYPES = (
 )
 
 DOCUMENT_REQUIREMENT_RULES = (
-    ("reimbursement", "INVOICE", True, None),
-    ("reimbursement", "BILLING_SOA", False, "If available"),
-    ("reimbursement", "PROOF_PAYMENT", True, None),
-    ("poPayment", "BIR_2303", False, "If new supplier"),
-    ("poPayment", "BILLING_SOA", True, None),
-    ("poPayment", "INVOICE", False, "If available"),
-    ("poPayment", "DELIVERY_RECEIPT", False, "If applicable"),
-    ("poPayment", "BUSINESS_PERMIT", False, "If new supplier"),
-    ("general", "BIR_2303", False, "If new supplier"),
-    ("general", "BILLING_SOA", True, None),
-    ("general", "INVOICE", False, "If available"),
+    ("reimbursement", "INVOICE", "request", True, None),
+    ("reimbursement", "BILLING_SOA", "request", False, "If available"),
+    ("reimbursement", "PROOF_PAYMENT", "line", True, "Required for every reimbursement line"),
+    ("poPayment", "BIR_2303", "request", False, "If new supplier"),
+    ("poPayment", "BILLING_SOA", "request", True, None),
+    ("poPayment", "INVOICE", "request", False, "If available"),
+    ("poPayment", "DELIVERY_RECEIPT", "request", False, "If applicable"),
+    ("poPayment", "BUSINESS_PERMIT", "request", False, "If new supplier"),
+    ("general", "BIR_2303", "request", False, "If new supplier"),
+    ("general", "BILLING_SOA", "request", True, None),
+    ("general", "INVOICE", "request", False, "If available"),
 )
 
 
@@ -243,13 +243,20 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
             session.flush()
             document_type_ids[code] = item.id
         if include_document_requirement_rules:
-            for request_type, document_code, is_required, guidance in DOCUMENT_REQUIREMENT_RULES:
-                rule_id = stable_id("document-requirement-rule", f"{request_type}:{document_code}:request")
+            for request_type, document_code, scope, is_required, guidance in DOCUMENT_REQUIREMENT_RULES:
+                rule_id = stable_id("document-requirement-rule", f"{request_type}:{document_code}:{scope}")
+                obsolete_scope = "line" if scope == "request" else "request"
+                obsolete = session.get(
+                    DocumentRequirementRule,
+                    stable_id("document-requirement-rule", f"{request_type}:{document_code}:{obsolete_scope}"),
+                )
+                if obsolete is not None:
+                    session.delete(obsolete)
                 item = session.scalar(
                     select(DocumentRequirementRule).where(
                         DocumentRequirementRule.request_type == request_type,
                         DocumentRequirementRule.document_type_id == document_type_ids[document_code],
-                        DocumentRequirementRule.scope == "request",
+                        DocumentRequirementRule.scope == scope,
                     )
                 )
                 if item is None:
@@ -257,7 +264,7 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                     session.add(item)
                 item.request_type = request_type
                 item.document_type_id = document_type_ids[document_code]
-                item.scope = "request"
+                item.scope = scope
                 item.minimum_count = 1
                 item.is_required = is_required
                 item.guidance = guidance

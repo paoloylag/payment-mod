@@ -1,7 +1,9 @@
+from calendar import monthrange
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy import String, delete, func, or_, select, text
@@ -248,7 +250,6 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             require(
                 line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
             )
-        require(data.get("proof_of_payment_refs"), "type_data.proof_of_payment_refs", "Proof of payment is required")
     elif item.request_type == "cashAdvance":
         event_end_date = data.get("event_end_date")
         liquidation_due_date = data.get("liquidation_due_date")
@@ -810,6 +811,28 @@ def reimbursement_batch_cutoffs(db: Session) -> list[int]:
     return values if values and all(1 <= value <= 31 for value in values) else [15, 30]
 
 
+def reimbursement_batch_date(moment: date, cutoff_days: list[int]) -> date:
+    year, month = moment.year, moment.month
+    for _ in range(2):
+        last_day = monthrange(year, month)[1]
+        candidates = sorted({date(year, month, min(day, last_day)) for day in cutoff_days})
+        available = [candidate for candidate in candidates if candidate >= moment]
+        if available:
+            return available[0]
+        month = 1 if month == 12 else month + 1
+        year = year + 1 if month == 1 else year
+        moment = date(year, month, 1)
+    raise RuntimeError("Unable to calculate reimbursement batch")
+
+
+def assign_reimbursement_batch(db: Session, item: PaymentRequest) -> None:
+    if item.request_type != "reimbursement":
+        return
+    local_date = datetime.now(ZoneInfo(app_settings.database_timezone)).date()
+    batch_date = reimbursement_batch_date(local_date, reimbursement_batch_cutoffs(db))
+    item.type_data = {**(item.type_data or {}), "reimbursement_batch_date": batch_date.isoformat()}
+
+
 def academic_year_start(moment: datetime, reset_month: int) -> int:
     return moment.year if moment.month >= reset_month else moment.year - 1
 
@@ -952,6 +975,7 @@ def submit_payment_request(
         raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
     lock_submission_constraints(db, item)
     ensure_submittable(db, item)
+    assign_reimbursement_batch(db, item)
     record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     previous = item.status
@@ -1116,6 +1140,7 @@ def resubmit_payment_request(
         raise HTTPException(422, "A resubmission note is required")
     lock_submission_constraints(db, item)
     ensure_submittable(db, item)
+    assign_reimbursement_batch(db, item)
     record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     result = lifecycle_change(

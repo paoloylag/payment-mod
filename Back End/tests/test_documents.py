@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from payment_module.database import SessionLocal
-from payment_module.models import Currency, Department, DocumentType, PaymentRequest, User
+from payment_module.models import Currency, Department, DocumentType, PaymentRequest, PaymentRequestLine, User
 from payment_module.routers.requests import document_requirement_errors
 from payment_module.seed import seed
 from sqlalchemy import select
@@ -89,6 +89,77 @@ def test_general_payment_new_supplier_requires_bir_2303(client):
     assert by_code["BILLING_SOA"]["required"] is True
     assert by_code["BIR_2303"]["required"] is True
     assert requirements.json()["can_submit_documents"] is False
+
+
+def test_reimbursement_proof_of_payment_is_required_for_every_line(client, monkeypatch):
+    storage = FakeStorage()
+    monkeypatch.setattr("payment_module.routers.documents.get_storage", lambda: storage)
+    seed(include_document_requirement_rules=True)
+    request_id = create_request(request_type="reimbursement")
+    with SessionLocal.begin() as db:
+        db.add_all(
+            [
+                PaymentRequestLine(
+                    request_id=request_id,
+                    position=position,
+                    particulars=f"Reimbursement item {position}",
+                    vendor_name="Test Merchant",
+                    amount=100,
+                    currency_code="PHP",
+                    attachment_refs=["invoice.pdf"],
+                )
+                for position in (1, 2)
+            ]
+        )
+    with SessionLocal() as db:
+        lines = list(
+            db.scalars(
+                select(PaymentRequestLine)
+                .where(PaymentRequestLine.request_id == request_id)
+                .order_by(PaymentRequestLine.position)
+            )
+        )
+        proof = db.scalar(select(DocumentType).where(DocumentType.code == "PROOF_PAYMENT"))
+        errors = document_requirement_errors(db, db.get(PaymentRequest, request_id))
+        assert [error["field"] for error in errors if "Proof of Payment" in error["message"]] == [
+            "lines.0.documents",
+            "lines.1.documents",
+        ]
+        line_ids = [str(line.id) for line in lines]
+        proof_id = str(proof.id)
+
+    headers = login(client)
+    first = client.post(
+        f"/api/v1/requests/{request_id}/documents",
+        headers=headers,
+        data={"document_type_id": proof_id, "line_id": line_ids[0]},
+        files={"file": ("proof-1.pdf", b"%PDF-1.7 proof one", "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    halfway = client.get(f"/api/v1/requests/{request_id}/document-requirements", headers=headers).json()
+    proof_requirement = next(item for item in halfway["requirements"] if item["document_type_code"] == "PROOF_PAYMENT")
+    assert proof_requirement["scope"] == "line"
+    assert proof_requirement["complete"] is False
+    assert [item["complete"] for item in proof_requirement["lines"]] == [True, False]
+    assert [item["position"] for item in proof_requirement["lines"]] == [1, 2]
+
+    second = client.post(
+        f"/api/v1/requests/{request_id}/documents",
+        headers=headers,
+        data={"document_type_id": proof_id, "line_id": line_ids[1]},
+        files={"file": ("proof-2.pdf", b"%PDF-1.7 proof two", "application/pdf")},
+    )
+    assert second.status_code == 201, second.text
+    complete = client.get(f"/api/v1/requests/{request_id}/document-requirements", headers=headers).json()
+    completed_proof = next(item for item in complete["requirements"] if item["document_type_code"] == "PROOF_PAYMENT")
+    assert completed_proof["complete"] is True
+    assert all(item["complete"] for item in completed_proof["lines"])
+    with SessionLocal() as db:
+        assert not [
+            error
+            for error in document_requirement_errors(db, db.get(PaymentRequest, request_id))
+            if "Proof of Payment" in error["message"]
+        ]
 
 
 def test_upload_list_preview_replace_and_duplicate_warning(client, monkeypatch):

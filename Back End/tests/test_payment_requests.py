@@ -20,7 +20,7 @@ from payment_module.models import (
     User,
     UserPermissionOverride,
 )
-from payment_module.routers.requests import academic_year_start
+from payment_module.routers.requests import academic_year_start, reimbursement_batch_date
 from payment_module.seed import seed
 from sqlalchemy import event, func, select
 
@@ -405,6 +405,14 @@ def test_reimbursement_batch_schedule_is_viewable_and_finance_managed(client):
         headers=manager_headers,
     )
     assert restored.status_code == 200
+
+
+def test_reimbursement_batch_date_uses_cutoffs_and_month_end_fallback():
+    assert reimbursement_batch_date(datetime(2026, 9, 15, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-15"
+    assert reimbursement_batch_date(datetime(2026, 9, 16, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-30"
+    assert reimbursement_batch_date(datetime(2026, 9, 30, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-30"
+    assert reimbursement_batch_date(datetime(2026, 10, 31, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-11-15"
+    assert reimbursement_batch_date(datetime(2027, 2, 16, tzinfo=UTC).date(), [15, 30]).isoformat() == "2027-02-28"
 
 
 def test_cash_advance_options_only_include_current_users_submitted_advances(client):

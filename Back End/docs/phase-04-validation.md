@@ -1,7 +1,7 @@
 # Phase 04 — Validation record
 
 Date: 2026-09-28
-Status: In progress. The local document workflow and earlier Reimbursement, P.O. Payment, and General Payment matrix were implemented. On 2026-09-28, the Proof of Payment requirement was clarified as per Reimbursement line item; the current request-level implementation must be changed and retested. Cash Advance and Liquidation intentionally have no blocking upload rules. Remaining local and production work is separated below.
+Status: In progress. The local document workflow and Reimbursement, P.O. Payment, and General Payment matrix are implemented. On 2026-09-28, Proof of Payment was moved to a required per-Reimbursement-line rule in the seed, API evaluation, requirement response, and frontend upload workspace. Focused tests and the production build pass; expanded multi-line browser acceptance remains open. Cash Advance and Liquidation intentionally have no blocking upload rules.
 
 ## Evidence
 
@@ -15,7 +15,7 @@ Status: In progress. The local document workflow and earlier Reimbursement, P.O.
 | Limits and integrity | Configuration enforces 50 MB per file and 100 MB active content per request. Request-row locking protects concurrent aggregate checks. Extension, declared MIME, signature, empty content, and traversal filename checks are implemented. |
 | Authorization | Read routes require `documents.read` plus owning-request visibility. Upload/replacement require `documents.manage_own`, ownership, and `draft` or `returned` status. |
 | Removal and cleanup | Draft/returned removal requires the owner and a reason, excludes the item from active listings, retains metadata/audit history, and records retryable object cleanup attempts. |
-| Requirement rules | Finance managers/administrators can configure request- or line-level rules. The seed installs eleven active rules for Reimbursement, P.O. Payment, and General Payment, including conditional Delivery Receipt and Business Permit rules for P.O. Payment. General Payment always requires Billing / SOA / Quotation and dynamically requires BIR 2303 when marked as a new supplier. Required records block submit/resubmit; conditional records remain visible but non-blocking. Cash Advance and Liquidation are intentionally non-blocking for uploads. |
+| Requirement rules | Finance managers/administrators can configure request- or line-level rules. The seed installs eleven active rules for Reimbursement, P.O. Payment, and General Payment, including per-line Reimbursement Proof of Payment and conditional Delivery Receipt and Business Permit rules for P.O. Payment. General Payment always requires Billing / SOA / Quotation and dynamically requires BIR 2303 when marked as a new supplier. Required records block submit/resubmit; conditional records remain visible but non-blocking. Cash Advance and Liquidation are intentionally non-blocking for uploads. |
 | Finance histories | Authorized Finance users can append hard-copy states and accepted/rejected/replacement-required decisions. Waivers and non-accept decisions require notes. |
 | Frontend | JavaScript syntax checks and `pnpm run build` passed. The runtime adapter and document view support API upload, preview, replacement, removal, requirements, duplicate warnings, hard-copy state, and reviews while retaining standalone sample behavior. On 2026-09-28, request-level, line-level, single-file, multiple-file, add and replace controls were standardized on the accessible line-item upload icon pattern; the combined production build passed. |
 | Five-role browser acceptance | `pnpm test:e2e -- tests/e2e/phase-04-documents.spec.js`: **1 passed** in headed Google Chrome on 2026-09-28. Separate Requestor, Department Head, Finance Associate, Finance Manager, and System Administrator sessions used a real Docker PostgreSQL/MinIO record. The run verified configured requirements, upload, preview affordance, returned-request replacement, immutable version 2 history, role-limited review controls, hard-copy receipt, accepted Finance review, persisted cross-role state, and the Request Requirements administration view. |
@@ -25,8 +25,8 @@ Status: In progress. The local document workflow and earlier Reimbursement, P.O.
 
 ## Local validation still required
 
-- Implement the confirmed per-line Reimbursement Proof of Payment rule, including seed scope, form placement, persisted line association, submission checks, and multi-line tests. Confirm whether Billing / Quotation / SOA remains conditional. Approved P.O. and Quotation/Contract data are assigned to the future Procurement integration. General Payment Billing / SOA / Quotation and new-supplier BIR 2303 rules are confirmed. See `docs/finance-orientation-findings-2026-09-25.md`.
-- Extend the API-backed document browser walkthrough to cover a multi-line Reimbursement with Proof of Payment linked to each line. The earlier five-role desktop/tablet/mobile walkthrough passed on 2026-09-28 and is retained as `tests/e2e/phase-04-documents.spec.js`; it does not cover the newly clarified rule.
+- Extend the API-backed document browser walkthrough to cover a multi-line Reimbursement with Proof of Payment linked to each line. Focused Docker tests prove that one line's file cannot satisfy another and that the requirement response reports each line separately; the earlier five-role walkthrough predates this rule.
+- Obtain Finance confirmation on whether Billing / Quotation / SOA remains conditional. Approved P.O. and Quotation/Contract data remain assigned to the future Procurement integration.
 
 ## Deferred to Phase 09 — production readiness
 

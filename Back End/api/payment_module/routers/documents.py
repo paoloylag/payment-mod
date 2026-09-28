@@ -525,14 +525,25 @@ def document_requirements(
             )
         )
         matching = [item for item in documents if item.document_type_id == rule.document_type_id]
+        line_requirements = []
         if rule.scope == "line":
-            line_ids = list(
-                db.scalars(select(PaymentRequestLine.id).where(PaymentRequestLine.request_id == request_id))
+            lines = list(
+                db.scalars(
+                    select(PaymentRequestLine)
+                    .where(PaymentRequestLine.request_id == request_id)
+                    .order_by(PaymentRequestLine.position)
+                )
             )
-            complete = bool(line_ids) and all(
-                len([item for item in matching if item.line_id == line_id]) >= rule.minimum_count
-                for line_id in line_ids
-            )
+            line_requirements = [
+                {
+                    "line_id": str(line.id),
+                    "position": line.position,
+                    "particulars": line.particulars,
+                    "complete": len([item for item in matching if item.line_id == line.id]) >= rule.minimum_count,
+                }
+                for line in lines
+            ]
+            complete = bool(lines) and all(item["complete"] for item in line_requirements)
         else:
             complete = len([item for item in matching if item.line_id is None]) >= rule.minimum_count
         result.append(
@@ -546,6 +557,7 @@ def document_requirements(
                 "required": required,
                 "guidance": rule.guidance,
                 "complete": complete,
+                "lines": line_requirements,
             }
         )
     return {
