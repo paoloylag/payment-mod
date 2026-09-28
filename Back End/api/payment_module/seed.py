@@ -76,7 +76,7 @@ PERMISSIONS = {
     "requests.read_department": "Read payment requests for the user's department",
     "requests.read_all": "Read all payment requests",
     "requests.manage_lifecycle": "Return and administer submitted payment requests",
-    "requests.numbering.manage": "Configure the payment request numbering reset month",
+    "requests.numbering.manage": "Configure payment request numbering and reimbursement schedules",
     "documents.read": "Read document metadata and authorized content",
     "documents.manage_own": "Upload and replace documents on owned editable requests",
     "documents.review": "Record document review and hard-copy tracking decisions",
@@ -107,7 +107,6 @@ ROLE_PERMISSIONS["finance_associate"] |= {
     "accounts.read",
     "requests.read_all",
     "requests.manage_lifecycle",
-    "requests.numbering.manage",
     "documents.review",
 }
 for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
@@ -273,6 +272,12 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 session.add(Permission(id=stable_id("permission", code), code=code, description=description))
         session.flush()
         for role_code, permission_codes in ROLE_PERMISSIONS.items():
+            for permission_code in PERMISSIONS:
+                if permission_code in permission_codes:
+                    continue
+                obsolete = session.get(RolePermission, stable_id("role-permission", f"{role_code}:{permission_code}"))
+                if obsolete is not None:
+                    session.delete(obsolete)
             for permission_code in permission_codes:
                 item_id = stable_id("role-permission", f"{role_code}:{permission_code}")
                 if session.get(RolePermission, item_id) is None:

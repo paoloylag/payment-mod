@@ -29,7 +29,7 @@ Depends on: Phase 02 — Master Data
 - Concurrent numbering, simultaneous edits, duplicate submissions, exact four-decimal line-total reconciliation,
   excess-precision rejection, bounded pagination, constant-query list loading, and a 130-record performance fixture pass.
 - Role-scoped server-side search, filters, stable sorting, pagination metadata, API-backed frontend filters, and the
-  retained standalone/hybrid fallback are implemented.
+  retained developer-only standalone/hybrid modes are implemented; ordinary and production builds remain API-only.
 - Draft responses expose their archival deadline and warning state. A disabled-by-default maintenance command supports
   dry runs and audited, batched archival after 90 days without deleting submitted or audit-relevant records.
 - PHP, USD, and EUR exact four-decimal persistence, zero/negative submission rejection, maximum supported amounts,
@@ -183,10 +183,16 @@ Browser acceptance is automated with Playwright. It runs Chromium against a dedi
 
 - State-transition and data-model references, OpenAPI examples, migration output, automated results/coverage, calculation fixtures, concurrency results, browser validation, QA register updates, reviewed commits, package checksum, and CI run.
 
-## Decisions still required before implementation
+## Confirmed follow-up decisions — 2026-09-28
 
-- Confirm lifecycle-state names and which fields may be edited after return or authorized reopen.
-- Resolve the remaining source discrepancies listed above, particularly the General Payment particulars and document rules.
+- Returned-request corrections will use a structured reviewer checklist. A reviewer selects the affected user-facing sections, individual line items, or documents and records a correction note. Only selected targets and their directly dependent totals are editable after return. An authorized Finance Manager or System Administrator reopen uses the same selector and may explicitly choose `Entire request`; reopening never silently unlocks every field.
+- Late Reimbursement submissions are accepted and assigned to the next configured reimbursement batch rather than blocked.
+- Low-value expenses remain Reimbursement requests. The Payment Module does not offer a Petty Cash redirect or handling-route option.
+- Reimbursement batch cutoffs are configurable through Administration → Request Settings. Finance Associates may view the schedule; Finance Managers and System Administrators may change it with audit history. The initial schedule remains the 15th and 30th, with month-end used when a month has no 30th. The API and browser enforce this role split.
+- Currency does not control assignment in the initial implementation. Amount and ISO currency remain paired without conversion, and requests enter the normal Finance queue. A future currency-to-assignee matrix may be added only if Finance supplies one.
+- Managing Director is not an approval role in this module. Only explicitly configured approver roles participate in routing; source-document references to Managing Director do not create an implicit approver or threshold.
+- Payroll-deduction execution and Cash Advance exception approvals are deferred. The existing Cash Advance cap remains enforced with no exception route. Any cash-out occurs outside the system; the application will only record whether cash-out occurred, the date, actor, optional offline reference/note, and releasing bank name when applicable. It will not initiate or verify a disbursement.
+- General Payment particulars and document rules are resolved by the current request-breakdown and document-requirement implementation.
 - Duplicate-invoice behavior is confirmed: Reimbursement and Liquidation submissions compare a normalized invoice reference and all available invoice-line business fields. A complete match is tagged `exact`; the same reference with any differing field is a non-blocking `warning`. Both require Finance verification and retain the matched/differing-field evidence.
 - Currency conversion is not required. Requests retain the entered amount and ISO currency as an inseparable pair; the system does not calculate a converted or base-currency amount.
 

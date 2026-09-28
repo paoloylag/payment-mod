@@ -14,7 +14,7 @@ Implemented locally:
 - Deterministic department/cost-center, currency, payment-method, and document-type seeds.
 - Replaceable vendor adapter using the supplied representative payload, excluding bank-account fields.
 - Uniform administration pages for the seven retained Master Data areas.
-- API-backed department/cost-center, vendor, account, currency, and payment-method sources with hybrid/mock fallback.
+- API-backed department/cost-center, vendor, account, currency, and payment-method sources. Hybrid/mock fallback is restricted to explicitly invoked developer sessions.
 - Backend test coverage for deterministic seeds, synchronized department/cost-center changes, authorization, and vendor field filtering.
 
 Historical 2026-09-03 baseline: Ruff, Python compilation/import, OpenAPI route generation, Alembic offline upgrade/downgrade SQL generation, frontend production build, and browser walkthrough of the then-current Master Data routes and request dropdown fallbacks passed. Live PostgreSQL 17 migrations reached `20260903_0005` on isolated development and test databases, and the backend suite passed with 33 tests. The retired bank-account area was present at that time; current evidence is in `docs/phase-02-validation.md`. Docker Desktop 4.89 encountered a host-level Windows Unix-socket error, so local database validation uses the loopback-only native PostgreSQL service on port `5434`; this does not alter production configuration.
@@ -134,7 +134,7 @@ Planned permissions include `master_data.read`, `master_data.manage`, `vendors.r
 - Reuse the Phase 01 administration list, search, add-button, modal, and three-dot action-menu patterns.
 - Provide loading, empty, validation, duplicate, forbidden, conflict, referenced-record, and API-unavailable states.
 - Confirm mobile containment, keyboard order, focus restoration, labels, menu positioning, and confirmation dialogs.
-- Populate prototype forms through the data-source abstraction so API, hybrid, and frontend-only mock modes stay functional.
+- Populate forms through the data-source abstraction so API mode remains authoritative while explicit developer-only hybrid and mock modes stay functional.
 
 ## Security and operational requirements
 

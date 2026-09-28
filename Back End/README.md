@@ -23,6 +23,18 @@ npm install
 npm run dev
 ```
 
+Normal development and every production build use the API data source. Sample data is available only through explicit
+developer commands:
+
+```bash
+pnpm dev:mock
+pnpm dev:hybrid
+```
+
+`dev:mock` runs entirely on sample data. `dev:hybrid` is a developer troubleshooting mode that may substitute sample
+read data when the API is unavailable. Production builds reject both modes, and an ordinary `pnpm dev` session never
+falls back to mock records.
+
 Create and preview a production build with:
 
 ```bash
@@ -132,4 +144,7 @@ packaged as a workflow artifact; deployment remains intentionally gated until a 
 
 ## Prototype scope
 
-This repository currently demonstrates front-end workflow behavior with sample data. Report exports run in the browser, while email contracts are templates for backend integration. It does not yet include authentication, persistent storage, file processing, live email delivery, banking integrations, or ERP connectivity.
+The frontend can still demonstrate workflow behavior with explicitly enabled development sample data. The normal
+application uses the FastAPI service for authentication, persistent PostgreSQL records, and MinIO-backed local document
+storage. Report exports run in the browser, while email contracts remain templates for later delivery integration. No
+banking connection is planned; any release-bank information is documentary only.

@@ -16,7 +16,7 @@ Reviewer: Codex local audit with GitHub Actions verification
 - Backend fixtures and smoke tests.
 - Docker-first startup that migrates and seeds before serving.
 - CI checks for lint, migration upgrade, seed, rollback/replay, tests, Docker image build, and artifact packaging.
-- Frontend `mock`, `hybrid`, and `api` data-source modes; hybrid mode preserves the prototype when the backend is down.
+- Frontend API mode is the default. Mock and hybrid sample modes remain available only through explicit Vite development commands and are rejected by production builds.
 
 ## Validation evidence
 
@@ -48,7 +48,7 @@ seed data, Philippine timezone configuration, rollback/replay, the full backend 
 indicator were all verified successfully.
 
 The backend-branch GitHub Pages preview was deferred after GitHub rejected the branch deployment at the Pages
-environment gate. The stable `main` Pages workflow is retained, and hybrid/mock operation remains available locally.
+environment gate. The stable `main` Pages workflow is retained, and hybrid/mock operation remains available only to developers through explicit local commands.
 
 ## Phase 00 approval
 

@@ -341,12 +341,69 @@ def test_academic_year_numbering_boundary_and_finance_setting(client):
     assert denied.status_code == 403
 
     client.cookies.clear()
-    finance_headers = login(client, "finance.associate@payment.local")
+    associate_headers = login(client, "finance.associate@payment.local")
+    denied_associate = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=associate_headers)
+    assert denied_associate.status_code == 403
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.manager@payment.local")
     changed = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=finance_headers)
     assert changed.status_code == 200 and changed.json()["reset_month"] == 8
     seed()
     assert client.get("/api/v1/request-settings/numbering").json()["reset_month"] == 8
     restored = client.put("/api/v1/request-settings/numbering", json={"reset_month": 7}, headers=finance_headers)
+    assert restored.status_code == 200
+
+
+def test_reimbursement_batch_schedule_is_viewable_and_finance_managed(client):
+    seed()
+    requestor_headers = login(client)
+    current = client.get("/api/v1/request-settings/reimbursement-batches", headers=requestor_headers)
+    assert current.status_code == 200
+    assert current.json() == {
+        "cutoff_days": [15, 30],
+        "month_end_fallback": True,
+        "late_submission_handling": "next_batch",
+    }
+    denied = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=requestor_headers,
+    )
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    associate_headers = login(client, "finance.associate@payment.local")
+    assert client.get("/api/v1/request-settings/reimbursement-batches", headers=associate_headers).status_code == 200
+    associate_update = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=associate_headers,
+    )
+    assert associate_update.status_code == 403
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    duplicate = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [15, 15]},
+        headers=manager_headers,
+    )
+    assert duplicate.status_code == 422
+    changed = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=manager_headers,
+    )
+    assert changed.status_code == 200
+    assert changed.json()["cutoff_days"] == [10, 25]
+    assert client.get("/api/v1/request-settings/reimbursement-batches").json()["cutoff_days"] == [10, 25]
+
+    restored = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [15, 30]},
+        headers=manager_headers,
+    )
     assert restored.status_code == 200
 
 

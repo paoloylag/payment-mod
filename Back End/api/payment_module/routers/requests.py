@@ -28,13 +28,20 @@ from ..models import (
     User,
 )
 from ..procurement_adapter import get_procurement_adapter
-from ..schemas import PaymentRequestCreate, PaymentRequestUpdate, RequestNumberingSettingUpdate, RequestTransition
+from ..schemas import (
+    PaymentRequestCreate,
+    PaymentRequestUpdate,
+    ReimbursementBatchSettingUpdate,
+    RequestNumberingSettingUpdate,
+    RequestTransition,
+)
 from ..security import current_user
 from ..vendor_adapter import get_vendor_adapter
 
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
 NUMBERING_RESET_MONTH_KEY = "requests.numbering_reset_month"
+REIMBURSEMENT_BATCH_CUTOFFS_KEY = "requests.reimbursement_batch_cutoffs"
 app_settings = get_settings()
 
 
@@ -794,6 +801,15 @@ def numbering_reset_month(db: Session) -> int:
     return month if 1 <= month <= 12 else 7
 
 
+def reimbursement_batch_cutoffs(db: Session) -> list[int]:
+    setting = db.scalar(select(SystemSetting).where(SystemSetting.key == REIMBURSEMENT_BATCH_CUTOFFS_KEY))
+    try:
+        values = sorted({int(value.strip()) for value in setting.value.split(",")}) if setting else [15, 30]
+    except (AttributeError, TypeError, ValueError):
+        values = [15, 30]
+    return values if values and all(1 <= value <= 31 for value in values) else [15, 30]
+
+
 def academic_year_start(moment: datetime, reset_month: int) -> int:
     return moment.year if moment.month >= reset_month else moment.year - 1
 
@@ -845,6 +861,51 @@ def update_numbering_setting(
         db,
         actor_id=actor.id,
         action="request_numbering.updated",
+        entity_type="system_setting",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
+@settings_router.get("/reimbursement-batches")
+def get_reimbursement_batch_setting(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    return {
+        "cutoff_days": reimbursement_batch_cutoffs(db),
+        "month_end_fallback": True,
+        "late_submission_handling": "next_batch",
+    }
+
+
+@settings_router.put("/reimbursement-batches")
+def update_reimbursement_batch_setting(
+    payload: ReimbursementBatchSettingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    cutoff_days = sorted(set(payload.cutoff_days))
+    if len(cutoff_days) != len(payload.cutoff_days) or any(day < 1 or day > 31 for day in cutoff_days):
+        raise HTTPException(422, "Cutoff days must be unique calendar days from 1 through 31")
+    item = db.scalar(select(SystemSetting).where(SystemSetting.key == REIMBURSEMENT_BATCH_CUTOFFS_KEY))
+    before = {"cutoff_days": reimbursement_batch_cutoffs(db)}
+    value = ",".join(str(day) for day in cutoff_days)
+    if item is None:
+        item = SystemSetting(key=REIMBURSEMENT_BATCH_CUTOFFS_KEY, value=value)
+        db.add(item)
+        db.flush()
+    else:
+        item.value = value
+    after = {"cutoff_days": cutoff_days, "month_end_fallback": True, "late_submission_handling": "next_batch"}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="reimbursement_batch_settings.updated",
         entity_type="system_setting",
         entity_id=item.id,
         request_id=request.state.request_id,

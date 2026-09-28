@@ -230,6 +230,7 @@ let state = {
   authError: "",
   authSubmitting: false,
   toast: null,
+  actionPrompt: null,
   identityData: { users: [], roles: [], permissions: [], departments: [] },
   identityLoading: false,
   identityError: "",
@@ -246,6 +247,9 @@ let state = {
   requirementRulesError: "",
   requirementRuleEdit: null,
   requestNumbering: null,
+  reimbursementBatchSetting: null,
+  requestSettingsLoading: false,
+  requestSettingsError: "",
   cashAdvanceOptions: null,
   cashAdvanceOptionsLoading: false,
   cashAdvanceOptionsError: "",
@@ -336,6 +340,7 @@ const tabRoutes = {
   roles: "/administration/roles",
   departments: "/administration/departments",
   requestRequirements: "/administration/request-requirements",
+  requestSettings: "/administration/request-settings",
   costCenters: "/master-data/cost-centers",
   vendors: "/master-data/vendors",
   accounts: "/master-data/chart-of-accounts",
@@ -366,7 +371,7 @@ function routeStateFromHash() {
   }
   if (parts[0] === "guide") return { tab: "guide" };
   if (parts[0] === "administration") {
-    const administrationRoutes = { users: "users", roles: "roles", departments: "departments", "request-requirements": "requestRequirements" };
+    const administrationRoutes = { users: "users", roles: "roles", departments: "departments", "request-requirements": "requestRequirements", "request-settings": "requestSettings" };
     return { tab: administrationRoutes[parts[1]] || "users" };
   }
   if (parts[0] === "master-data") {
@@ -601,6 +606,35 @@ function bindToast() {
   }, 7000);
 }
 
+function actionPromptModal() {
+  const prompt = state.actionPrompt;
+  if (!prompt) return "";
+  const input = prompt.inputLabel ? `<label>${escapeHtml(prompt.inputLabel)}${prompt.required ? " <small>(Required)</small>" : ""}<textarea data-action-prompt-input placeholder="${escapeHtml(prompt.placeholder || "")}"></textarea></label>` : "";
+  return `<div class="correction-modal-backdrop" data-action-prompt-backdrop><section class="correction-modal" role="dialog" aria-modal="true" aria-labelledby="action-prompt-title"><div><span class="eyebrow">${escapeHtml(prompt.eyebrow || "Confirm Action")}</span><h3 id="action-prompt-title">${escapeHtml(prompt.title)}</h3><p>${escapeHtml(prompt.message || "")}</p></div>${input}<div class="correction-modal-actions"><button type="button" data-cancel-action-prompt>Cancel</button><button type="button" class="${prompt.danger ? "danger" : "confirmation-button"}" data-confirm-action-prompt ${prompt.required ? "disabled" : ""}>${escapeHtml(prompt.confirmLabel || "Confirm")}</button></div></section></div>`;
+}
+
+function openActionPrompt(options) {
+  setState({ actionPrompt: options });
+}
+
+function bindActionPrompt() {
+  const close = () => setState({ actionPrompt: null });
+  document.querySelector("[data-cancel-action-prompt]")?.addEventListener("click", close);
+  document.querySelector("[data-action-prompt-backdrop]")?.addEventListener("click", (event) => { if (event.target === event.currentTarget) close(); });
+  const input = document.querySelector("[data-action-prompt-input]");
+  const confirm = document.querySelector("[data-confirm-action-prompt]");
+  input?.addEventListener("input", () => { if (confirm) confirm.disabled = state.actionPrompt?.required && !input.value.trim(); });
+  confirm?.addEventListener("click", async () => {
+    const prompt = state.actionPrompt;
+    const value = input?.value.trim() || "";
+    if (!prompt || prompt.required && !value) return;
+    state.actionPrompt = null;
+    render();
+    await prompt.onConfirm?.(value);
+  });
+  input?.focus();
+}
+
 function loginView() {
   const checking = state.authStatus === "checking";
   const busy = checking || state.authSubmitting;
@@ -756,7 +790,14 @@ function bindIdentityForms() {
   bindSubmit("[data-edit-role-form]", (form, element) => dataSource.updateRole(element.dataset.editRoleForm, { code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-create-permission]", (form) => dataSource.createPermission({ code: form.get("code"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-edit-permission-form]", (form, element) => dataSource.updatePermission(element.dataset.editPermissionForm, { code: form.get("code"), description: form.get("description") }, state.csrfToken));
-  const bindDelete = (selector, label, action) => document.querySelectorAll(selector).forEach((button) => button.addEventListener("click", async () => { if (!window.confirm(`Delete ${label}? This action cannot be undone.`)) return; try { await action(button); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, `Unable to delete ${label}`) }); } }));
+  const bindDelete = (selector, label, action) => document.querySelectorAll(selector).forEach((button) => button.addEventListener("click", () => openActionPrompt({
+    eyebrow: "Administration",
+    title: `Delete ${label}?`,
+    message: "This action cannot be undone.",
+    confirmLabel: "Delete",
+    danger: true,
+    onConfirm: async () => { try { await action(button); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, `Unable to delete ${label}`) }); } },
+  })));
   bindDelete("[data-delete-user]", "this user", (button) => dataSource.deleteUser(button.dataset.deleteUser, state.csrfToken));
   bindDelete("[data-delete-department]", "this department", (button) => dataSource.deleteDepartment(button.dataset.deleteDepartment, state.csrfToken));
   bindDelete("[data-delete-role]", "this role", (button) => dataSource.deleteRole(button.dataset.deleteRole, state.csrfToken));
@@ -850,8 +891,7 @@ function masterDataPage(tab) {
   const listHeader = tab === "documentTypes" && items.length
     ? `<div class="identity-list-header" role="row"><span role="columnheader">Document Name</span><span role="columnheader">Request Type</span><span role="columnheader">Status</span><span class="sr-only" role="columnheader">Actions</span></div>`
     : "";
-  const numberingPanel = tab === "currencies" && state.requestNumbering ? `<section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose the month when the request sequence restarts for the new academic year. Existing request numbers will not change.</p></div></div><form data-numbering-settings class="identity-form numbering-settings-form"><label>Academic year starts<select name="reset_month">${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div class="numbering-settings-summary"><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong></div><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div><button type="submit" class="primary-button">Save numbering setting</button></form></section>` : "";
-  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.singular || config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${listHeader}${rows}</div></section>${numberingPanel}</div></section>${masterDataModal()}`;
+  return `<section class="identity-page"><div class="identity-section-stack"><section class="panel"><div class="panel-header"><div><h3>${config.title}</h3><p>${config.description}</p></div>${config.readonly ? "" : `<div class="identity-header-actions"><button type="button" class="primary-button" data-add-master>+ ${config.singular || config.title.replace(/s$/, "")}</button></div>`}</div><div class="identity-list">${listHeader}${rows}</div></section></div></section>${masterDataModal()}`;
 }
 
 function masterPayload(tab, form) {
@@ -1075,18 +1115,28 @@ async function saveDocumentFile(candidate, input) {
   }
 }
 
-async function removeApiDocument(candidate, documentId) {
-  const reason = window.prompt("Why are you removing this document?");
-  if (!reason?.trim()) return;
-  try {
-    await dataSource.removeDocument(documentId, reason.trim(), state.csrfToken);
-    state.documentRecords = { ...state.documentRecords, [candidate.backendId]: null };
-    state.documentRequirements = { ...state.documentRequirements, [candidate.backendId]: null };
-    state.toast = successToast("The document was removed and its audit history was retained.", "Document removed");
-    await loadDocumentData(candidate, true);
-  } catch (error) {
-    showErrorToast(error.message, "Unable to remove document");
-  }
+function removeApiDocument(candidate, documentId) {
+  openActionPrompt({
+    eyebrow: "Document Management",
+    title: "Remove this document?",
+    message: "The file will no longer be active, but its audit and version history will be retained.",
+    inputLabel: "Removal reason",
+    placeholder: "Explain why this document is being removed.",
+    required: true,
+    confirmLabel: "Remove Document",
+    danger: true,
+    onConfirm: async (reason) => {
+      try {
+        await dataSource.removeDocument(documentId, reason, state.csrfToken);
+        state.documentRecords = { ...state.documentRecords, [candidate.backendId]: null };
+        state.documentRequirements = { ...state.documentRequirements, [candidate.backendId]: null };
+        state.toast = successToast("The document was removed and its audit history was retained.", "Document removed");
+        await loadDocumentData(candidate, true);
+      } catch (error) {
+        showErrorToast(error.message, "Unable to remove document");
+      }
+    },
+  });
 }
 
 async function loadCashAdvanceOptions() {
@@ -1390,18 +1440,77 @@ function bindRequirementRules() {
   });
 }
 
+async function loadRequestSettings() {
+  state.requestSettingsLoading = true;
+  state.requestSettingsError = "";
+  render();
+  try {
+    const [requestNumbering, reimbursementBatchSetting] = await Promise.all([
+      dataSource.getRequestNumberingSetting(), dataSource.getReimbursementBatchSetting(),
+    ]);
+    setState({ requestNumbering, reimbursementBatchSetting, requestSettingsLoading: false });
+  } catch (error) {
+    setState({ requestSettingsLoading: false, requestSettingsError: error.message, toast: errorToast(error.message, "Settings unavailable") });
+  }
+}
+
+function canManageRequestSettings() {
+  return ["all", "financeManager"].includes(state.persona)
+    || state.authUser?.roles?.some((role) => ["system_administrator", "finance_manager"].includes(role));
+}
+
+function requestSettingsPage() {
+  if (state.requestSettingsLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading request settings"></div></section>`;
+  if (state.requestSettingsError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.requestSettingsError)}</p></section>`;
+  if (!state.requestNumbering || !state.reimbursementBatchSetting) return `<section class="identity-page"><div class="auth-loading" aria-label="Preparing request settings"></div></section>`;
+  const editable = canManageRequestSettings();
+  const disabled = editable ? "" : "disabled";
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const cutoffs = state.reimbursementBatchSetting.cutoff_days || [15, 30];
+  return `<section class="identity-page"><div class="identity-section-stack">
+    ${editable ? "" : `<div class="independent-validation-notice"><div><span class="eyebrow">View only</span><strong>Finance schedule settings</strong></div><p>Finance Managers and System Administrators can change these settings.</p></div>`}
+    <section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose when numbering restarts for the new academic year. Existing request numbers do not change.</p></div></div><form data-numbering-settings class="identity-form numbering-settings-form"><label>Academic year starts<select name="reset_month" ${disabled}>${months.map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div class="numbering-settings-summary"><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong></div><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div>${editable ? `<button type="submit" class="primary-button">Save numbering</button>` : ""}</form></section>
+    <section class="panel"><div class="panel-header"><div><h3>Reimbursement Batches</h3><p>Set the monthly processing cutoffs. Late submissions automatically carry into the next configured batch.</p></div></div><form data-reimbursement-batches class="identity-form numbering-settings-form"><div class="field-grid"><label>First cutoff day<input name="cutoff_day" type="number" min="1" max="31" value="${cutoffs[0] || 15}" ${disabled} required></label><label>Second cutoff day<input name="cutoff_day" type="number" min="1" max="31" value="${cutoffs[1] || 30}" ${disabled} required></label></div><div class="numbering-settings-summary"><div><span>Month-end handling</span><strong>Use the last calendar day</strong></div><small>If a configured day does not exist in a month, that batch runs on month-end. Low-value expenses remain Reimbursement requests.</small></div>${editable ? `<button type="submit" class="primary-button">Save batch schedule</button>` : ""}</form></section>
+  </div></section>`;
+}
+
+function bindRequestSettings() {
+  if (state.tab !== "requestSettings" || !canManageRequestSettings()) return;
+  document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await dataSource.updateRequestNumberingSetting(Number(new FormData(event.currentTarget).get("reset_month")), state.csrfToken);
+      state.requestNumbering = await dataSource.getRequestNumberingSetting();
+      setState({ toast: successToast("The academic-year numbering schedule was updated.", "Numbering saved") });
+    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save numbering") }); }
+  });
+  document.querySelector("[data-reimbursement-batches]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const cutoffDays = new FormData(event.currentTarget).getAll("cutoff_day").map(Number);
+    if (new Set(cutoffDays).size !== cutoffDays.length) {
+      setState({ toast: errorToast("Choose two different cutoff days.", "Schedule not saved") });
+      return;
+    }
+    try {
+      state.reimbursementBatchSetting = await dataSource.updateReimbursementBatchSetting(cutoffDays, state.csrfToken);
+      setState({ toast: successToast("Late reimbursements will carry into the next configured batch.", "Batch schedule saved") });
+    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save batch schedule") }); }
+  });
+}
+
 const administrationTabs = [
   ["users", "Users"], ["roles", "Roles & Permissions"], ["departments", "Departments"],
   ["costCenters", "Cost Centers"], ["vendors", "Vendors"], ["accounts", "Chart of Accounts"],
   ["taxCodes", "Tax Codes"], ["currencies", "Currencies"], ["paymentMethods", "Payment Methods"],
-  ["documentTypes", "Document Types"], ["requestRequirements", "Request Requirements"],
+  ["documentTypes", "Document Types"], ["requestRequirements", "Request Requirements"], ["requestSettings", "Request Settings"],
 ];
 const financeAdministrationTabs = administrationTabs.filter(([id]) => !["users", "roles", "departments"].includes(id));
 
 function administrationWorkspace(content) {
   const isSystemAdministrator = state.persona === "all" || state.authUser?.roles?.includes("system_administrator");
   const isFinanceManager = state.persona === "financeManager" || state.authUser?.roles?.includes("finance_manager");
-  const visibleTabs = isSystemAdministrator ? administrationTabs : isFinanceManager ? financeAdministrationTabs : [];
+  const isFinanceAssociate = state.persona === "financeAssociate" || state.authUser?.roles?.includes("finance_associate");
+  const visibleTabs = isSystemAdministrator ? administrationTabs : isFinanceManager ? financeAdministrationTabs : isFinanceAssociate ? [["requestSettings", "Request Settings"]] : [];
   if (!visibleTabs.some(([id]) => id === state.tab)) return content;
   const description = isSystemAdministrator
     ? "Manage identity, access, departments, and financial reference data."
@@ -1422,7 +1531,7 @@ function shell(content) {
     requestor: [["Overview", [["dashboard", "My Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"]]], ["Tracking", [["tracker", "My Payment Tracker", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
     departmentHead: [["Overview", [["dashboard", "Department Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Tracking", [["tracker", "Department Requests", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
     authorizedSignatory: [["Overview", [["dashboard", "Authorization Dashboard", "◦"]]], ["Authorizations", [["approvals", "Bank Authorization Queue", "✓"]]], ["Tracking", [["tracker", "Authorized Payments", "↗"]]], ["Help", [["guide", "System Guide", "?"]]]],
-    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]], ["Help", [["guide", "System Guide", "?"]]]],
+    financeAssociate: [["Overview", [["dashboard", "Finance Dashboard", "◦"]]], ["Requests", [["request", "New Request", "+"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]], ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]], ["Settings", [["requestSettings", "Request Settings", "⚙"]]], ["Help", [["guide", "System Guide", "?"]]]],
     financeManager: [["Overview", [["dashboard", "Finance Overview", "◦"]]], ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "All Requests", "↗"]]], ["Settings", [["costCenters", "Administration", "⚙"]]], ["Help", [["guide", "System Guide", "?"]]]],
     coo: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
     president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
@@ -1433,7 +1542,7 @@ function shell(content) {
   const displayName = state.authUser?.display_name || persona.name;
   const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
   const initials = displayName.split(" ").map((part) => part[0]).slice(0, 2).join("");
-  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", documentTypes: "Document Types", requestRequirements: "Request Requirements" };
+  const titles = { dashboard: "Payment Requests", request: "Create Payment Request", requestDetail: "Request Details", approvals: "Review and Approve", tracker: "Tracker and Reports", uploads: "Upload Required Documents", documents: "Required Documents", emails: "Workflow Email Samples", guide: "System Guide", users: "User Administration", roles: "Roles & Permissions", departments: "Departments", costCenters: "Cost Centers", vendors: "Vendors", accounts: "Chart of Accounts", taxCodes: "Tax Codes", currencies: "Currencies", paymentMethods: "Payment Methods", documentTypes: "Document Types", requestRequirements: "Request Requirements", requestSettings: "Request Settings" };
   return `
     <div class="app-shell ${state.mobileNavOpen ? "nav-open" : ""}">
       <button type="button" class="sidebar-backdrop" data-close-mobile-nav aria-label="Close navigation"></button>
@@ -1450,7 +1559,7 @@ function shell(content) {
         ${administrationWorkspace(content)}
         ${unlockRequestModal()}
       </main>
-    </div>${toastView()}`;
+    </div>${toastView()}${actionPromptModal()}`;
 }
 
 function unlockRequestModal() {
@@ -1871,7 +1980,7 @@ function requestBuilder() {
     : `${systemDateField}<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).map((vendor) => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}<label class="toggle-row"><input type="checkbox" data-request-field="new_supplier"> New supplier <small>BIR 2303 is required when selected.</small></label>`;
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><label>Amount Returned Offline<input id="liquidationReturnAmount" type="number" min="0" step="0.01" value="${state.liquidationReturnAmount || ""}" placeholder="0.00"><small>Enter the amount returned directly to Finance. No proof-of-return upload is required.</small></label></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
-  const reimbursementTiming = state.draftType === "reimbursement" ? `<section class="cash-advance-policy"><h4>Finance processing guidance</h4><ul><li>Submit complete requests at least 15 days before the required payment date.</li><li>Submit invoices within 30 days of the invoice date.</li><li>Expenses below PHP 3,000 may qualify for petty cash; Finance will verify the applicable channel.</li><li>Reimbursements are normally processed in the batches scheduled for the 15th and 30th.</li></ul></section>` : "";
+  const reimbursementTiming = state.draftType === "reimbursement" ? `<section class="cash-advance-policy"><h4>Finance processing guidance</h4><ul><li>Submit complete requests at least 15 days before the required payment date.</li><li>Submit invoices within 30 days of the invoice date.</li><li>Low-value expenses remain Reimbursement requests in this module.</li><li>Reimbursements are normally processed in the batches scheduled for the 15th and 30th.</li></ul></section>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the Cash Advance policies and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" data-request-field="accountability_acknowledged" required> I acknowledge full accountability for the amount received and agree to the authority to deduct.</label></section><section class="cash-advance-policy"><h4>Cash Advance policy</h4><ul><li>Staff may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due within 15 days after the event or project.</li><li>Excess cash must be returned directly to Finance.</li></ul></section>` : "";
   return `<section class="request-form-page"><div class="request-navigation-row"><button type="button" class="back-button" data-back-request-types>← Back to Request Types</button><button type="button" data-view-drafts>My Drafts (${state.drafts.filter((draft) => draft.requestor === activeRequestor()).length})</button></div><section class="form-layout"><div class="panel request-form-panel"><div class="panel-header request-details-header"><div><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3>${state.activeDraftId ? `<small class="draft-save-state">Draft saved · Auto-save enabled</small>` : ""}</div></div>${state.persona === "financeAssociate" ? `<div class="independent-validation-notice"><div><span class="eyebrow">Segregation of Duties</span><strong>You may submit this request, but you cannot validate it.</strong></div><p>The system will assign document validation to another Finance Associate.</p></div>` : ""}
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${poSupplierNotice}${liquidationSummary}
@@ -2311,15 +2420,18 @@ function render() {
     bindToast();
     return;
   }
-  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
+  const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
   bindToast();
+  bindActionPrompt();
   if (["users", "roles", "departments"].includes(state.tab) && state.authUser && !state.identityLoading && !state.identityData.departments.length && !state.identityError) {
     queueMicrotask(loadIdentityData);
   }
   bindIdentityForms();
   if (state.tab === "requestRequirements" && state.authUser && !state.requirementRulesLoading && !state.requirementRulesLoaded && !state.requirementRulesError) queueMicrotask(loadRequirementRules);
   bindRequirementRules();
+  if (state.tab === "requestSettings" && !state.requestSettingsLoading && (!state.requestNumbering || !state.reimbursementBatchSetting) && !state.requestSettingsError) queueMicrotask(loadRequestSettings);
+  bindRequestSettings();
   if (masterDataConfig[state.tab] && !state.masterDataLoading && !(state.masterData[masterDataConfig[state.tab].resource]) && !state.masterDataError) queueMicrotask(() => loadMasterData(state.tab));
   if (state.tab === "request" && !state.masterDataLoading && (state.procurementPOs === null || ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some((resource) => !state.masterData[resource])) && !state.masterDataError) queueMicrotask(loadRequestReferenceData);
   if (state.tab === "uploads" && state.authStatus === "authenticated") {
@@ -2670,40 +2782,40 @@ function render() {
   });
   document.querySelectorAll("[data-continue-draft]").forEach((button) => button.addEventListener("click", () => openDraft(button.dataset.continueDraft)));
   document.querySelectorAll("[data-submit-draft]").forEach((button) => button.addEventListener("click", () => submitSavedDraft(button.dataset.submitDraft)));
-  document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", async () => {
+  document.querySelectorAll("[data-delete-draft]").forEach((button) => button.addEventListener("click", () => {
     const draft = state.drafts.find((item) => item.id === button.dataset.deleteDraft);
-    if (!draft || !window.confirm(`Delete ${draft.id}?`)) return;
-    try {
-      if (draft.backendId) await dataSource.deletePaymentRequest(draft.backendId, state.csrfToken);
-      const remainingDrafts = state.drafts.filter((item) => item.id !== draft.id);
-      persistMockDrafts(remainingDrafts);
-      setState({ drafts: remainingDrafts, activeDraftId: state.activeDraftId === draft.id ? null : state.activeDraftId });
-    } catch (error) { showErrorToast(error.message || "The draft could not be deleted.", "Draft not deleted"); }
+    if (!draft) return;
+    openActionPrompt({ eyebrow: "Draft Request", title: `Delete ${draft.id}?`, message: "This draft and its unsaved request information will be removed.", confirmLabel: "Delete Draft", danger: true, onConfirm: async () => {
+      try {
+        if (draft.backendId) await dataSource.deletePaymentRequest(draft.backendId, state.csrfToken);
+        const remainingDrafts = state.drafts.filter((item) => item.id !== draft.id);
+        persistMockDrafts(remainingDrafts);
+        setState({ drafts: remainingDrafts, activeDraftId: state.activeDraftId === draft.id ? null : state.activeDraftId });
+      } catch (error) { showErrorToast(error.message || "The draft could not be deleted.", "Draft not deleted"); }
+    } });
   }));
   document.querySelectorAll("[data-edit-returned]").forEach((button) => button.addEventListener("click", () => {
     const request = requests.find((item) => item.id === button.dataset.editReturned);
     if (request) editReturnedApiRequest(request);
   }));
-  document.querySelectorAll("[data-api-lifecycle]").forEach((button) => button.addEventListener("click", async () => {
+  document.querySelectorAll("[data-api-lifecycle]").forEach((button) => button.addEventListener("click", () => {
     const request = requests.find((item) => item.id === button.dataset.apiRequest);
     const action = button.dataset.apiLifecycle;
     if (!request?.backendId) return;
     const labels = { return: "return reason", resubmit: "resubmission note", cancel: "cancellation reason", reopen: "reopening reason" };
-    const note = window.prompt(`Enter the ${labels[action]}:`)?.trim();
-    if (!note) return;
-    button.disabled = true;
-    try {
-      const method = `${action}PaymentRequest`;
-      const updated = await dataSource[method](request.backendId, request.backendVersion, note, state.csrfToken);
-      await loadApiPaymentRequests();
-      const displayId = updated?.request_number || request.id;
-      state.selectedId = displayId;
-      state.toast = successToast(`The request was ${action === "resubmit" ? "resubmitted" : `${action}ed`} successfully.`, "Request updated");
-      navigate(updated?.status === "draft" ? "/requests/drafts" : `/requests/${displayId}`);
-    } catch (error) {
-      showErrorToast(error.message || `The request could not be ${action}ed.`, "Request update failed");
-      button.disabled = false;
-    }
+    openActionPrompt({ eyebrow: "Request Workflow", title: `${action[0].toUpperCase()}${action.slice(1)} ${request.id}?`, message: `Enter the ${labels[action]} for the audit trail.`, inputLabel: labels[action][0].toUpperCase() + labels[action].slice(1), required: true, confirmLabel: action === "resubmit" ? "Resubmit Request" : `${action[0].toUpperCase()}${action.slice(1)} Request`, danger: ["return", "cancel"].includes(action), onConfirm: async (note) => {
+      try {
+        const method = `${action}PaymentRequest`;
+        const updated = await dataSource[method](request.backendId, request.backendVersion, note, state.csrfToken);
+        await loadApiPaymentRequests();
+        const displayId = updated?.request_number || request.id;
+        state.selectedId = displayId;
+        state.toast = successToast(`The request was ${action === "resubmit" ? "resubmitted" : `${action}ed`} successfully.`, "Request updated");
+        navigate(updated?.status === "draft" ? "/requests/drafts" : `/requests/${displayId}`);
+      } catch (error) {
+        showErrorToast(error.message || `The request could not be ${action}ed.`, "Request update failed");
+      }
+    } });
   }));
   document.querySelectorAll("[data-email-step]").forEach((button) => button.addEventListener("click", () => navigate(`/emails/${button.dataset.emailStep}`)));
   document.querySelector("[data-email-view-request]")?.addEventListener("click", (event) => {
@@ -2795,25 +2907,25 @@ function render() {
   document.querySelectorAll("[data-remove-document]").forEach((button) => button.addEventListener("click", () => removeApiDocument(documentCandidate, button.dataset.removeDocument)));
   document.querySelector("[data-retry-documents]")?.addEventListener("click", () => { state.documentError = ""; loadDocumentData(documentCandidate, true); });
   document.querySelectorAll("[data-document-hard-copy]").forEach((select) => select.addEventListener("change", async () => {
-    const note = select.value === "waived" ? window.prompt("Why is the hard copy requirement waived?") : "";
-    if (select.value === "waived" && !note?.trim()) { render(); return; }
-    try {
-      await dataSource.recordDocumentHardCopy(select.dataset.documentHardCopy, select.value, note || "", state.csrfToken);
+    const save = async (note = "") => { try {
+      await dataSource.recordDocumentHardCopy(select.dataset.documentHardCopy, select.value, note, state.csrfToken);
       state.documentRecords = { ...state.documentRecords, [documentCandidate.backendId]: null };
       state.toast = successToast("Finance hard-copy status was recorded.", "Status updated");
       await loadDocumentData(documentCandidate, true);
-    } catch (error) { showErrorToast(error.message, "Unable to update hard-copy status"); }
+    } catch (error) { showErrorToast(error.message, "Unable to update hard-copy status"); } };
+    if (select.value === "waived") openActionPrompt({ eyebrow: "Hard-copy Tracking", title: "Waive this hard-copy requirement?", message: "Provide the reason Finance is accepting the request without this hard copy.", inputLabel: "Waiver reason", required: true, confirmLabel: "Record Waiver", onConfirm: save });
+    else await save();
   }));
   document.querySelectorAll("[data-document-review]").forEach((select) => select.addEventListener("change", async () => {
     if (!select.value) return;
-    const comment = select.value === "accepted" ? "" : window.prompt("Enter the Finance review comment:");
-    if (select.value !== "accepted" && !comment?.trim()) { render(); return; }
-    try {
+    const save = async (comment = "") => { try {
       await dataSource.reviewDocument(select.dataset.documentReview, select.value, comment || "", state.csrfToken);
       state.documentRecords = { ...state.documentRecords, [documentCandidate.backendId]: null };
       state.toast = successToast("The document review decision was recorded.", "Review saved");
       await loadDocumentData(documentCandidate, true);
-    } catch (error) { showErrorToast(error.message, "Unable to save document review"); }
+    } catch (error) { showErrorToast(error.message, "Unable to save document review"); } };
+    if (select.value === "accepted") await save();
+    else openActionPrompt({ eyebrow: "Finance Review", title: select.value === "rejected" ? "Reject this document?" : "Require a replacement?", message: "Explain what Finance found and what must be corrected.", inputLabel: "Finance review comment", required: true, confirmLabel: "Save Review", danger: select.value === "rejected", onConfirm: save });
   }));
   document.querySelector("[data-add-line]")?.addEventListener("click", addDraftLineItem);
   document.querySelector("[data-retry-cash-advances]")?.addEventListener("click", () => {
@@ -2878,7 +2990,8 @@ window.addEventListener("hashchange", () => {
   render();
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
+  if (event.key === "Escape" && state.actionPrompt) setState({ actionPrompt: null });
+  else if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
   else if (event.key === "Escape" && state.masterDataEdit) closeMasterDataModal();
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
   else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);

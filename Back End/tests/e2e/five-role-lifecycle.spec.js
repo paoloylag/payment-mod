@@ -14,8 +14,10 @@ async function loginThroughUi(page, email) {
   await page.goto("/#/login");
   await page.locator("[data-demo-login]").selectOption(email);
   await expect(page.locator('input[name="email"]')).toHaveValue(email);
+  const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.locator(".sidebar-account-copy")).toBeVisible();
+  expect((await responsePromise).ok()).toBeTruthy();
+  await expect(page.locator("[data-account-menu]")).toBeVisible({ timeout: 20_000 });
 }
 
 async function apiSession(email = accounts.requestor) {
@@ -131,9 +133,12 @@ async function openRequest(page, requestNumber) {
 
 async function clickLifecycle(page, requestNumber, action, note) {
   await openRequest(page, requestNumber);
-  page.once("dialog", (dialog) => dialog.accept(note));
   const responsePromise = page.waitForResponse((response) => response.url().includes(`/api/v1/requests/`) && response.url().endsWith(`/${action}`) && response.request().method() === "POST");
   await page.locator(`[data-api-lifecycle="${action}"]`).click();
+  const modal = page.locator("[data-action-prompt-backdrop]");
+  await expect(modal).toBeVisible();
+  await modal.locator("[data-action-prompt-input]").fill(note);
+  await modal.locator("[data-confirm-action-prompt]").click();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
   return response.json();
@@ -142,12 +147,14 @@ async function clickLifecycle(page, requestNumber, action, note) {
 test("five roles click through return, resubmit, cancel and reopen for all request types", async ({ browser }) => {
   // Seed the real API records before the role sessions load their request lists.
   const records = await createSubmittedRequests();
-  const contexts = Object.fromEntries(await Promise.all(Object.entries(accounts).map(async ([role, email]) => {
+  const contextEntries = [];
+  for (const [role, email] of Object.entries(accounts)) {
     const context = await browser.newContext();
     const page = await context.newPage();
     await loginThroughUi(page, email);
-    return [role, { context, page }];
-  })));
+    contextEntries.push([role, { context, page }]);
+  }
+  const contexts = Object.fromEntries(contextEntries);
 
   const reopenedByRole = [];
   for (const [index, initial] of records.entries()) {

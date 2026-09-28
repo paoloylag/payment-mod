@@ -466,6 +466,7 @@ function AdminAccess() {
   const [selectedId, setSelectedId] = useState(initialAccessUsers[0].id);
   const [query, setQuery] = useState("");
   const [saved, setSaved] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState(false);
   const selected = users.find((user) => user.id === selectedId) || users[0];
   const visibleUsers = users.filter((user) => `${user.name} ${user.email} ${user.department}`.toLowerCase().includes(query.toLowerCase()));
   const updateSelected = (patch) => { setSaved(false); setUsers((current) => current.map((user) => user.id === selected.id ? { ...user, ...patch } : user)); };
@@ -483,7 +484,7 @@ function AdminAccess() {
     {saved && <div className="admin-save-notice" role="status">✓ Access changes saved for {selected.name}. An audit record was created.</div>}
     <div className="admin-access-layout">
       <section className="panel admin-user-list">
-        <div className="panel-header"><div><span className="eyebrow">Directory</span><h3>System Users</h3></div><button type="button" className="primary-button" onClick={() => alert("Invite-user flow is ready for backend integration.")}>+ Invite User</button></div>
+        <div className="panel-header"><div><span className="eyebrow">Directory</span><h3>System Users</h3></div><button type="button" className="primary-button" onClick={() => setInviteNotice(true)}>+ Invite User</button></div>
         <label className="admin-user-search"><span>Search users</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, email, or department" /></label>
         <div className="admin-user-rows">{visibleUsers.map((user) => <button type="button" key={user.id} className={selected.id === user.id ? "selected" : ""} onClick={() => { setSelectedId(user.id); setSaved(false); }}><span className="admin-avatar">{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span><span><strong>{user.name}</strong><small>{user.email}</small><small>{user.department}</small></span><i className={user.status.toLowerCase()}>{user.status}</i></button>)}</div>
       </section>
@@ -494,6 +495,7 @@ function AdminAccess() {
         <div className="admin-editor-actions"><p>Changes will apply the next time this user refreshes or signs in.</p><button type="button" className="primary-button" onClick={() => setSaved(true)}>Save Access Changes</button></div>
       </section>
     </div>
+    {inviteNotice && <div className="correction-modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setInviteNotice(false); }}><section className="correction-modal" role="dialog" aria-modal="true" aria-labelledby="invite-user-title"><div><span className="eyebrow">Administration</span><h3 id="invite-user-title">Invite user</h3><p>The invite-user flow is ready for backend integration.</p></div><div className="correction-modal-actions"><button type="button" className="primary-button" onClick={() => setInviteNotice(false)}>Close</button></div></section></div>}
   </section>;
 }
 

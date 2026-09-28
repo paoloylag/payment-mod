@@ -5,7 +5,7 @@ Last updated: 2026-09-23
 Status: In progress
 Depends on: Phase 03 — Payment Requests
 
-Current delivery: the local S3/MinIO document workflow is implemented through upload, metadata, authorized preview/download, immutable replacement history, audited removal and cleanup retry, persisted requirements, hard-copy history, Finance review decisions, and frontend API wiring. The confirmed Reimbursement, P.O. Payment, and General Payment document rules are seeded. Production AWS, malware scanning, formal retention activation, and the Cash Advance/Liquidation rule content remain gated.
+Current delivery: the local S3/MinIO document workflow is implemented through upload, metadata, authorized preview/download, immutable replacement history, audited removal and cleanup retry, persisted requirements, hard-copy history, Finance review decisions, and frontend API wiring. P.O. Payment and General Payment rules are seeded. The Reimbursement seed still uses request-level Proof of Payment and must be updated to the confirmed per-line rule. Production AWS, malware scanning, and formal retention activation remain gated.
 
 ## Objective
 
@@ -21,7 +21,7 @@ Provide a secure, versioned document service for request- and line-level support
 - Duplicate content is accepted with a warning rather than blocked. The warning records the matching document checksum and linked request identifier/number so Finance can identify where the same file was already used. Requestors see linked-request details only when authorized to view that request; Finance users with the applicable request scope can review all matching links.
 - After submission, a requestor may replace or remove a document only while the request is in a returned-for-correction state. Finance/reviewer status changes do not overwrite the stored file or document version history.
 - Confirmed initial document matrix:
-  - Reimbursement: Invoice and Proof of Payment are required; Billing / Quotation / SOA is conditional when available.
+  - Reimbursement: Invoice is required. Proof of Payment is required for each line item, as confirmed on 2026-09-28; current request-level enforcement and form placement must be migrated. Billing / Quotation / SOA is currently conditional when available, pending confirmation.
   - P.O. Payment: Billing Invoice / Statement of Account is required; BIR 2303 and Business Permit are conditional for a new supplier; Delivery Receipt is conditional when applicable; Invoice is conditional when available. Approved P.O. and Quotation/Contract come from Procurement rather than requiring duplicate uploads.
   - General Payment: an uploaded Billing / SOA / Quotation file is required. BIR 2303 becomes a blocking requirement when the request is marked as involving a new supplier.
   - Cash Advance and Liquidation remain intentionally non-blocking for document uploads. Their system request forms satisfy the form requirement. Liquidation receipt uploads are optional per breakdown line because original hard copies are submitted offline. Proof of Return is not uploaded; the Liquidation records the amount returned offline.
@@ -123,7 +123,7 @@ Implemented in the second local slice:
 
 Deferred to production readiness:
 
-- Reimbursement document-rule clarification, including whether Proof of Payment remains required and Billing / Quotation / SOA remains conditional.
+- Implement the confirmed per-line Proof of Payment requirement in seed data, submission checks, the form/upload flow, and multi-line tests. Confirm whether Billing / Quotation / SOA remains conditional.
 - Formal retention duration, archival tier, legal hold, and S3 lifecycle activation.
 - Production AWS bucket/IAM/encryption/monitoring validation.
 - Malware-provider integration and approved failure policy.
@@ -166,7 +166,8 @@ These do not block local implementation against MinIO:
 - Standardized every active file field on the accessible line-item upload icon pattern while preserving filenames,
   multi-file selection, document status, preview, replacement and removal actions.
 - The production frontend build and complete 73-test Docker/PostgreSQL regression passed.
-- The API-backed role/accessibility walkthrough and Reimbursement document-rule clarification remain local gates.
+- Reimbursement Proof of Payment line-level implementation and Billing / Quotation / SOA clarification remain local gates.
+- The API-backed five-role document walkthrough subsequently passed in headed Google Chrome across desktop, tablet, and mobile viewports. It predates the line-level Reimbursement rule change and must be extended for that change.
 
 ## Exclusions
 

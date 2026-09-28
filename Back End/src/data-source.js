@@ -1,8 +1,10 @@
 const allowedModes = new Set(["mock", "hybrid", "api"]);
 
 export function createDataSource() {
-  const configuredMode = String(import.meta.env.VITE_DATA_SOURCE || "hybrid").toLowerCase();
-  const mode = allowedModes.has(configuredMode) ? configuredMode : "hybrid";
+  const configuredMode = String(import.meta.env.VITE_DATA_SOURCE || "api").toLowerCase();
+  const mockDataEnabled = import.meta.env.DEV && String(import.meta.env.VITE_ENABLE_MOCK_DATA || "false").toLowerCase() === "true";
+  const requestedMode = allowedModes.has(configuredMode) ? configuredMode : "api";
+  const mode = requestedMode === "api" || mockDataEnabled ? requestedMode : "api";
   const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 
   async function apiRequest(path, options = {}) {
@@ -213,6 +215,14 @@ export function createDataSource() {
     updateRequestNumberingSetting(resetMonth, csrfToken) {
       if (mode === "mock") return Promise.resolve({ reset_month: resetMonth });
       return apiRequest("/api/v1/request-settings/numbering", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ reset_month: resetMonth }) });
+    },
+    getReimbursementBatchSetting() {
+      if (mode === "mock") return Promise.resolve({ cutoff_days: [15, 30], month_end_fallback: true, late_submission_handling: "next_batch" });
+      return apiRequest("/api/v1/request-settings/reimbursement-batches");
+    },
+    updateReimbursementBatchSetting(cutoffDays, csrfToken) {
+      if (mode === "mock") return Promise.resolve({ cutoff_days: cutoffDays, month_end_fallback: true, late_submission_handling: "next_batch" });
+      return apiRequest("/api/v1/request-settings/reimbursement-batches", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ cutoff_days: cutoffDays }) });
     },
     listDocuments(requestId) {
       if (mode === "mock") return Promise.resolve([]);

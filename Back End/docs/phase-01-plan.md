@@ -15,7 +15,7 @@ Reviewed implementation commit: `44e876e`
 - Explicit user permission denials take precedence over role permission grants.
 - System Administrators may manage users, roles, permission overrides, activation, suspension, and departments, but may not edit audit records.
 - Initial departments are DT, Operations, Marketing, Finance, Academics, and P&C. New departments can be added through an audited API and administration page.
-- The frontend retains `mock`, `hybrid`, and `api` data-source modes.
+- The frontend retains `mock`, `hybrid`, and `api` data-source modes, but API is the default and mock/hybrid require explicit development-only activation.
 - Identity-related frontend additions are developed on this branch and must be reviewed before synchronization to `codex/frontend-only-prototype`.
 
 ## Delivery slices
@@ -57,7 +57,7 @@ Reviewed implementation commit: `44e876e`
 - User Administration page.
 - Roles & Permissions page.
 - Departments page with future department creation.
-- Preserve standalone mock mode and safe hybrid behavior.
+- Preserve explicitly invoked standalone mock and hybrid developer modes; production builds reject both.
 
 ## Current verification
 

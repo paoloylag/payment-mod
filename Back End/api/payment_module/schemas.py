@@ -112,6 +112,10 @@ class RequestNumberingSettingUpdate(BaseModel):
     reset_month: int = Field(ge=1, le=12)
 
 
+class ReimbursementBatchSettingUpdate(BaseModel):
+    cutoff_days: list[int] = Field(min_length=1, max_length=4)
+
+
 class ReferenceCreate(BaseModel):
     code: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
     name: str = Field(min_length=1, max_length=160)
