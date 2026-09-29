@@ -342,7 +342,11 @@ def test_academic_year_numbering_boundary_and_finance_setting(client):
 
     client.cookies.clear()
     associate_headers = login(client, "finance.associate@payment.local")
-    denied_associate = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=associate_headers)
+    denied_associate = client.put(
+        "/api/v1/request-settings/numbering",
+        json={"reset_month": 8},
+        headers=associate_headers,
+    )
     assert denied_associate.status_code == 403
 
     client.cookies.clear()
