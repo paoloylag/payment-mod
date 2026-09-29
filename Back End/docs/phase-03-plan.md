@@ -66,7 +66,7 @@ Source: `https://docs.google.com/spreadsheets/d/1jgfaA-KFPBO3rwEUrxlUr3IKt2gSw-l
 
 `Sheet2!A1:C6` defines these document rules:
 
-- Reimbursement: Invoice; Billing / Quotation / SOA when available; Proof of Payment.
+- Reimbursement: the source listed Invoice, Billing / Quotation / SOA when available, and Proof of Payment. The confirmed implementation supersedes that layout: invoice/receipt and Proof of Payment are attached per line, with no separate request-level Billing / Quotation / SOA rule.
 - P.O. Payment: BIR 2303 for a new supplier; Billing / Quotation / SOA; Invoice when available.
 - General Payment: Billing / SOA / Quotation is required; BIR 2303 becomes required for a new supplier.
 

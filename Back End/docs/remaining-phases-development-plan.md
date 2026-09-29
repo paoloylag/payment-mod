@@ -12,7 +12,7 @@ Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, 
 | 01 — Authentication and RBAC | Complete | Recheck permissions as each new domain command is added. |
 | 02 — Master Data | Ready for validation | Finance reference-data review, vendor contract, and final acceptance. |
 | 03 — Requests | In progress; 73 backend tests and five-role browser lifecycle passed on 2026-09-28 | Resolve or accept open Finance/external-system decisions; obtain reviewer acceptance. |
-| 04 — Documents | In progress; API, storage, and five-role browser document flow passed on 2026-09-28 | Confirm Reimbursement document rules; obtain local acceptance. Production storage/scanning/retention move to Phase 09. |
+| 04 — Documents | In progress; API, storage, five-role browser document flow, and multi-line Reimbursement Proof of Payment acceptance passed through 2026-09-29 | Obtain local acceptance. Reimbursement uses per-line documents only; production storage/scanning/retention move to Phase 09. |
 | 05–09 | Not started | Execute the work packages below in dependency order. |
 
 The status above reflects recorded evidence, not a new validation sign-off. Phase 03/04 code may support Phase 05 development while their business acceptance remains open, but a release cannot inherit an unresolved financial rule silently. Keep the existing frontend-only GitHub Pages preview explicitly in mock mode; the backend integration build must continue to require the API.
@@ -27,7 +27,7 @@ Before expanding a phase, establish a clean baseline on the backend branch: revi
 
 1. **Phase 02:** review chart of accounts, tax codes, vendor ownership/sync fields, and Finance administration screens with the business owner. Record accepted limitations and mark validated only after the phase's human/environment gates pass.
 2. **Phase 03:** obtain sign-off on request lifecycle behavior and unresolved reimbursement, Procurement, and Finance policy choices. Keep the confirmed Cash Advance cap, one-outstanding rule, and 15-calendar-day liquidation deadline in regression fixtures. Verify that return/reopen correction targets remain compatible with Phase 05 routing.
-3. **Phase 04:** implement the confirmed rule that Proof of Payment is required on each Reimbursement line item, not at request level. Move the seeded rule to line scope; remove the request-level `proof_of_payment_refs` submission check; expose a typed Proof of Payment upload for each line; send the persisted `line_id` with each file; and show missing-line errors. Confirm separately whether Billing/Quotation/SOA remains conditional. Add multi-line API and browser tests proving a request-level file or a file on only one line cannot satisfy another line's requirement. Preserve the existing upload/version/review behavior. Move AWS, malware scanning, and formal retention acceptance to Phase 09.
+3. **Phase 04:** the confirmed per-line Reimbursement rule is implemented in the seed, API requirement evaluation, upload workspace, submission guard, mock configuration, and multi-line API/browser tests. The 2026-09-29 Google Chrome run proved that each line requires its own Proof of Payment, that no request-level Invoice or Billing / Quotation / SOA rule remains, and that the completed request submits successfully. Obtain final reviewer acceptance and preserve the existing upload/version/review behavior. Move AWS, malware scanning, and formal retention acceptance to Phase 09.
 
 ## Phase 05 — Workflow and approvals
 

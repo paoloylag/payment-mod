@@ -151,6 +151,7 @@ def test_reimbursement_proof_of_payment_is_required_for_every_line(client, monke
     )
     assert second.status_code == 201, second.text
     complete = client.get(f"/api/v1/requests/{request_id}/document-requirements", headers=headers).json()
+    assert [item["document_type_code"] for item in complete["requirements"]] == ["PROOF_PAYMENT"]
     completed_proof = next(item for item in complete["requirements"] if item["document_type_code"] == "PROOF_PAYMENT")
     assert completed_proof["complete"] is True
     assert all(item["complete"] for item in completed_proof["lines"])

@@ -116,6 +116,77 @@ async function createDraft() {
   return { ...draft, displayNumber: `DRAFT-${draft.id.slice(0, 8).toUpperCase()}` };
 }
 
+async function createReimbursementDraft() {
+  const { context: adminContext, csrf: adminCsrf } = await apiSession(accounts.systemAdministrator);
+  const documentTypes = await (await adminContext.get("/api/v1/document-types?page=1&page_size=100")).json();
+  const typeByCode = Object.fromEntries(documentTypes.map((item) => [item.code, item]));
+  for (const rule of [
+    { code: "PROOF_PAYMENT", scope: "line", required: true, guidance: "Required for every reimbursement line" },
+  ]) {
+    expect(typeByCode[rule.code]).toBeTruthy();
+    const response = await adminContext.post("/api/v1/document-requirement-rules", {
+      headers: { "X-CSRF-Token": adminCsrf },
+      data: {
+        request_type: "reimbursement",
+        document_type_id: typeByCode[rule.code].id,
+        scope: rule.scope,
+        minimum_count: 1,
+        is_required: rule.required,
+        guidance: rule.guidance,
+        is_active: true,
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+  }
+  await adminContext.dispose();
+
+  const { context, csrf } = await apiSession(accounts.requestor);
+  const refs = await referenceData(context);
+  const response = await context.post("/api/v1/requests", {
+    headers: { "X-CSRF-Token": csrf },
+    data: {
+      request_type: "reimbursement",
+      department_id: refs.departmentId,
+      payee_name: "Phase 04 Reimbursement Merchant",
+      purpose: "Multi-line reimbursement document validation",
+      currency_code: "PHP",
+      type_data: {},
+      lines: [
+        {
+          invoice_number: "P04-E2E-001",
+          invoice_date: "2026-09-20",
+          vendor_name: "Phase 04 Merchant One",
+          particulars: "Reimbursement item one",
+          chart_account_id: refs.chartAccountId,
+          cost_center_id: refs.costCenterId,
+          amount: "625.25",
+          currency_code: "PHP",
+          attachment_refs: ["invoice-one.pdf"],
+        },
+        {
+          invoice_number: "P04-E2E-002",
+          invoice_date: "2026-09-21",
+          vendor_name: "Phase 04 Merchant Two",
+          particulars: "Reimbursement item two",
+          chart_account_id: refs.chartAccountId,
+          cost_center_id: refs.costCenterId,
+          amount: "625.25",
+          currency_code: "PHP",
+          attachment_refs: ["invoice-two.pdf"],
+        },
+      ],
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  const draft = await response.json();
+  await context.dispose();
+  return {
+    ...draft,
+    displayNumber: `DRAFT-${draft.id.slice(0, 8).toUpperCase()}`,
+    typeByCode,
+  };
+}
+
 async function transition(email, requestId, action, version, note) {
   const { context, csrf } = await apiSession(email);
   const response = await context.post(`/api/v1/requests/${requestId}/${action}`, {
@@ -221,4 +292,50 @@ test("Phase 04 document workspace supports five-role API-backed browser validati
   // Keep the returned version value referenced so API fixture drift is caught by the test.
   expect(returned.status).toBe("returned");
   await Promise.all(Object.values(sessions).map(({ context }) => context.close()));
+});
+
+test("Phase 04 requires separate Proof of Payment uploads for every Reimbursement line", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const browserContext = await browser.newContext();
+  const page = await browserContext.newPage();
+  const draft = await createReimbursementDraft();
+  await login(page, accounts.requestor);
+  await openDocuments(page, draft.displayNumber);
+
+  const lineOneUpload = page.getByLabel("Upload Proof of Payment (required for every reimbursement line) for line 1");
+  const lineTwoUpload = page.getByLabel("Upload Proof of Payment (required for every reimbursement line) for line 2");
+  await expect(lineOneUpload).toBeVisible();
+  await expect(lineTwoUpload).toBeVisible();
+  await expect(page.getByText("Line 1: Reimbursement item one", { exact: false })).toBeVisible();
+  await expect(page.getByText("Line 2: Reimbursement item two", { exact: false })).toBeVisible();
+
+  let upload = page.waitForResponse((response) => response.url().includes(`/api/v1/requests/${draft.id}/documents`) && response.request().method() === "POST");
+  await lineOneUpload.setInputFiles(pdf("proof-line-one.pdf", "proof line one"));
+  expect((await upload).status()).toBe(201);
+  await expect(page.getByText("proof-line-one.pdf")).toBeVisible();
+  await expect(page.getByText("Line 2: Reimbursement item two", { exact: false })).toBeVisible();
+
+  upload = page.waitForResponse((response) => response.url().includes(`/api/v1/requests/${draft.id}/documents`) && response.request().method() === "POST");
+  await page.getByLabel("Upload Proof of Payment (required for every reimbursement line) for line 2").setInputFiles(pdf("proof-line-two.pdf", "proof line two"));
+  expect((await upload).status()).toBe(201);
+  await expect(page.getByText("proof-line-two.pdf")).toBeVisible();
+
+  const { context, csrf } = await apiSession(accounts.requestor);
+  const requirements = await (await context.get(`/api/v1/requests/${draft.id}/document-requirements`)).json();
+  expect(requirements.requirements.map((item) => item.document_type_code)).toEqual(["PROOF_PAYMENT"]);
+  const proof = requirements.requirements.find((item) => item.document_type_code === "PROOF_PAYMENT");
+  expect(proof.scope).toBe("line");
+  expect(proof.complete).toBe(true);
+  expect(proof.lines).toHaveLength(2);
+  expect(proof.lines.every((item) => item.complete)).toBe(true);
+  expect(requirements.can_submit_documents).toBe(true);
+
+  const submitted = await context.post(`/api/v1/requests/${draft.id}/submit`, {
+    headers: { "X-CSRF-Token": csrf, "Idempotency-Key": crypto.randomUUID() },
+    data: { version: draft.version, note: "Multi-line Reimbursement documents complete." },
+  });
+  expect(submitted.ok()).toBeTruthy();
+  expect((await submitted.json()).status).toBe("submitted");
+  await context.dispose();
+  await browserContext.close();
 });

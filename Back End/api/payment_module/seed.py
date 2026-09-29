@@ -142,7 +142,7 @@ DEMO_USERS = [
 
 DOCUMENT_TYPES = (
     ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general"], "soft"),
-    ("BILLING_SOA", "Billing / Quotation / SOA", ["reimbursement", "poPayment", "general"], "soft"),
+    ("BILLING_SOA", "Billing / Quotation / SOA", ["poPayment", "general"], "soft"),
     ("PROOF_PAYMENT", "Proof of Payment", ["reimbursement"], "soft"),
     ("BIR_2303", "BIR 2303", ["poPayment", "general"], "soft"),
     ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
@@ -153,8 +153,6 @@ DOCUMENT_TYPES = (
 )
 
 DOCUMENT_REQUIREMENT_RULES = (
-    ("reimbursement", "INVOICE", "request", True, None),
-    ("reimbursement", "BILLING_SOA", "request", False, "If available"),
     ("reimbursement", "PROOF_PAYMENT", "line", True, "Required for every reimbursement line"),
     ("poPayment", "BIR_2303", "request", False, "If new supplier"),
     ("poPayment", "BILLING_SOA", "request", True, None),
@@ -243,6 +241,18 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
             session.flush()
             document_type_ids[code] = item.id
         if include_document_requirement_rules:
+            # Reimbursements keep supporting files on each breakdown line.
+            # Disable request-level defaults left by earlier builds.
+            for document_code in ("INVOICE", "BILLING_SOA"):
+                legacy = session.scalar(
+                    select(DocumentRequirementRule).where(
+                        DocumentRequirementRule.request_type == "reimbursement",
+                        DocumentRequirementRule.document_type_id == document_type_ids[document_code],
+                        DocumentRequirementRule.scope == "request",
+                    )
+                )
+                if legacy is not None:
+                    legacy.is_active = False
             for request_type, document_code, scope, is_required, guidance in DOCUMENT_REQUIREMENT_RULES:
                 rule_id = stable_id("document-requirement-rule", f"{request_type}:{document_code}:{scope}")
                 obsolete_scope = "line" if scope == "request" else "request"

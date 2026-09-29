@@ -54,12 +54,12 @@ The application can display and record these checks, but automated document-cont
 | Request type | Finance source requirement | Current implementation difference |
 |---|---|---|
 | Cash Advance | Cash Advance Request Form | The system request form satisfies this requirement. No separately uploaded or signed copy is required. Cash Advance remains non-blocking for document uploads. |
-| Reimbursement | Reimbursement Form; Invoices / Receipts | Product decision on 2026-09-28: Proof of Payment is required on each Reimbursement line item. The current seed and form still require it at request level and need implementation changes. Billing / Quotation / SOA remains conditional in the current seed, pending confirmation. |
+| Reimbursement | Reimbursement Form; Invoices / Receipts | Confirmed on 2026-09-29: every Reimbursement line requires its own invoice or receipt attachment and Proof of Payment. There are no separate request-level Invoice or Billing / Quotation / SOA requirements. |
 | P.O. Payment | Approved P.O.; Billing Invoice / Statement of Account; Quotation / Contract; Delivery Receipt when applicable; BIR 2303 and Business Permit for new suppliers | Approved P.O. and Quotation/Contract will come from Procurement. Delivery Receipt and Business Permit are added as conditional Payment Module document types. |
 | Other Payments / General Payment | Payment Request Form; Billing / Invoice / Contract / Service Agreement; BIR 2303 and Business Permit for new suppliers | The system request form satisfies the form requirement. Finance subsequently confirmed that APS requires an uploaded Billing / SOA / Quotation file and additionally requires BIR 2303 when the request is marked as a new supplier. Other vendor data may still come from Procurement. |
 | Liquidation | Accomplished Liquidation Form with complete official invoices, stated on the Cash Advance guidance slide | The system request form satisfies the form requirement. Breakdown-line receipt uploads remain optional because original hard copies are submitted offline. Proof of Return is omitted; the amount returned offline is recorded instead. |
 
-The Proof of Payment location is confirmed for implementation. The Finance PDF does not mention Billing / Quotation / SOA; its conditional status still needs confirmation. The current enforcement remains unchanged until the line-level migration, form, and submission tests are complete.
+Reimbursement supporting documents are implemented per line. Billing / Quotation / SOA applies to General Payments, not Reimbursements.
 
 ## Workflow and approval findings
 
@@ -103,7 +103,7 @@ The current system adds cost center, currency, expense-account, and structured d
 7. Deferred: payroll-deduction execution is outside the current implementation.
 8. Should invoices older than 30 days block Reimbursement submission or generate a Finance-review warning?
 9. Resolved: keep transactions below PHP 3,000 under the normal Reimbursement workflow. Do not expose a Petty Cash redirect or handling-route option.
-10. Resolved in part: Proof of Payment must be attached to each Reimbursement line item. Confirm whether Billing / Quotation / SOA remains conditional, since the Finance PDF does not list it.
+10. Resolved: every Reimbursement line must include its invoice or receipt and Proof of Payment. No separate request-level Billing / Quotation / SOA upload is required.
 11. Resolved: system-generated request forms satisfy the named `Form` requirements; no uploaded signed copies are required.
 12. For P.O. Payment, confirm how Procurement identifies a new supplier so the conditional Business Permit requirement can be evaluated automatically.
 13. Define when Delivery Receipt is applicable and whether its absence should block submission or create a warning.
@@ -120,6 +120,6 @@ The current system adds cost center, currency, expense-account, and structured d
 - Phase 03: Cash Advance amount, outstanding-advance, and liquidation-deadline rules are implemented and automated.
   Reimbursement timing and low-value Reimbursement guidance are displayed as nonblocking information. Currency assignment,
   configurable batching, late-request handling, and the future credit-card module remain pending decisions.
-- Phase 04: Cash Advance and Liquidation remain non-blocking for uploads; their system forms satisfy the form requirement. Liquidation receipts may be attached per line but hard copies are submitted offline. P.O. Payment gains conditional Delivery Receipt and Business Permit rules. Reimbursement Proof of Payment must move from request scope to each line item; conditional Billing / Quotation / SOA still needs confirmation.
+- Phase 04: Cash Advance and Liquidation remain non-blocking for uploads; their system forms satisfy the form requirement. Liquidation receipts may be attached per line but hard copies are submitted offline. P.O. Payment has conditional Delivery Receipt and Business Permit rules. Reimbursement invoice/receipt and Proof of Payment files are required per line, with no separate request-level Billing / Quotation / SOA rule.
 - Phase 05: The workflow confirms separate Department approval, Finance review/validation, Payment approval, correction loops, processing, and release. Approval-role and threshold mapping remain pending.
 - Later phases: Reimbursement batching, payment scheduling, physical-copy compliance, and operational assignment may affect Finance queues, dashboards, notifications, and reports.

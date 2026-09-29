@@ -275,9 +275,7 @@ export function createDataSource() {
     },
     listDocumentRules() {
       if (mode === "mock") return Promise.resolve([
-        { id: "mock-rule-invoice", request_type: "reimbursement", document_type_id: "mock-invoice", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
-        { id: "mock-rule-proof", request_type: "reimbursement", document_type_id: "mock-proof", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
-        { id: "mock-rule-billing", request_type: "reimbursement", document_type_id: "mock-billing", scope: "request", minimum_count: 1, is_required: false, guidance: "If available", is_active: true },
+        { id: "mock-rule-proof", request_type: "reimbursement", document_type_id: "mock-proof", scope: "line", minimum_count: 1, is_required: true, guidance: "Required for every reimbursement line", is_active: true },
         { id: "mock-rule-po-delivery", request_type: "poPayment", document_type_id: "mock-delivery-receipt", scope: "request", minimum_count: 1, is_required: false, guidance: "If applicable", is_active: true },
         { id: "mock-rule-po-business-permit", request_type: "poPayment", document_type_id: "mock-business-permit", scope: "request", minimum_count: 1, is_required: false, guidance: "If new supplier", is_active: true },
         { id: "mock-rule-general-billing", request_type: "general", document_type_id: "mock-billing", scope: "request", minimum_count: 1, is_required: true, guidance: null, is_active: true },
