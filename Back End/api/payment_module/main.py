@@ -15,6 +15,7 @@ from .routers.master_data import router as master_data_router
 from .routers.requests import router as requests_router
 from .routers.requests import settings_router as request_settings_router
 from .routers.system import router as system_router
+from .routers.workflow import router as workflow_router
 
 settings = get_settings()
 
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     application.include_router(documents_router)
     application.include_router(requests_router)
     application.include_router(request_settings_router)
+    application.include_router(workflow_router)
     return application
 
 

@@ -1,8 +1,14 @@
 # Phase 05 — Workflow and Approvals
 
 Date prepared: 2026-08-28  
-Status: Not started  
+Status: In progress — provisional policy preview implemented; approval decisions are not yet persisted
 Depends on: Phases 03–04 — Requests and Documents
+
+## Prototype-policy trial — 2026-09-29
+
+Owner direction is to implement and test the approval matrix currently shown in the prototype, then adjust rules based on test and reviewer findings. `api/payment_module/workflow_policy.py` now computes a version-identified PHP route and `/api/v1/workflow/preview/{request_id}` exposes a read-only, permission-scoped preview. The preview does not assign approvers or advance a request. Threshold and API-access tests are in `tests/test_workflow_policy.py`. See `docs/phase-05-policy-trial.md` for the exact matrix, results, and unresolved behavior.
+
+On 2026-09-29, the owner confirmed the unbudgeted PHP route above 1,000,000 as COO → President → Board Member. Foreign-currency threshold treatment remains pending Finance confirmation.
 
 ## Objective
 
