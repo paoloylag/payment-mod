@@ -31,6 +31,7 @@ from ..models import (
 )
 from ..procurement_adapter import get_procurement_adapter
 from ..schemas import (
+    FinanceRequestPolicyUpdate,
     PaymentRequestCreate,
     PaymentRequestUpdate,
     ReimbursementBatchSettingUpdate,
@@ -44,6 +45,14 @@ router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
 NUMBERING_RESET_MONTH_KEY = "requests.numbering_reset_month"
 REIMBURSEMENT_BATCH_CUTOFFS_KEY = "requests.reimbursement_batch_cutoffs"
+FINANCE_POLICY_DEFAULTS = {
+    "cash_advance_limit_amount": "40000.00",
+    "cash_advance_limit_currency": "PHP",
+    "cash_advance_one_outstanding": "true",
+    "cash_advance_liquidation_days": "15",
+    "reimbursement_invoice_age_days": "30",
+    "reimbursement_invoice_age_action": "warning",
+}
 app_settings = get_settings()
 
 
@@ -235,6 +244,7 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
         )
 
     if item.request_type == "reimbursement":
+        policy = finance_request_policy(db)
         for position, line in enumerate(lines, 1):
             prefix = f"lines.{position - 1}"
             require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
@@ -251,7 +261,17 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             require(
                 line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
             )
+            if line.invoice_date and policy["reimbursement_invoice_age_action"] == "block":
+                age = (datetime.now(ZoneInfo(app_settings.database_timezone)).date() - line.invoice_date).days
+                require(
+                    age <= policy["reimbursement_invoice_age_days"],
+                    f"{prefix}.invoice_date",
+                    "Line "
+                    f"{position}: invoice is older than the configured "
+                    f"{policy['reimbursement_invoice_age_days']}-day limit",
+                )
     elif item.request_type == "cashAdvance":
+        policy = finance_request_policy(db)
         event_end_date = data.get("event_end_date")
         liquidation_due_date = data.get("liquidation_due_date")
         require(
@@ -265,17 +285,20 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             "A valid liquidation due date is required",
         )
         if valid_date(event_end_date) and valid_date(liquidation_due_date):
-            expected_due_date = date.fromisoformat(str(event_end_date)) + timedelta(days=15)
+            expected_due_date = date.fromisoformat(str(event_end_date)) + timedelta(
+                days=policy["cash_advance_liquidation_days"]
+            )
             require(
                 date.fromisoformat(str(liquidation_due_date)) == expected_due_date,
                 "type_data.liquidation_due_date",
-                "Liquidation is due exactly 15 calendar days after the event",
+                f"Liquidation is due exactly {policy['cash_advance_liquidation_days']} calendar days after the event",
             )
-        if item.currency_code == "PHP":
+        if item.currency_code == policy["cash_advance_limit_currency"]:
             require(
-                item.gross_amount <= Decimal("40000"),
+                item.gross_amount <= policy["cash_advance_limit_amount"],
                 "gross_amount",
-                "Cash Advance amount cannot exceed PHP 40,000",
+                "Cash Advance amount cannot exceed "
+                f"{policy['cash_advance_limit_currency']} {policy['cash_advance_limit_amount']:,.2f}",
             )
         prior_advances = list(
             db.scalars(
@@ -302,11 +325,12 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
         outstanding = [
             advance for advance in prior_advances if str(advance.request_number) not in liquidated_references
         ]
-        require(
-            not outstanding,
-            "requestor_id",
-            "The requestor already has an outstanding Cash Advance that must be liquidated first",
-        )
+        if policy["cash_advance_one_outstanding"]:
+            require(
+                not outstanding,
+                "requestor_id",
+                "The requestor already has an outstanding Cash Advance that must be liquidated first",
+            )
         require(
             data.get("accountability_acknowledged") is True,
             "type_data.accountability_acknowledged",
@@ -828,6 +852,70 @@ def reimbursement_batch_cutoffs(db: Session) -> list[int]:
     return values if values and all(1 <= value <= 31 for value in values) else [15, 30]
 
 
+def finance_request_policy(db: Session) -> dict:
+    keys = [f"requests.{name}" for name in FINANCE_POLICY_DEFAULTS]
+    stored = {
+        item.key.removeprefix("requests."): item.value
+        for item in db.scalars(select(SystemSetting).where(SystemSetting.key.in_(keys)))
+    }
+
+    def integer(name: str) -> int:
+        try:
+            return int(stored.get(name, FINANCE_POLICY_DEFAULTS[name]))
+        except (TypeError, ValueError):
+            return int(FINANCE_POLICY_DEFAULTS[name])
+
+    try:
+        limit = Decimal(stored.get("cash_advance_limit_amount", FINANCE_POLICY_DEFAULTS["cash_advance_limit_amount"]))
+    except Exception:
+        limit = Decimal(FINANCE_POLICY_DEFAULTS["cash_advance_limit_amount"])
+    action = stored.get("reimbursement_invoice_age_action", "warning")
+    return {
+        "cash_advance_limit_amount": limit,
+        "cash_advance_limit_currency": stored.get("cash_advance_limit_currency", "PHP"),
+        "cash_advance_one_outstanding": stored.get("cash_advance_one_outstanding", "true").lower() == "true",
+        "cash_advance_liquidation_days": integer("cash_advance_liquidation_days"),
+        "reimbursement_invoice_age_days": integer("reimbursement_invoice_age_days"),
+        "reimbursement_invoice_age_action": action if action in {"warning", "block", "none"} else "warning",
+    }
+
+
+def serialize_finance_request_policy(db: Session) -> dict:
+    policy = finance_request_policy(db)
+    return {**policy, "cash_advance_limit_amount": str(policy["cash_advance_limit_amount"])}
+
+
+def record_reimbursement_policy_warnings(db: Session, item: PaymentRequest) -> None:
+    if item.request_type != "reimbursement":
+        return
+    policy = finance_request_policy(db)
+    data = dict(item.type_data or {})
+    warnings = [warning for warning in data.get("finance_policy_warnings", []) if warning.get("code") != "invoice_age"]
+    if policy["reimbursement_invoice_age_action"] == "warning":
+        today = datetime.now(ZoneInfo(app_settings.database_timezone)).date()
+        for position, line in enumerate(
+            db.scalars(
+                select(PaymentRequestLine)
+                .where(PaymentRequestLine.request_id == item.id)
+                .order_by(PaymentRequestLine.position)
+            ),
+            1,
+        ):
+            if line.invoice_date and (today - line.invoice_date).days > policy["reimbursement_invoice_age_days"]:
+                warnings.append(
+                    {
+                        "code": "invoice_age",
+                        "line": position,
+                        "message": (
+                            f"Invoice is older than {policy['reimbursement_invoice_age_days']} days; "
+                            "Finance verification is required."
+                        ),
+                    }
+                )
+    data["finance_policy_warnings"] = warnings
+    item.type_data = data
+
+
 def reimbursement_batch_date(moment: date, cutoff_days: list[int]) -> date:
     year, month = moment.year, moment.month
     for _ in range(2):
@@ -961,6 +1049,48 @@ def update_reimbursement_batch_setting(
     return after
 
 
+@settings_router.get("/finance-policies")
+def get_finance_request_policy(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    return serialize_finance_request_policy(db)
+
+
+@settings_router.put("/finance-policies")
+def update_finance_request_policy(
+    payload: FinanceRequestPolicyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    before = serialize_finance_request_policy(db)
+    values = payload.model_dump()
+    values["cash_advance_limit_amount"] = str(values["cash_advance_limit_amount"])
+    for name, value in values.items():
+        key = f"requests.{name}"
+        item = db.scalar(select(SystemSetting).where(SystemSetting.key == key))
+        stored_value = str(value).lower() if isinstance(value, bool) else str(value)
+        if item is None:
+            item = SystemSetting(key=key, value=stored_value)
+            db.add(item)
+        else:
+            item.value = stored_value
+    db.flush()
+    after = serialize_finance_request_policy(db)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="finance_request_policy.updated",
+        entity_type="system_setting",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
 @router.post("/{request_id}/submit")
 def submit_payment_request(
     request_id: UUID,
@@ -998,6 +1128,7 @@ def submit_payment_request(
     lock_submission_constraints(db, item)
     ensure_submittable(db, item)
     assign_reimbursement_batch(db, item)
+    record_reimbursement_policy_warnings(db, item)
     record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     previous = item.status
@@ -1165,6 +1296,7 @@ def resubmit_payment_request(
     lock_submission_constraints(db, item)
     ensure_submittable(db, item)
     assign_reimbursement_batch(db, item)
+    record_reimbursement_policy_warnings(db, item)
     record_procurement_snapshot(item)
     record_duplicate_invoice_checks(db, item)
     result = lifecycle_change(

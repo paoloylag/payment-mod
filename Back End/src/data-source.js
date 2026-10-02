@@ -224,6 +224,14 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve({ cutoff_days: cutoffDays, month_end_fallback: true, late_submission_handling: "next_batch" });
       return apiRequest("/api/v1/request-settings/reimbursement-batches", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify({ cutoff_days: cutoffDays }) });
     },
+    getFinanceRequestPolicy() {
+      if (mode === "mock") return Promise.resolve({ cash_advance_limit_amount: "40000.00", cash_advance_limit_currency: "PHP", cash_advance_one_outstanding: true, cash_advance_liquidation_days: 15, reimbursement_invoice_age_days: 30, reimbursement_invoice_age_action: "warning" });
+      return apiRequest("/api/v1/request-settings/finance-policies");
+    },
+    updateFinanceRequestPolicy(payload, csrfToken) {
+      if (mode === "mock") return Promise.resolve(payload);
+      return apiRequest("/api/v1/request-settings/finance-policies", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
     listDocuments(requestId) {
       if (mode === "mock") return Promise.resolve([]);
       return apiRequest(`/api/v1/requests/${requestId}/documents`);

@@ -28,6 +28,7 @@ async function login(page, email) {
   const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Sign in" }).click();
   expect((await responsePromise).ok()).toBeTruthy();
+  await expect(page).toHaveURL(/#\/dashboard$/);
   await expect(page.locator("[data-account-menu]")).toBeVisible({ timeout: 20_000 });
 }
 

@@ -438,6 +438,90 @@ def test_reimbursement_batch_date_uses_cutoffs_and_month_end_fallback():
     assert reimbursement_batch_date(datetime(2027, 2, 16, tzinfo=UTC).date(), [15, 30]).isoformat() == "2027-02-28"
 
 
+def test_finance_request_policies_are_role_managed_audited_and_enforced(client):
+    seed()
+    defaults = {
+        "cash_advance_limit_amount": "40000.00",
+        "cash_advance_limit_currency": "PHP",
+        "cash_advance_one_outstanding": True,
+        "cash_advance_liquidation_days": 15,
+        "reimbursement_invoice_age_days": 30,
+        "reimbursement_invoice_age_action": "warning",
+    }
+    requestor_headers = login(client)
+    assert client.get("/api/v1/request-settings/finance-policies", headers=requestor_headers).json() == defaults
+    denied = client.put("/api/v1/request-settings/finance-policies", json=defaults, headers=requestor_headers)
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    invalid = client.put(
+        "/api/v1/request-settings/finance-policies",
+        json={**defaults, "cash_advance_liquidation_days": 0},
+        headers=manager_headers,
+    )
+    assert invalid.status_code == 422
+    configured = {
+        **defaults,
+        "cash_advance_limit_amount": "5000.00",
+        "cash_advance_one_outstanding": False,
+        "cash_advance_liquidation_days": 10,
+        "reimbursement_invoice_age_days": 1,
+        "reimbursement_invoice_age_action": "block",
+    }
+    changed = client.put("/api/v1/request-settings/finance-policies", json=configured, headers=manager_headers)
+    assert changed.status_code == 200 and changed.json() == configured
+    with SessionLocal() as db:
+        policy_audits = db.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "finance_request_policy.updated")
+        )
+        assert policy_audits >= 1
+
+    client.cookies.clear()
+    requestor_headers = login(client)
+    over_limit = payload_for_type("cashAdvance")
+    over_limit["lines"][0]["amount"] = "5000.01"
+    over_limit["type_data"]["liquidation_due_date"] = "2026-09-25"
+    created = client.post("/api/v1/requests", json=over_limit, headers=requestor_headers).json()
+    blocked_limit = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked_limit.status_code == 422 and "PHP 5,000.00" in blocked_limit.text
+
+    old_invoice = payload_for_type("reimbursement")
+    old_draft = client.post("/api/v1/requests", json=old_invoice, headers=requestor_headers).json()
+    blocked_age = client.post(
+        f"/api/v1/requests/{old_draft['id']}/submit",
+        json={"version": old_draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked_age.status_code == 422 and "configured 1-day limit" in blocked_age.text
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    warning_policy = {**configured, "reimbursement_invoice_age_action": "warning"}
+    warning_update = client.put(
+        "/api/v1/request-settings/finance-policies", json=warning_policy, headers=manager_headers
+    )
+    assert warning_update.status_code == 200
+    client.cookies.clear()
+    requestor_headers = login(client)
+    submitted_warning = client.post(
+        f"/api/v1/requests/{old_draft['id']}/submit",
+        json={"version": old_draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_warning.status_code == 200
+    assert submitted_warning.json()["type_data"]["finance_policy_warnings"][0]["code"] == "invoice_age"
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    restored = client.put("/api/v1/request-settings/finance-policies", json=defaults, headers=manager_headers)
+    assert restored.status_code == 200
+
+
 def test_cash_advance_options_only_include_current_users_submitted_advances(client):
     seed()
     requestor_headers = login(client)

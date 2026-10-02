@@ -116,6 +116,15 @@ class ReimbursementBatchSettingUpdate(BaseModel):
     cutoff_days: list[int] = Field(min_length=1, max_length=4)
 
 
+class FinanceRequestPolicyUpdate(BaseModel):
+    cash_advance_limit_amount: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    cash_advance_limit_currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+    cash_advance_one_outstanding: bool = True
+    cash_advance_liquidation_days: int = Field(ge=1, le=365)
+    reimbursement_invoice_age_days: int = Field(ge=1, le=365)
+    reimbursement_invoice_age_action: Literal["warning", "block", "none"] = "warning"
+
+
 class ReferenceCreate(BaseModel):
     code: str = Field(pattern=r"^[A-Z][A-Z0-9_-]{0,39}$")
     name: str = Field(min_length=1, max_length=160)

@@ -88,6 +88,11 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 - Added two-second draft autosave and server-side single-currency enforcement.
 - Completed API mapping for the visible shared and type-specific request fields, master-data identifiers, line details,
   request/line document references, vendor and P.O. references, Cash Advance acknowledgements, and Liquidation balances.
+- Finance-owned request rules now use typed, audited configuration under Administration → Request Settings. The
+  configurable set includes the Cash Advance cap/currency, one-outstanding rule, liquidation deadline, and Reimbursement
+  invoice-age behavior, alongside the existing numbering, batch, document-requirement, and master-data controls. See
+  `docs/finance-configurations.md` for defaults, change semantics, test coverage, and decisions that still require an
+  authoritative Finance or external-system answer.
 - Added submission-time, field-scoped validation for Reimbursement, Cash Advance, Liquidation, P.O. Payment, and
   General Payment while retaining incomplete-draft autosave behavior.
 - Enforced a dedicated `_test` database in the automated test harness and automatic removal of test-created sessions
@@ -615,6 +620,9 @@ Acceptance gate: a development adapter can be replaced by a contract-compatible 
 - Production recovery objectives and infrastructure ownership.
 
 ## Definition of backend completion
+
+Testing order is governed by `docs/testing-validation-workflow.md`: user-facing changes receive a real browser
+click-through before focused automation and the regular regression/build/migration/CI gates.
 
 A backend feature is complete only when its migration, persistence model, service rules, authorization, API contract, audit behavior, automated tests, error handling, and developer documentation are present. A front-end mock or hard-coded sample is not considered backend implementation.
 

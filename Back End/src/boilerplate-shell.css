@@ -297,21 +297,17 @@ select:disabled { cursor: not-allowed; opacity: .68; }
 .administration-workspace-heading p { margin: 0; color: var(--muted); }
 .administration-tabs {
   display: flex !important;
-  width: max-content;
+  width: fit-content;
   max-width: 100%;
   justify-self: start;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   gap: 7px;
-  overflow-x: auto;
+  overflow: visible;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
-  scrollbar-width: thin;
 }
-.administration-tabs::-webkit-scrollbar { height: 7px; }
-.administration-tabs::-webkit-scrollbar-track { background: color-mix(in srgb, var(--primary) 8%, transparent); }
-.administration-tabs::-webkit-scrollbar-thumb { border-radius: 999px; background: color-mix(in srgb, var(--primary) 62%, var(--panel)); }
 .administration-workspace-heading,
 .administration-workspace .panel-header > div {
   min-width: 0;
@@ -334,6 +330,74 @@ select:disabled { cursor: not-allowed; opacity: .68; }
 }
 .administration-tabs button { flex: 0 0 auto; min-height: 36px; padding: 7px 11px; white-space: nowrap; }
 .administration-tabs button.active { border-color: var(--primary); color: #fff; background: var(--primary); }
+
+.approval-queue-workspace {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.approval-preview-pane {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.approval-preview-pane > .panel-header { margin-bottom: 0; }
+
+.preview-amount,
+.preview-route {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  background: var(--panel-strong);
+}
+
+.preview-amount span,
+.preview-route span,
+.preview-detail-list dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.preview-amount strong,
+.preview-route strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.preview-detail-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.preview-detail-list > div {
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 0 0 10px;
+}
+
+.preview-detail-list dt,
+.preview-detail-list dd { margin: 0; }
+.preview-detail-list dd { margin-top: 5px; overflow-wrap: anywhere; font-weight: 800; }
+
+.approval-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 
 .sidebar-footer.backend-connected .sidebar-status-icon { border-color: #75d5aa; color: #a6f2d0; }
 .sidebar-footer.backend-unavailable .sidebar-status-icon { border-color: #ffc16c; color: #ffd9a2; }
@@ -955,9 +1019,10 @@ textarea:focus {
   padding: 5px;
 }
 
-.administration-tabs button.active {
-  border-color: var(--maroon-strong);
-  background: var(--maroon-strong);
+.app-shell main .administration-tabs button.active {
+  border-color: var(--maroon-strong) !important;
+  color: #fffaf3 !important;
+  background: var(--maroon-strong) !important;
 }
 
 /* Workflow cards are interactive containers, not standard action buttons.
@@ -972,6 +1037,85 @@ textarea:focus {
   gap: 16px;
   padding: 20px;
   text-align: left;
+}
+
+/* Dashboard metrics are interactive cards, not inline action buttons. */
+.app-shell main button.metric {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  width: 100%;
+  min-width: 0;
+  min-height: 132px;
+  align-content: start;
+  align-items: start;
+  justify-content: stretch;
+  gap: 0;
+  padding: 16px;
+  text-align: left;
+}
+
+.app-shell main button.metric > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.app-shell main button.metric > strong {
+  min-width: 0;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: clamp(22px, 1.8vw, 28px);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.app-shell main button.metric > small {
+  align-self: end;
+  margin-top: 14px;
+  color: var(--maroon-strong);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+/* Clickable tracker statuses retain tag styling while behaving like buttons. */
+.app-shell main button.tracker-status-link {
+  display: inline-flex;
+  width: auto;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px solid #e7c56c !important;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #713f12 !important;
+  background: #fef3c7 !important;
+  box-shadow: none;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.app-shell main button.tracker-status-link:hover:not(:disabled) {
+  border-color: #c58c18 !important;
+  background: #fde68a !important;
+  transform: none;
+}
+
+.app-shell main button.tracker-status-link:focus-visible {
+  outline: 3px solid color-mix(in srgb, #c58c18 28%, transparent);
+  outline-offset: 2px;
+}
+
+:root[data-theme="dark"] .app-shell main button.tracker-status-link {
+  border-color: #80683d !important;
+  color: #f0c678 !important;
+  background: #3a301f !important;
 }
 
 /* The global action-button weight must not carry into descriptive card copy. */
@@ -1008,6 +1152,7 @@ textarea:focus {
 
 @media screen and (max-width: 1199px) {
   .sidebar { width: min(84vw, 320px); height: 100dvh; overflow-y: auto; }
+  .sidebar .nav-list { grid-template-columns: minmax(0, 1fr); }
   .app-shell > main { padding: 14px; }
   .topbar { margin: -14px -14px 16px; padding: 12px 14px; }
 }
@@ -1175,6 +1320,13 @@ body:has(.guide-main) { overflow: visible; }
     text-transform: uppercase;
   }
   .administration-mobile-select select { width: 100%; min-height: 44px; text-transform: none; }
+  .preview-detail-list { grid-template-columns: minmax(0, 1fr); }
+  .preview-amount,
+  .preview-route { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .preview-amount strong,
+  .preview-route strong { text-align: left; }
+  .approval-preview-actions { align-items: stretch; flex-direction: column; }
+  .approval-preview-actions button { width: 100%; }
   .request-metadata > summary { display: flex; }
   .request-metadata:not([open]) .detail-list { display: none; }
   .responsive-disclosure {

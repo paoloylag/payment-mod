@@ -1,3 +1,5 @@
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy import select
@@ -5,16 +7,20 @@ from sqlalchemy import select
 from .config import get_settings
 from .database import SessionLocal
 from .models import (
+    ChartAccount,
     CostCenter,
     Currency,
     Department,
     DocumentRequirementRule,
     DocumentType,
     PaymentMethod,
+    PaymentRequest,
+    PaymentRequestLine,
     Permission,
     Role,
     RolePermission,
     SystemSetting,
+    TaxCode,
     User,
     UserRole,
 )
@@ -26,6 +32,13 @@ SEED_SETTINGS = {
     "application.phase": "0",
     "data_source.default": "hybrid",
     "requests.numbering_reset_month": "7",
+    "requests.reimbursement_batch_cutoffs": "15,30",
+    "requests.cash_advance_limit_amount": "40000.00",
+    "requests.cash_advance_limit_currency": "PHP",
+    "requests.cash_advance_one_outstanding": "true",
+    "requests.cash_advance_liquidation_days": "15",
+    "requests.reimbursement_invoice_age_days": "30",
+    "requests.reimbursement_invoice_age_action": "warning",
 }
 
 DEPARTMENTS = {
@@ -164,6 +177,188 @@ DOCUMENT_REQUIREMENT_RULES = (
     ("general", "INVOICE", "request", False, "If available"),
 )
 
+DEMO_ACCOUNTS = (
+    ("6100", "Office Supplies", "Routine office and operating supplies"),
+    ("6200", "Travel and Transportation", "Business travel and local transportation"),
+    ("6300", "Professional Services", "External professional and contracted services"),
+    ("6400", "Technology Equipment", "Computers, peripherals, and technology equipment"),
+    ("6500", "Events and Training", "Events, training, and staff development"),
+)
+
+DEMO_TAX_CODES = (
+    ("VAT12-EWT2", "VAT 12% / EWT 2%", "VAT", Decimal("12"), "EWT services", Decimal("2")),
+    ("VAT12-EWT1", "VAT 12% / EWT 1%", "VAT", Decimal("12"), "EWT goods", Decimal("1")),
+    ("NONVAT", "Non-VAT", "Non-VAT", Decimal("0"), "No EWT", Decimal("0")),
+)
+
+DEMO_REQUESTS = (
+    (
+        "DEMO-DRAFT-001",
+        "reimbursement",
+        "draft",
+        1,
+        "Draft Request",
+        "Marketing event materials",
+        "Sample Event Supplier",
+        "12500.00",
+        True,
+    ),
+    (
+        "DEMO-RET-001",
+        "reimbursement",
+        "returned",
+        2,
+        "Returned for Information",
+        "Leadership workshop reimbursement",
+        "Sample Training Center",
+        "18450.00",
+        True,
+    ),
+    (
+        "DEMO-DEPT-001",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Monthly utilities",
+        "Sample City Utilities",
+        "22500.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-001",
+        "reimbursement",
+        "submitted",
+        4,
+        "Document Validation",
+        "Staff conference reimbursement",
+        "Sample Hotel",
+        "84350.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-001",
+        "poPayment",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Laptop replacement",
+        "Sample BrightTech Supply",
+        "90000.00",
+        True,
+    ),
+    (
+        "DEMO-COO-001",
+        "general",
+        "submitted",
+        7,
+        "COO Approval",
+        "Campus facilities repair",
+        "Sample BuildWorks",
+        "248900.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-001",
+        "general",
+        "submitted",
+        8,
+        "President Approval",
+        "Learning platform renewal",
+        "Sample CloudWorks",
+        "329500.00",
+        True,
+    ),
+    (
+        "DEMO-BOARD-001",
+        "poPayment",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "Campus infrastructure project",
+        "Sample Enterprise Systems",
+        "1250000.00",
+        False,
+    ),
+    (
+        "DEMO-VCH-001",
+        "reimbursement",
+        "submitted",
+        9,
+        "Voucher Creation",
+        "Training travel reimbursement",
+        "Sample Travel Desk",
+        "72300.00",
+        True,
+    ),
+    (
+        "DEMO-PROC-001",
+        "general",
+        "submitted",
+        10,
+        "Payment Processing",
+        "Facilities maintenance",
+        "Sample Metro Repairs",
+        "66200.00",
+        True,
+    ),
+    (
+        "DEMO-SIGN-001",
+        "poPayment",
+        "submitted",
+        11,
+        "Signatory Authorization",
+        "Office furniture acquisition",
+        "Sample Office Systems",
+        "141750.00",
+        True,
+    ),
+    (
+        "DEMO-NOTIFY-001",
+        "poPayment",
+        "submitted",
+        12,
+        "Vendor Notification",
+        "Department equipment",
+        "Sample Multi-Vendor Order",
+        "287500.00",
+        True,
+    ),
+    (
+        "DEMO-RELEASE-001",
+        "reimbursement",
+        "submitted",
+        13,
+        "Payment Release",
+        "Legal conference expenses",
+        "Sample Travel Desk",
+        "30750.00",
+        True,
+    ),
+    (
+        "DEMO-TRACK-001",
+        "cashAdvance",
+        "submitted",
+        14,
+        "Payment Tracker",
+        "Academic outreach event",
+        "Internal Cash Advance",
+        "39000.00",
+        True,
+    ),
+    (
+        "DEMO-DONE-001",
+        "general",
+        "archived",
+        15,
+        "Completed",
+        "Completed software subscription",
+        "Sample Software Vendor",
+        "101250.00",
+        True,
+    ),
+)
+
 
 def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
@@ -178,7 +373,7 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
             setting = session.scalar(select(SystemSetting).where(SystemSetting.key == key))
             if setting is None:
                 session.add(SystemSetting(id=uuid5(NAMESPACE_URL, f"payment-module:{key}"), key=key, value=value))
-            elif key != "requests.numbering_reset_month":
+            elif not key.startswith("requests."):
                 setting.value = value
         for old_code, new_code in DEPARTMENT_CODE_ALIASES.items():
             item = session.scalar(select(Department).where(Department.code == old_code))
@@ -201,6 +396,36 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 session.add(CostCenter(id=stable_id("cost-center", code), code=code, name=name, department_id=item.id))
             else:
                 cost_center.code, cost_center.name, cost_center.is_active = code, name, True
+        session.flush()
+        for code, name, description in DEMO_ACCOUNTS:
+            account = session.scalar(select(ChartAccount).where(ChartAccount.code == code))
+            if account is None:
+                session.add(
+                    ChartAccount(
+                        id=stable_id("chart-account", code),
+                        code=code,
+                        name=name,
+                        description=description,
+                        account_type="expense",
+                        is_posting=True,
+                        normal_balance="debit",
+                    )
+                )
+        for code, name, vat_classification, vat_rate, ewt_classification, ewt_rate in DEMO_TAX_CODES:
+            tax_code = session.scalar(select(TaxCode).where(TaxCode.code == code))
+            if tax_code is None:
+                session.add(
+                    TaxCode(
+                        id=stable_id("tax-code", code),
+                        code=code,
+                        name=name,
+                        description="Development sample; Finance approval is required before production use.",
+                        vat_classification=vat_classification,
+                        vat_rate=vat_rate,
+                        ewt_classification=ewt_classification,
+                        ewt_rate=ewt_rate,
+                    )
+                )
         for code, name, symbol in (("PHP", "Philippine Peso", "₱"), ("USD", "US Dollar", "$"), ("EUR", "Euro", "€")):
             item = session.get(Currency, code)
             if item is None:
@@ -306,8 +531,10 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                         )
                     )
         if settings.development_demo_password:
+            user_ids = {}
             for role_code, email, display_name, department_code in DEMO_USERS:
                 user_id = stable_id("user", email)
+                user_ids[role_code] = user_id
                 user = session.get(User, user_id)
                 if user is None:
                     user = User(
@@ -328,6 +555,74 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 )
                 if existing_user_role is None:
                     session.add(UserRole(id=user_role_id, user_id=user_id, role_id=stable_id("role", role_code)))
+            session.flush()
+            if settings.app_env in {"local", "development"}:
+                marketing_cost_center_id = stable_id("cost-center", "MKTG")
+                account_ids = [stable_id("chart-account", code) for code, _, _ in DEMO_ACCOUNTS]
+                now = datetime.now(UTC)
+                for index, (
+                    seed_code,
+                    request_type,
+                    status,
+                    current_step,
+                    display_status,
+                    purpose,
+                    payee,
+                    amount,
+                    budgeted,
+                ) in enumerate(DEMO_REQUESTS, 1):
+                    request_id = stable_id("demo-payment-request", seed_code)
+                    item = session.get(PaymentRequest, request_id)
+                    request_number = None if status == "draft" else f"PR-2026-{900000 + index:06d}"
+                    voucher_number = None if status == "draft" else f"VCH-2026-{900000 + index:06d}"
+                    type_data = {
+                        "development_seed": seed_code,
+                        "demo_current_step": current_step,
+                        "demo_display_status": display_status,
+                        "budgeted": budgeted,
+                        "validation_assignee": "Development Finance Associate",
+                    }
+                    if request_type == "cashAdvance":
+                        type_data.update(
+                            {
+                                "event_end_date": date.today().isoformat(),
+                                "liquidation_due_date": (date.today() + timedelta(days=15)).isoformat(),
+                                "accountability_acknowledged": True,
+                            }
+                        )
+                    if request_type == "poPayment":
+                        type_data["po_reference"] = f"PO-DEMO-{1000 + index}"
+                    if item is None:
+                        item = PaymentRequest(id=request_id)
+                        session.add(item)
+                    item.request_number = request_number
+                    item.voucher_number = voucher_number
+                    item.request_type = request_type
+                    item.status = status
+                    item.requestor_id = user_ids["requestor"]
+                    item.department_id = department_ids["MKTG"]
+                    item.payee_name = payee
+                    item.purpose = purpose
+                    item.currency_code = "PHP"
+                    item.gross_amount = Decimal(amount)
+                    item.type_data = type_data
+                    item.submitted_at = None if status == "draft" else now - timedelta(days=16 - index)
+                    item.archived_at = now - timedelta(days=1) if status == "archived" else None
+                    session.flush()
+                    line_id = stable_id("demo-payment-request-line", seed_code)
+                    line = session.get(PaymentRequestLine, line_id)
+                    if line is None:
+                        line = PaymentRequestLine(id=line_id, request_id=request_id, position=1)
+                        session.add(line)
+                    line.invoice_date = date.today() - timedelta(days=min(30, index + 2))
+                    line.invoice_number = f"INV-DEMO-{index:03d}"
+                    line.vendor_name = payee
+                    line.particulars = purpose
+                    line.chart_account_id = account_ids[(index - 1) % len(account_ids)]
+                    line.cost_center_id = marketing_cost_center_id
+                    line.amount = Decimal(amount)
+                    line.currency_code = "PHP"
+                    line.attachment_refs = [f"demo-{seed_code.lower()}.pdf"] if status != "draft" else []
 
 
 if __name__ == "__main__":

@@ -247,6 +247,7 @@ let state = {
   requirementRuleEdit: null,
   requestNumbering: null,
   reimbursementBatchSetting: null,
+  financePolicySetting: null,
   requestSettingsLoading: false,
   requestSettingsError: "",
   cashAdvanceOptions: null,
@@ -675,7 +676,7 @@ function bindLogin() {
       const persona = personaForRoles(session.user.roles);
       state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null };
       await loadApiPaymentRequests();
-      render();
+      navigate("/dashboard");
     } catch (error) {
       setState({ authStatus: "unauthenticated", authError: error.message || "Sign-in failed", authSubmitting: false, toast: errorToast(error.message || "Sign-in failed", "Unable to sign in") });
     }
@@ -1021,7 +1022,9 @@ function apiLineToPrototype(type, line) {
 
 function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
-  const [status, currentStep] = statusMap[item.status] || [item.status, 2];
+  const [defaultStatus, defaultStep] = statusMap[item.status] || [item.status, 2];
+  const currentStep = Number(item.type_data?.demo_current_step) || defaultStep;
+  const status = item.type_data?.demo_display_status || defaultStatus;
   return {
     id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, voucherNumber: item.voucher_number || "", backendId: item.id,
     backendVersion: item.version, backendStatus: item.status, type: item.request_type,
@@ -1033,6 +1036,16 @@ function apiRequestToPrototype(item) {
     documents: item.lines?.reduce((count, line) => count + (line.attachment_refs?.length || 0), 0) || 0,
     missing: 0, currency: item.currency_code, unlocked: item.status === "returned", audit: [], lines: item.lines || [],
     purpose: item.purpose, typeData: item.type_data || {},
+    submittedByFinance: item.requestor_name === personas.financeAssociate.name,
+    validationAssignee: item.type_data?.validation_assignee || personas.financeAssociate.name,
+    bankSubmittedAt: currentStep >= 11 ? item.updated_at : "",
+    bankSubmittedBy: currentStep >= 11 ? "Development Finance Associate" : "",
+    bankAuthorizedAt: currentStep >= 12 ? item.updated_at : "",
+    bankAuthorizedBy: currentStep >= 12 ? "Development Authorized Signatory" : "",
+    vendorNotifiedAt: currentStep >= 13 ? item.updated_at : "",
+    vendorNotifiedBy: currentStep >= 13 ? "Development Finance Associate" : "",
+    pickupAvailableAt: currentStep >= 14 ? item.updated_at : "",
+    pickupAvailableBy: currentStep >= 14 ? "Development Finance Associate" : "",
   };
 }
 
@@ -1443,10 +1456,10 @@ async function loadRequestSettings() {
   state.requestSettingsError = "";
   render();
   try {
-    const [requestNumbering, reimbursementBatchSetting] = await Promise.all([
-      dataSource.getRequestNumberingSetting(), dataSource.getReimbursementBatchSetting(),
+    const [requestNumbering, reimbursementBatchSetting, financePolicySetting] = await Promise.all([
+      dataSource.getRequestNumberingSetting(), dataSource.getReimbursementBatchSetting(), dataSource.getFinanceRequestPolicy(),
     ]);
-    setState({ requestNumbering, reimbursementBatchSetting, requestSettingsLoading: false });
+    setState({ requestNumbering, reimbursementBatchSetting, financePolicySetting, requestSettingsLoading: false });
   } catch (error) {
     setState({ requestSettingsLoading: false, requestSettingsError: error.message, toast: errorToast(error.message, "Settings unavailable") });
   }
@@ -1460,7 +1473,7 @@ function canManageRequestSettings() {
 function requestSettingsPage() {
   if (state.requestSettingsLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading request settings"></div></section>`;
   if (state.requestSettingsError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.requestSettingsError)}</p></section>`;
-  if (!state.requestNumbering || !state.reimbursementBatchSetting) return `<section class="identity-page"><div class="auth-loading" aria-label="Preparing request settings"></div></section>`;
+  if (!state.requestNumbering || !state.reimbursementBatchSetting || !state.financePolicySetting) return `<section class="identity-page"><div class="auth-loading" aria-label="Preparing request settings"></div></section>`;
   const editable = canManageRequestSettings();
   const disabled = editable ? "" : "disabled";
   const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -1469,6 +1482,7 @@ function requestSettingsPage() {
     ${editable ? "" : `<div class="independent-validation-notice"><div><span class="eyebrow">View only</span><strong>Finance schedule settings</strong></div><p>Finance Managers and System Administrators can change these settings.</p></div>`}
     <section class="panel"><div class="panel-header"><div><h3>Request Numbering</h3><p>Choose when numbering restarts for the new academic year. Existing request numbers do not change.</p></div></div><form data-numbering-settings class="identity-form numbering-settings-form"><label>Academic year starts<select name="reset_month" ${disabled}>${months.map((month, index) => `<option value="${index + 1}" ${state.requestNumbering.reset_month === index + 1 ? "selected" : ""}>${month}</option>`).join("")}</select></label><div class="numbering-settings-summary"><div><span>Current academic year</span><strong>${escapeHtml(state.requestNumbering.current_academic_year)}</strong></div><small>Next sequence example: ${escapeHtml(state.requestNumbering.number_preview)}</small></div>${editable ? `<button type="submit" class="primary-button">Save numbering</button>` : ""}</form></section>
     <section class="panel"><div class="panel-header"><div><h3>Reimbursement Batches</h3><p>Set the monthly processing cutoffs. Late submissions automatically carry into the next configured batch.</p></div></div><form data-reimbursement-batches class="identity-form numbering-settings-form"><div class="field-grid"><label>First cutoff day<input name="cutoff_day" type="number" min="1" max="31" value="${cutoffs[0] || 15}" ${disabled} required></label><label>Second cutoff day<input name="cutoff_day" type="number" min="1" max="31" value="${cutoffs[1] || 30}" ${disabled} required></label></div><div class="numbering-settings-summary"><div><span>Month-end handling</span><strong>Use the last calendar day</strong></div><small>If a configured day does not exist in a month, that batch runs on month-end. Low-value expenses remain Reimbursement requests.</small></div>${editable ? `<button type="submit" class="primary-button">Save batch schedule</button>` : ""}</form></section>
+    <section class="panel"><div class="panel-header"><div><h3>Finance Request Policies</h3><p>Configure the request rules Finance may revise without a code deployment.</p></div></div><form data-finance-policies class="identity-form numbering-settings-form"><div class="field-grid"><label>Cash Advance limit<input name="cash_advance_limit_amount" type="number" min="0.01" step="0.01" value="${escapeHtml(state.financePolicySetting.cash_advance_limit_amount)}" ${disabled} required></label><label>Limit currency<input name="cash_advance_limit_currency" value="${escapeHtml(state.financePolicySetting.cash_advance_limit_currency)}" maxlength="3" pattern="[A-Z]{3}" ${disabled} required></label><label>Liquidation deadline (calendar days)<input name="cash_advance_liquidation_days" type="number" min="1" max="365" value="${state.financePolicySetting.cash_advance_liquidation_days}" ${disabled} required></label><label>Reimbursement invoice age (calendar days)<input name="reimbursement_invoice_age_days" type="number" min="1" max="365" value="${state.financePolicySetting.reimbursement_invoice_age_days}" ${disabled} required></label><label>Older-invoice handling<select name="reimbursement_invoice_age_action" ${disabled}><option value="warning" ${state.financePolicySetting.reimbursement_invoice_age_action === "warning" ? "selected" : ""}>Accept with Finance warning</option><option value="block" ${state.financePolicySetting.reimbursement_invoice_age_action === "block" ? "selected" : ""}>Block submission</option><option value="none" ${state.financePolicySetting.reimbursement_invoice_age_action === "none" ? "selected" : ""}>No system check</option></select></label><label class="checkbox-field"><input name="cash_advance_one_outstanding" type="checkbox" ${state.financePolicySetting.cash_advance_one_outstanding ? "checked" : ""} ${disabled}> Limit each requestor to one outstanding Cash Advance</label></div><div class="numbering-settings-summary"><div><span>Change behavior</span><strong>Applies to future submission checks</strong></div><small>Existing request and voucher numbers never change. Submitted records retain their saved values and audit evidence. Updates are restricted to Finance Managers and System Administrators.</small></div>${editable ? `<button type="submit" class="primary-button">Save finance policies</button>` : ""}</form></section>
   </div></section>`;
 }
 
@@ -1493,6 +1507,22 @@ function bindRequestSettings() {
       state.reimbursementBatchSetting = await dataSource.updateReimbursementBatchSetting(cutoffDays, state.csrfToken);
       setState({ toast: successToast("Late reimbursements will carry into the next configured batch.", "Batch schedule saved") });
     } catch (error) { setState({ toast: errorToast(error.message, "Unable to save batch schedule") }); }
+  });
+  document.querySelector("[data-finance-policies]")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      cash_advance_limit_amount: String(form.get("cash_advance_limit_amount")),
+      cash_advance_limit_currency: String(form.get("cash_advance_limit_currency")).toUpperCase(),
+      cash_advance_one_outstanding: form.get("cash_advance_one_outstanding") === "on",
+      cash_advance_liquidation_days: Number(form.get("cash_advance_liquidation_days")),
+      reimbursement_invoice_age_days: Number(form.get("reimbursement_invoice_age_days")),
+      reimbursement_invoice_age_action: String(form.get("reimbursement_invoice_age_action")),
+    };
+    try {
+      state.financePolicySetting = await dataSource.updateFinanceRequestPolicy(payload, state.csrfToken);
+      setState({ toast: successToast("Future submission checks will use the updated rules. Existing submitted records remain unchanged.", "Finance policies saved") });
+    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save finance policies") }); }
   });
 }
 
@@ -2222,7 +2252,7 @@ function unifiedRequestDetails() {
 
 function approvals() {
   const queue = approvalRequests();
-  if (!queue.length) return `<section class="panel empty-persona-view"><span class="eyebrow">Requestor View</span><h3>No Approval Queue</h3><p>Requestors can monitor progress and respond to returned requests from their dashboard.</p></section>`;
+  if (!queue.length) return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Bank Authorization Queue" : "Approval Queue"}</h3><p>Select a request to perform its current assigned action.</p></div></div><div class="approval-queue-workspace approval-queue-workspace-empty">${requestTable(queue)}</div></section>`;
   const selected = queue.find((r) => r.id === state.selectedId) || queue[0];
   if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Bank Authorization Queue" : "Approval Queue"}</h3><p>Select a request to perform its current assigned action.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
   if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
@@ -2428,7 +2458,7 @@ function render() {
   bindIdentityForms();
   if (state.tab === "requestRequirements" && state.authUser && !state.requirementRulesLoading && !state.requirementRulesLoaded && !state.requirementRulesError) queueMicrotask(loadRequirementRules);
   bindRequirementRules();
-  if (state.tab === "requestSettings" && !state.requestSettingsLoading && (!state.requestNumbering || !state.reimbursementBatchSetting) && !state.requestSettingsError) queueMicrotask(loadRequestSettings);
+  if (state.tab === "requestSettings" && !state.requestSettingsLoading && (!state.requestNumbering || !state.reimbursementBatchSetting || !state.financePolicySetting) && !state.requestSettingsError) queueMicrotask(loadRequestSettings);
   bindRequestSettings();
   if (masterDataConfig[state.tab] && !state.masterDataLoading && !(state.masterData[masterDataConfig[state.tab].resource]) && !state.masterDataError) queueMicrotask(() => loadMasterData(state.tab));
   if (state.tab === "request" && !state.masterDataLoading && (state.procurementPOs === null || ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some((resource) => !state.masterData[resource])) && !state.masterDataError) queueMicrotask(loadRequestReferenceData);
@@ -3004,7 +3034,8 @@ if (dataSource.mode !== "mock") {
     .then(async (session) => {
       state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona: personaForRoles(session.user.roles), authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null };
       await loadApiPaymentRequests();
-      render();
+      if (window.location.hash === "#/login") navigate("/dashboard");
+      else render();
     })
     .catch((error) => {
       if (dataSource.mode === "hybrid" && error.status !== 401) {
