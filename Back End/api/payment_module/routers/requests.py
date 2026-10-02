@@ -107,6 +107,7 @@ def serialize(
     return {
         "id": str(item.id),
         "request_number": item.request_number,
+        "voucher_number": item.voucher_number,
         "request_type": item.request_type,
         "status": item.status,
         "requestor_id": str(item.requestor_id),
@@ -588,6 +589,17 @@ def snapshot(db: Session, item: PaymentRequest, actor: User) -> dict:
     return data
 
 
+def system_managed_type_data(value: dict | None) -> dict:
+    """Discard legacy client-provided request dates; created_at is authoritative."""
+    data = dict(value or {})
+    data.pop("request_date", None)
+    if isinstance(data.get("fields"), dict):
+        fields = dict(data["fields"])
+        fields.pop("request_date", None)
+        data["fields"] = fields
+    return data
+
+
 @router.post("", status_code=201)
 def create_payment_request(
     payload: PaymentRequestCreate, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
@@ -595,7 +607,9 @@ def create_payment_request(
     if "requests.create" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.create")
     total = validate(db, payload)
-    item = PaymentRequest(requestor_id=actor.id, gross_amount=total, **payload.model_dump(exclude={"lines"}))
+    values = payload.model_dump(exclude={"lines"})
+    values["type_data"] = system_managed_type_data(payload.type_data)
+    item = PaymentRequest(requestor_id=actor.id, gross_amount=total, **values)
     db.add(item)
     db.flush()
     replace_lines(db, item, payload)
@@ -639,6 +653,7 @@ def list_payment_requests(
         query = query.where(
             or_(
                 PaymentRequest.request_number.ilike(needle),
+                PaymentRequest.voucher_number.ilike(needle),
                 PaymentRequest.payee_name.ilike(needle),
                 PaymentRequest.purpose.ilike(needle),
             )
@@ -673,7 +688,7 @@ def list_payment_requests(
     sort_columns = {
         "submitted": effective_date,
         "updated": PaymentRequest.updated_at,
-        "voucher": PaymentRequest.request_number,
+        "voucher": PaymentRequest.voucher_number,
         "type": PaymentRequest.request_type,
         "status": PaymentRequest.status,
         "amount": PaymentRequest.gross_amount,
@@ -771,7 +786,9 @@ def update_payment_request(
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before saving")
     total = validate(db, payload)
-    for key, value in payload.model_dump(exclude={"lines", "version"}).items():
+    values = payload.model_dump(exclude={"lines", "version"})
+    values["type_data"] = system_managed_type_data(payload.type_data)
+    for key, value in values.items():
         setattr(item, key, value)
     item.gross_amount = total
     item.version += 1
@@ -849,6 +866,11 @@ def next_number(db: Session, *, moment: datetime | None = None) -> str:
         db.flush()
     sequence.last_value += 1
     return f"PR-{year}-{sequence.last_value:06d}"
+
+
+def voucher_number_for(request_number: str) -> str:
+    """Create the immutable audit voucher reference paired to a request."""
+    return request_number.replace("PR-", "VCH-", 1)
 
 
 @settings_router.get("/numbering")
@@ -982,6 +1004,7 @@ def submit_payment_request(
     item.status = "submitted"
     item.submitted_at = datetime.now(UTC)
     item.request_number = item.request_number or next_number(db)
+    item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     item.version += 1
     db.flush()
     db.add(
@@ -1045,6 +1068,7 @@ def lifecycle_change(
     if target_status == "submitted":
         item.submitted_at = datetime.now(UTC)
         item.request_number = item.request_number or next_number(db)
+        item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     db.add(
         PaymentRequestStatusHistory(
             request_id=item.id,

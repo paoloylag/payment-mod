@@ -284,6 +284,8 @@ Finance validation cannot be completed unless total debits equal total credits w
 
 ### `payment_vouchers`
 
+Every submitted request reserves a system-generated voucher audit number. The later Finance voucher record uses that reserved number when the accounting voucher is prepared; requestors never enter or edit it.
+
 - `id`
 - `voucher_number`
 - `request_id`

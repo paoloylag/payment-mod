@@ -83,7 +83,7 @@ The sample form identifies Requestor and Immediate Supervisor / Department Head 
 
 - Requestor name.
 - Department.
-- Date.
+- Date, implemented as the backend-generated request creation timestamp rather than an editable form field.
 - Event / Purpose.
 - Check-payment indicator.
 - Voucher number for Finance use only.

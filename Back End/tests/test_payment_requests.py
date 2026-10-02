@@ -154,8 +154,27 @@ def test_request_crud_optimistic_lock_and_idempotent_submit(client):
     assert submitted.status_code == 200
     assert repeated.json()["request_number"] == submitted.json()["request_number"]
     assert submitted.json()["request_number"].startswith("PR-2026-")
+    assert repeated.json()["voucher_number"] == submitted.json()["voucher_number"]
+    assert submitted.json()["voucher_number"] == submitted.json()["request_number"].replace("PR-", "VCH-", 1)
     assert submitted.json()["draft_expires_at"] is None
     assert submitted.json()["draft_retention_warning"] is False
+
+
+@pytest.mark.parametrize("request_type", ["reimbursement", "cashAdvance", "liquidation", "poPayment", "general"])
+def test_request_creation_date_is_system_generated(client, request_type):
+    seed()
+    headers = login(client)
+    request_payload = payload_for_type(request_type)
+    request_payload["type_data"]["request_date"] = "1999-01-01"
+    request_payload["type_data"]["fields"] = {"request_date": "1999-01-01"}
+
+    response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["created_at"]
+    assert "request_date" not in created["type_data"]
+    assert "request_date" not in created["type_data"]["fields"]
 
 
 def test_mixed_currency_rejected_and_visibility_enforced(client):

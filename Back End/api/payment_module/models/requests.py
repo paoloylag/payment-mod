@@ -41,6 +41,7 @@ class PaymentRequest(Base):
     )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     request_number: Mapped[str | None] = mapped_column(String(20), unique=True, index=True)
+    voucher_number: Mapped[str | None] = mapped_column(String(21), unique=True, index=True)
     request_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft", index=True)
     requestor_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)

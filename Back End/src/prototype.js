@@ -27,10 +27,9 @@ const paymentTypes = {
   reimbursement: {
     label: "Reimbursement",
     prefix: "RMB",
-    required: ["Requestor's Name", "Department", "Date", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
+    required: ["Requestor's Name", "Department", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
-      { label: "Date", kind: "date", value: "2026-07-18" },
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
     uploadDocuments: ["Invoice", "Billing / Quotation / SOA (if available)", "Proof of Payment"],
@@ -265,7 +264,6 @@ let state = {
   requestDetailId: null,
   vendorNotificationRequestId: null,
   dashboardFilters: { voucher: "", department: "all", type: "all", status: "all", minAmount: "", maxAmount: "", sortBy: "submitted", sortDirection: "desc" },
-  requestCreatedDate: new Date().toISOString().slice(0, 10),
   requestMode: "new",
   requestTypeSelection: false,
   draftDirty: false,
@@ -468,7 +466,7 @@ const voucherFor = (r, allowCreation = false) => {
   ${collapsibleVoucher ? `</div></details>` : `</div>`}`;
 };
 const requestFieldKey = (label) => ({
-  "Date": "request_date", "Event / Purpose": "purpose", "Last Day of the Event": "event_end_date",
+  "Event / Purpose": "purpose", "Last Day of the Event": "event_end_date",
   "Cash Advance Reference Number": "cash_advance_reference", "Date to Be Liquidated": "liquidation_due_date",
   "Actual Date of Liquidation": "actual_liquidation_date",
 }[label] || label.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_").replaceAll(/^_|_$/g, ""));
@@ -1025,7 +1023,7 @@ function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
   const [status, currentStep] = statusMap[item.status] || [item.status, 2];
   return {
-    id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, backendId: item.id,
+    id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, voucherNumber: item.voucher_number || "", backendId: item.id,
     backendVersion: item.version, backendStatus: item.status, type: item.request_type,
     requestor: item.requestor_name, requestorId: item.requestor_id, department: item.department_name,
     vendor: item.payee_name || item.lines?.find((line) => line.vendor_name)?.vendor_name || "To Be Confirmed",
@@ -1722,7 +1720,7 @@ function dashboardFilters(visibleRequests = requests) {
 function reportRows() {
   const filters = state.dashboardFilters;
   return personaRequests().filter((r) => {
-    const voucherMatch = r.id.toLowerCase().includes(filters.voucher.trim().toLowerCase());
+    const voucherMatch = (r.voucherNumber || "").toLowerCase().includes(filters.voucher.trim().toLowerCase());
     const departmentMatch = filters.department === "all" || r.department === filters.department;
     const typeMatch = filters.type === "all" || r.type === filters.type;
     const statusMatch = filters.status === "all" || r.status === filters.status;
@@ -1924,7 +1922,7 @@ function dashboard() {
     return voucherMatch && departmentMatch && typeMatch && statusMatch && minMatch && maxMatch;
   }).sort((a, b) => {
     const values = {
-      voucher: [a.id, b.id],
+      voucher: [a.voucherNumber || "", b.voucherNumber || ""],
       type: [paymentTypes[a.type].label, paymentTypes[b.type].label],
       status: [a.status, b.status],
       amount: [a.amount, b.amount],
@@ -1967,17 +1965,16 @@ function requestBuilder() {
   const currencyOptions = state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso" }, { code: "USD", name: "US Dollar" }, { code: "EUR", name: "Euro" }];
   const currencyField = `<label>Currency<select data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => `<option value="${item.code}" ${state.draftCurrency === item.code ? "selected" : ""}>${item.code} — ${escapeHtml(item.name)}</option>`).join("")}</select></label>`;
   const cashAdvanceFields = config.mandatoryFields.map((field) => `${fieldInput(field)}${field.label === "Last Day of the Event" ? `<label>Date to Liquidate <small>(System Generated: 15 Days After Event)</small><input data-liquidation-due-date data-request-field="liquidation_due_date" type="date" value="${state.cashAdvanceLiquidationDate}" readonly></label>` : ""}`).join("");
-  const systemDateField = `<input type="hidden" name="requestDate" data-request-field="request_date" value="${state.requestCreatedDate}">`;
   const requestorName = escapeHtml(activeRequestor());
   const primaryFields = state.draftType === "reimbursement"
-    ? `${systemDateField}<label>Requestor's Name<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
+    ? `<label>Requestor's Name<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
     : isLiquidation
-    ? `${systemDateField}<label>Cash Advance Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
+    ? `<label>Cash Advance Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter cash advance requestor"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Calculated Total<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
     : isCashAdvance
-    ? `${systemDateField}<label>Cash Advance Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter cash advance requestor"></label>${cashAdvanceFields}<label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled></label><label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
+    ? `<label>Cash Advance Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter cash advance requestor"></label>${cashAdvanceFields}<label>Cash Advance Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}`
     : isPoPayment
-    ? `${systemDateField}<label>P.O. Reference Number <small>(From Procurement)</small><select data-po-reference data-request-field="po_reference">${poRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id} · ${escapeHtml(record.payee)}</option>`).join("")}</select></label><label>Requestor<input data-request-field="requestor_name" value="${requestorName}"></label><label>Payee / Vendor <small>(System Generated)</small><input data-request-field="payee_name" value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><input id="draftAmount" type="number" value="${poRecord.amount}" readonly></label>${currencyField}<label>Department / Cost Center <small>(From Procurement)</small><input value="${poRecord.department}" readonly></label><label>P.O. Status <small>(From Procurement)</small><input value="${poRecord.status}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
-    : `${systemDateField}<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).map((vendor) => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}<label class="toggle-row"><input type="checkbox" data-request-field="new_supplier"> New supplier <small>BIR 2303 is required when selected.</small></label>`;
+    ? `<label>P.O. Reference Number <small>(From Procurement)</small><select data-po-reference data-request-field="po_reference">${poRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id} · ${escapeHtml(record.payee)}</option>`).join("")}</select></label><label>Requestor<input data-request-field="requestor_name" value="${requestorName}"></label><label>Payee / Vendor <small>(System Generated)</small><input data-request-field="payee_name" value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><input id="draftAmount" type="number" value="${poRecord.amount}" readonly></label>${currencyField}<label>Department / Cost Center <small>(From Procurement)</small><input value="${poRecord.department}" readonly></label><label>P.O. Status <small>(From Procurement)</small><input value="${poRecord.status}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
+    : `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).map((vendor) => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><label>Calculated Amount<input id="draftAmount" type="number" value="${draftAmount}" readonly></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}<label class="toggle-row"><input type="checkbox" data-request-field="new_supplier"> New supplier <small>BIR 2303 is required when selected.</small></label>`;
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><label>Amount Returned Offline<input id="liquidationReturnAmount" type="number" min="0" step="0.01" value="${state.liquidationReturnAmount || ""}" placeholder="0.00"><small>Enter the amount returned directly to Finance. No proof-of-return upload is required.</small></label></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
   const reimbursementTiming = state.draftType === "reimbursement" ? `<section class="cash-advance-policy"><h4>Finance processing guidance</h4><ul><li>Submit complete requests at least 15 days before the required payment date.</li><li>Submit invoices within 30 days of the invoice date.</li><li>Low-value expenses remain Reimbursement requests in this module.</li><li>Reimbursements are normally processed in the batches scheduled for the 15th and 30th.</li></ul></section>` : "";

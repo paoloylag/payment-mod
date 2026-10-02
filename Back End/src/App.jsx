@@ -4,10 +4,9 @@ const paymentTypes = {
   reimbursement: {
     label: "Reimbursement",
     prefix: "RMB",
-    required: ["Requestor's Name", "Department", "Date", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
+    required: ["Requestor's Name", "Department", "Event / Purpose", "BIR-Recognized Invoice(s) / Official Receipt(s)"],
     mandatoryFields: [
       { label: "Department", kind: "input", value: "People Operations" },
-      { label: "Date", kind: "date", value: "2026-07-18" },
       { label: "Event / Purpose", kind: "textarea", value: "Leadership workshop reimbursement" },
     ],
     uploadDocuments: ["Invoice", "Billing / Quotation / SOA (if available)", "Proof of Payment"],
@@ -734,7 +733,6 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
   const isCashAdvance = draftType === "cashAdvance";
   const liquidationAdvanceAmount = 0;
   const liquidationBalance = liquidationAdvanceAmount - draftAmount;
-  const requestCreatedDate = new Date().toISOString().slice(0, 10);
   return (
     <section className="form-layout">
       <div className="panel">
@@ -750,7 +748,6 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
           ))}
         </div>
         <div className={`field-grid ${isReimbursement || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}`}>
-          <input type="hidden" name="requestDate" value={requestCreatedDate} />
           <label>{isReimbursement ? "Requestor's Name" : isLiquidation || isCashAdvance ? "Cash Advance Requestor" : "Requestor"}<input defaultValue="System Administrator" placeholder={isLiquidation || isCashAdvance ? "Enter cash advance requestor" : "Enter requestor's full name"} /></label>
           {!isReimbursement && !isLiquidation && !isCashAdvance && <label>Payee / Vendor<input placeholder="Enter payee or vendor name" /></label>}
           {config.mandatoryFields.map((field) => (
@@ -759,7 +756,6 @@ function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updat
               {field.kind === "textarea" ? <textarea placeholder={field.value} /> : <input type={field.kind === "date" ? "date" : "text"} placeholder={field.value} />}
             </label>
           ))}
-          {(isReimbursement || isLiquidation || isCashAdvance) && <label>Voucher Number <small>(Finance Use Only)</small><input placeholder="Assigned after approval" disabled /></label>}
           {!isLiquidation && <label>{isCashAdvance ? "Cash Advance Amount" : "Calculated Total"}<input type="number" value={draftAmount} readOnly /></label>}
         </div>
         {isLiquidation && <div className="liquidation-summary"><label>Cash Advance Amount<input type="number" placeholder="e.g. 50000" /></label><div><span>Total Expenses</span><strong>{formatCurrency(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong>{formatCurrency(Math.abs(liquidationBalance))} {liquidationBalance >= 0 ? "for return" : "for reimbursement"}</strong></div></div>}
