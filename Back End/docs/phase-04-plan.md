@@ -1,11 +1,14 @@
 # Phase 04 — Documents
 
 Date prepared: 2026-08-28  
-Last updated: 2026-09-29
-Status: In progress
+Last updated: 2026-10-07
+Status: Validated for local development
 Depends on: Phase 03 — Payment Requests
 
-Current delivery: the local S3/MinIO document workflow is implemented through upload, metadata, authorized preview/download, immutable replacement history, audited removal and cleanup retry, persisted requirements, hard-copy history, Finance review decisions, and frontend API wiring. P.O. Payment and General Payment rules are seeded. Reimbursement Proof of Payment is enforced per line in the seed, API requirement evaluation, upload workspace, submission guard, mock configuration, and automated API/browser acceptance. Production AWS, malware scanning, and formal retention activation remain gated.
+Current delivery: the local S3/MinIO document workflow is implemented and locally validated through upload, metadata,
+authorized preview/download, immutable replacement history, audited removal and cleanup retry, persisted requirements,
+hard-copy history, Finance review decisions, and frontend API wiring. Production AWS, malware scanning, and formal
+retention activation remain Phase 09 gates.
 
 ## Objective
 

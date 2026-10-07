@@ -4,10 +4,14 @@ const accounts = {
   financeAssociate: "finance.associate@payment.local",
   financeManager: "finance.manager@payment.local",
 };
+const password = "Phase01-Test-Only!";
 
 async function login(page, email) {
   await page.goto("/#/login");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   await page.locator("[data-demo-login]").selectOption(email);
+  await expect(page.locator('input[name="email"]')).toHaveValue(email);
+  await expect(page.locator('input[name="password"]')).toHaveValue(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/#\/dashboard$/);
   await expect(page.locator("[data-account-menu]")).toBeVisible({ timeout: 20_000 });

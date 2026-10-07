@@ -24,7 +24,10 @@ async function apiSession(email) {
 
 async function login(page, email) {
   await page.goto("/#/login");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   await page.locator("[data-demo-login]").selectOption(email);
+  await expect(page.locator('input[name="email"]')).toHaveValue(email);
+  await expect(page.locator('input[name="password"]')).toHaveValue(password);
   const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Sign in" }).click();
   expect((await responsePromise).ok()).toBeTruthy();

@@ -76,7 +76,7 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 
 ## Phase 03 implementation status
 
-- Status: In progress as of 2026-09-25.
+- Status: Validated for local development as of 2026-10-07.
 - Added reversible Alembic revision `20260908_0006` for request roots, amount/currency line pairs, immutable versions,
   lifecycle history, annual numbering, and idempotent commands.
 - Added owner-, department-, and all-request permission scopes plus create and lifecycle-management permissions.
@@ -111,15 +111,15 @@ The deployed runtime remains `src/prototype.js`. `src/App.jsx` is maintained for
 - Enforced the confirmed Cash Advance policies at submission: PHP 40,000 maximum, liquidation exactly 15 calendar days
   after the event end date, and one submitted/unliquidated advance per requestor. Advisory locks serialize P.O. and
   Cash Advance checks that depend on other transactions.
-- Added nonblocking Reimbursement guidance for the 15-day lead time, 30-day invoice window, PHP 3,000 petty-cash
-  threshold, and 15th/30th processing batches.
+- Added nonblocking Reimbursement guidance for the 15-day lead time, 30-day invoice window, confirmation that
+  low-value expenses remain Reimbursements, and configurable processing batches.
 - Fixed the API-connected P.O. reference loader so an uninitialized Procurement state fetches current eligible records
   instead of being mistaken for the standalone fallback. Browser verification passed with `PO-DEMO-1001` and
   `PO-DEMO-1002` and their generated source facts.
-- Current validation: complete backend regression `73 passed, 2 warnings` against the dedicated Docker PostgreSQL test
-  database; Vite 7.3.6 production build passed; and the Playwright five-role Chrome lifecycle passed on 2026-09-28 for
-  return, resubmit, cancel, and reopen across all five request types. General Payment document rules are confirmed.
-  Finance/external-system decisions and final acceptance remain open.
+- Current validation: complete backend regression `99 passed, 1 warning` with 90% coverage against the dedicated
+  Docker PostgreSQL test database; reversible migration replay, deterministic seed, Ruff, dependency audits, Vite
+  production build, and all six headed Playwright scenarios passed on 2026-10-07. The five-role lifecycle covers
+  return, resubmit, cancel, and reopen across all five request types. External-system activation remains Phase 09 work.
 
 Current Phase 00 backend endpoints:
 
@@ -249,8 +249,8 @@ Every phase must end with a locally runnable frontend and backend. A phase is no
 ### Local-development versus production validation
 
 - A phase is marked locally validated only when its own validation record and development/test register show every required
-  local gate as passed or explicitly accepted. As of 2026-09-28, Phases 00 and 01 are locally validated, Phase 02 is ready
-  for validation, Phases 03 and 04 are in progress, and Phases 05–08 have not started.
+  local gate as passed or explicitly accepted. As of 2026-10-07, Phases 00–04 are locally validated, Phase 05 has an
+  in-progress read-only policy preview but no persisted approval execution, and Phases 06–08 have not started.
 - Production-only work does not block a phase from being marked `Validated` for local development. It is transferred to the consolidated Phase 09 production-readiness backlog and expanded there whenever a new deployment requirement is identified.
 - Business decisions, functional behavior, authorization, data integrity, migrations, local accessibility checks, and API/frontend integration remain with the phase that owns the feature.
 - Production credentials, hosted infrastructure, TLS/proxy checks, penetration testing, hosted cross-browser testing, production monitoring, environment promotion, and operational readiness belong to Phase 09.
@@ -361,7 +361,11 @@ Detailed plan: `docs/phase-04-plan.md`.
 
 Prototype validation: upload, replace, preview, download, and review document requirements against persisted requests.
 
-Implementation update (2026-09-28): Phase 04 is `In progress`. Reversible migrations `20260923_0008` and `20260923_0009`, private S3/MinIO storage, upload/list/preview/download/replacement, immutable versions, checksum warnings, file integrity and aggregate limits, audited soft removal with retryable object cleanup, configurable request- and line-level requirement evaluation, submission enforcement, Finance hard-copy history, reviewer decisions, and frontend API wiring are implemented. Reimbursement Proof of Payment is required and displayed for every line; focused multi-line API tests and the production build pass, while expanded browser acceptance remains open. The confirmed P.O. Payment and General Payment matrix is seeded; required items block submission while conditional items stay visible and non-blocking. Cash Advance and Liquidation intentionally remain non-blocking. Production AWS validation, malware-provider integration, and formal retention activation remain gated. See `docs/phase-04-api.md` and `docs/phase-04-validation.md`.
+Implementation update (2026-10-07): Phase 04 is `Validated` for local development. Reversible migrations, private
+S3/MinIO storage, the complete document lifecycle, configurable requirements, Finance controls, five-role browser
+acceptance, and multi-line Reimbursement evidence passed. Production AWS validation, malware-provider integration,
+formal retention activation, hosted browsers, and full assistive-technology assurance remain Phase 09 gates. See
+`docs/phase-04-api.md` and `docs/phase-04-validation.md`.
 
 ### Phase 05 — Workflow and approvals
 
@@ -681,10 +685,10 @@ When backend development resumes:
 |---|---|---|
 | 00 — Foundation | Validated | `docs/phase-00-validation.md` (2026-08-25; CI run `32719293106`) |
 | 01 — Authentication and RBAC | Validated | `docs/phase-01-plan.md` (validated 2026-08-28; external production-promotion limitations recorded) |
-| 02 — Master data | Ready for validation | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` (automated/local gates passed; remaining local Finance, vendor-contract, and accessibility review pending; production work transferred to Phase 09) |
-| 03 — Payment requests | In progress | `docs/phase-03-plan.md`; `docs/phase-03-validation.md` (2026-09-25: Docker/PostgreSQL regression, Procurement-backed P.O. rules, confirmed Cash Advance and General Payment rules, and frontend build passed; full role-based browser lifecycle pending) |
-| 04 — Documents | In progress | `docs/phase-04-plan.md`; `docs/phase-04-validation.md` (current document regression and rebuilt local stack passed; full role-based browser/accessibility acceptance remains local; production AWS/security/lifecycle work transferred to Phase 09) |
-| 05 — Workflow and approvals | Not started | `docs/phase-05-plan.md` |
+| 02 — Master data | Validated | `docs/phase-02-plan.md`; `docs/phase-02-validation.md` (browser-first checks and the current 99-test regression passed 2026-10-07; external data activation remains Phase 09 work) |
+| 03 — Payment requests | Validated | `docs/phase-03-plan.md`; `docs/phase-03-validation.md` (five-role browser lifecycle, current 99-test regression, migration replay, audits, and frontend build passed 2026-10-07) |
+| 04 — Documents | Validated | `docs/phase-04-plan.md`; `docs/phase-04-validation.md` (five-role and multi-line browser checks, MinIO workflow, current regression, audits, and build passed 2026-10-07; production controls remain Phase 09 work) |
+| 05 — Workflow and approvals | In progress — preview only | `docs/phase-05-plan.md` (read-only provisional route preview exists; approver assignment and approval decisions are not persisted) |
 | 06 — Finance validation and vouchers | Not started | `docs/phase-06-plan.md` |
 | 07 — Payment execution | Not started | `docs/phase-07-plan.md` |
 | 08 — Notifications, dashboards, and reports | Not started | `docs/phase-08-plan.md` |

@@ -1,7 +1,7 @@
 # Phase 04 — Validation record
 
-Date: 2026-09-29
-Status: In progress. The local document workflow and Reimbursement, P.O. Payment, and General Payment matrix are implemented. Each Reimbursement line requires its invoice/receipt attachment and Proof of Payment, with no separate request-level Invoice or Billing / Quotation / SOA rule. Cash Advance and Liquidation intentionally have no blocking upload rules. Final reviewer acceptance remains open.
+Date: 2026-10-07
+Status: Validated for local development. The local document workflow and confirmed document matrix passed API, storage, browser, responsive, and regression checks. Production storage/security/lifecycle activation remains Phase 09 work.
 
 ## Evidence
 
@@ -23,11 +23,12 @@ Status: In progress. The local document workflow and Reimbursement, P.O. Payment
 | Responsive/accessibility UI | The same browser run verified accessible upload/replace labels and no document-workspace horizontal overflow at 1440×900, 768×900, and 390×844. Role-specific controls were located by accessible name or stable semantic control. |
 | Running stack | Rebuilt app image is healthy at port `58002`; PostgreSQL is healthy at `55434`; MinIO remains private at `59000/59001`; readiness reports `database=connected`; new routes appear in OpenAPI. |
 | QA register | Phase 04 development items, ten test cases, current execution records, and three acceptance gates are recorded in the consolidated development/test register. `TC-P04-010` and `RUN-20260929-001` record the multi-line Reimbursement browser closeout; `RUN-20260929-002` records the fresh-database focused backend run; `TC-P04-009` and `RUN-20260928-004` record the responsive/unified-upload closeout; `RUN-20260928-001` records the current full regression. |
+| 2026-10-07 closeout | Browser-first document and role checks were followed by **99 passed, 1 warning, 90% coverage**, reversible migration replay, deterministic seed, Ruff, dependency audits, production build, and six headed Playwright scenarios. The Phase 04 five-role workflow and multi-line Reimbursement cases passed against disposable PostgreSQL/MinIO records. |
 
-## Local validation still required
+## Accepted local limitations
 
 - Approved P.O. and Quotation/Contract data remain assigned to the future Procurement integration.
-- Obtain final reviewer acceptance of the completed local API, Docker, responsive, five-role, and multi-line browser evidence. A formal full assistive-technology review remains a Phase 09 production-readiness gate.
+- A formal full assistive-technology review remains a Phase 09 production-readiness gate.
 
 ## Deferred to Phase 09 — production readiness
 
@@ -35,4 +36,4 @@ Status: In progress. The local document workflow and Reimbursement, P.O. Payment
 - Malware-provider integration and approved fail-open/fail-closed behavior.
 - Formal retention, archival, legal-hold, and S3 lifecycle policy activation.
 
-Phase 04 remains `In progress` because its local gates are not complete. It may be marked **Validated for local development** after the local gates are resolved or formally accepted; the Phase 09 production-readiness work does not block that local status.
+Phase 04 is **Validated for local development**. The Phase 09 production-readiness work does not block that local status.

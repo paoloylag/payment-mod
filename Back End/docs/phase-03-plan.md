@@ -1,11 +1,14 @@
 # Phase 03 — Payment Requests
 
 Date prepared: 2026-08-28  
-Last decision update: 2026-09-25
-Status: In progress
+Last decision update: 2026-10-07
+Status: Validated for local development
 Depends on: Phase 02 — Master Data
 
-2026-09-28 validation update: the complete 73-test Docker/PostgreSQL regression and production frontend build passed. The Playwright five-role Chrome lifecycle also passed against its dedicated disposable database for return, resubmit, cancel and reopen across all five request types. Finance/external-system decisions and final reviewer acceptance remain open. See `docs/phase-03-validation.md` and the development/test register for evidence.
+2026-10-07 validation update: browser-first role and request checks passed, followed by the complete 99-test
+Docker/PostgreSQL regression, reversible migration replay, deterministic seed, security audits, production frontend
+build, and six headed Playwright scenarios. External-system activation remains Phase 09 work. See
+`docs/phase-03-validation.md` and the development/test register for evidence.
 
 ## Implementation progress — 2026-09-20
 

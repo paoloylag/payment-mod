@@ -2,8 +2,16 @@
 
 Date: 2026-08-26
 Branch: `codex/backend-integration`
-Status: Complete
+Status: Validated for local development
 Reviewed implementation commit: `44e876e`
+
+## Local closeout — 2026-10-07
+
+The current identity and RBAC implementation passed a browser-first walkthrough for Requestor, Department Head,
+Finance Associate, Finance Manager, and System Administrator, followed by the complete 99-test PostgreSQL regression,
+reversible migration replay, deterministic seed, Ruff, dependency audits, and the production frontend build. The
+development/test register records the current evidence. Hosted identity, proxy, and production accessibility checks
+remain Phase 09 production-readiness work and do not block this local validation.
 
 ## Confirmed decisions
 

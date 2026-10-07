@@ -9,13 +9,16 @@ Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, 
 | Phase | Current recorded state | Next gate |
 |---|---|---|
 | 00 — Foundation | Validated | Carry its migration, seed, logging, and CI contracts forward. |
-| 01 — Authentication and RBAC | Complete | Recheck permissions as each new domain command is added. |
-| 02 — Master Data | Ready for validation | Finance reference-data review, vendor contract, and final acceptance. |
-| 03 — Requests | In progress; 73 backend tests and five-role browser lifecycle passed on 2026-09-28 | Resolve or accept open Finance/external-system decisions; obtain reviewer acceptance. |
-| 04 — Documents | In progress; API, storage, five-role browser document flow, and multi-line Reimbursement Proof of Payment acceptance passed through 2026-09-29 | Obtain local acceptance. Reimbursement uses per-line documents only; production storage/scanning/retention move to Phase 09. |
-| 05–09 | Not started | Execute the work packages below in dependency order. |
+| 01 — Authentication and RBAC | Validated for local development | Recheck permissions as each new domain command is added. |
+| 02 — Master Data | Validated for local development | Activate authoritative Finance/vendor sources only through the Phase 09 production gate. |
+| 03 — Requests | Validated for local development | Activate live Procurement/vendor providers only through the Phase 09 production gate. |
+| 04 — Documents | Validated for local development | Production storage, scanning, retention, accessibility, and hosted-browser assurance remain Phase 09 work. |
+| 05 | In progress — preview only | Replace the read-only provisional route preview with persisted workflow behavior. |
+| 06–09 | Not started | Execute the work packages below in dependency order. |
 
-The status above reflects recorded evidence, not a new validation sign-off. Phase 03/04 code may support Phase 05 development while their business acceptance remains open, but a release cannot inherit an unresolved financial rule silently. Keep the existing frontend-only GitHub Pages preview explicitly in mock mode; the backend integration build must continue to require the API.
+The status above reflects the 2026-10-07 closeout evidence and accepted local limitations. A release cannot inherit an
+unresolved external or production rule silently. Keep the existing frontend-only GitHub Pages preview explicitly in
+mock mode; the backend integration build must continue to require the API.
 
 ## Delivery method and cross-phase controls
 

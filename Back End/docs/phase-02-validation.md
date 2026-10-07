@@ -1,7 +1,7 @@
 # Phase 02 — Validation record
 
-Date: 2026-09-28
-Status: Ready for validation. Implementation and automated checks are recorded below; Finance reference-data, live vendor integration, and remaining human/environmental acceptance remain open. This is not a `Validated` sign-off.
+Date: 2026-10-07
+Status: Validated for local development. Production activation and authoritative external reference data remain Phase 09 gates.
 
 ## Current scope
 
@@ -23,14 +23,15 @@ Status: Ready for validation. Implementation and automated checks are recorded b
 | Local Docker acceptance | Docker Desktop 4.92.0 / Engine 29.8.0 built and ran the current image with PostgreSQL 16. The complete 60-test suite passed against an isolated Docker database. Live Master Data lists and pagination passed; vendor results contained no bank fields; removed bank routes returned 404 and were absent from OpenAPI. A populated historical bank table correctly blocked migration `20260922_0007`, preserved the row and prior revision, and upgraded only after the synthetic fixture was removed. Full migration replay and logical backup/restore also passed. See `docs/local-docker-acceptance-2026-09-23.md`. |
 | Hosted CI and Docker package | [Run 35691873675](https://github.com/paoloylag/payment-mod/actions/runs/35691873675) for commit `5060c20` completed successfully on 2026-09-22: frontend build, PostgreSQL-backed backend test/migration job, and Docker image build/package job all passed. GitHub reports uploaded artifact `payment-module-image-5060c204863cebe637907d8831fbb8d6b2383b35` (67,878,509 bytes; seven-day retention). This confirms image build, not a deployed container smoke test. |
 | Cross-phase UI regression | The 2026-09-28 responsive sweep retained compact administration navigation, mobile list/card conversions and aligned panel content. The combined production frontend build passed. Full assistive-technology acceptance remains open. |
+| 2026-10-07 closeout | Browser-first role checks covered all seven Master Data views without fetch errors or horizontal overflow. The complete suite passed with **99 tests, 1 warning, and 90% coverage** after a fresh migration/seed cycle. Ruff, reversible migration replay, deterministic seed, Python dependency audit, JavaScript dependency audit, and the production frontend build passed. |
 
 The previous baseline had 59 passing tests. One bank-specific test was retired and replaced with removed-route/field-exclusion assertions. The first post-removal run exposed two obsolete test expectations; both were corrected and the full suite passed.
 
-## Local validation still required
+## Accepted local limitations
 
-- Complete a full keyboard and screen-reader walkthrough of all seven Master Data pages, including CRUD flows and error states. The 2026-09-22 mobile/hybrid checks and focused dialog-keyboard check do not establish assistive-technology compatibility. Repeat hybrid fallback checks across all seven tabs if this is a release gate; Cost Centers was the explicitly observed unavailable-API state.
-- Before authoritative accounting data is used: Finance's initial cost-center effective date, cross-department charging policy, approved internal accounts, and VAT/EWT definitions. One item has exactly one cost center per line.
-- For live vendor lookup: provider URL, authentication, pagination/filtering and error/rate-limit contract, and sandbox access. The deterministic mock remains in place.
+- A full assistive-technology and hosted cross-browser review is a Phase 09 production-readiness gate.
+- Authoritative Finance reference values and the live vendor/Procurement contract are external activation inputs. The
+  deterministic local catalogs and adapter boundary remain the accepted development behavior.
 
 ## Deferred to Phase 09 — production readiness
 
@@ -38,4 +39,5 @@ The previous baseline had 59 passing tests. One bank-specific test was retired a
 - Hosted cross-browser and production accessibility evidence.
 - Live vendor credentials, environment activation, monitoring, and operational support controls.
 
-Phase 02 may be marked **Validated for local development** when its local gates have evidence dates, reviewers, and accepted limitations in the development/test register. The deferred production gates do not block local validation.
+Phase 02 is **Validated for local development**. The development/test register contains the evidence date, reviewer,
+commands, and accepted limitations; deferred production gates do not change this status.

@@ -1,7 +1,7 @@
 # Phase 03 — Validation record
 
-Date: 2026-09-28
-Status: In progress. Current automated regression, Procurement-backed P.O. submission checks, confirmed Cash Advance and General Payment document rules, the production frontend build, and five-role Chrome lifecycle acceptance passed. Finance/external-system decisions and final reviewer acceptance remain open.
+Date: 2026-10-07
+Status: Validated for local development. External provider activation and production-only assurance remain Phase 09 gates.
 
 ## Evidence
 
@@ -20,13 +20,15 @@ Status: In progress. Current automated regression, Procurement-backed P.O. submi
 | Five-role browser lifecycle | Playwright `TC-P03-029` passed in Google Chrome on 2026-09-28 against the disposable `payment_module_e2e` PostgreSQL database. Five isolated role sessions clicked through return, resubmit, cancel and reopen for all five request types with real API records and persisted lifecycle history. Result: **1 passed in 51.5 seconds**. |
 | Request settings | Administration → Request Settings now contains academic-year numbering and reimbursement batch cutoffs. Focused Docker/PostgreSQL API tests verify defaults, validation, persistence, Finance Associate read-only access, and Finance Manager updates: **2 passed**. A Google Chrome Playwright test changed and restored the schedule as Finance Manager and verified the Finance Associate view is disabled: **1 passed in 17.2 seconds**. The production frontend build also passed. |
 | Reimbursement batch assignment | Submitted and resubmitted Reimbursements persist the next batch date using the configured cutoff days, Asia/Manila date, and month-end fallback. Focused boundary tests cover a cutoff day, between-cutoff submission, month rollover, and February. |
+| 2026-10-07 closeout | Browser-first checks were followed by **99 passed, 1 warning, 90% coverage** on the dedicated PostgreSQL test database. Migration upgrade/downgrade/upgrade, deterministic seeding, Ruff, both dependency audits, the production frontend build, and all six headed Playwright scenarios passed. |
 
 The saved-draft toast no longer prints a temporary local draft label that differs from the backend draft label. The standalone draft persistence change affects only explicit mock mode; API-connected storage remains server-owned.
 
-## Still open locally
+## Accepted local limitations
 
-- Obtain final reviewer acceptance for the completed API and browser gates after the remaining Finance/external-system
-  decisions below are resolved or formally accepted as limitations.
+- Live Procurement/vendor activation requires the provider contract, credentials, and sandbox evidence in Phase 09.
+- Payroll deduction and Cash Advance exception execution remain deferred; local behavior retains the confirmed hard cap
+  and offline cash-out logging boundary.
 
 ## Deferred to Phase 09 — production readiness
 

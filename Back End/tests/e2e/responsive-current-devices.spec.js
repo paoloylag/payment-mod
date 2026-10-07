@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const financeManager = "finance.manager@payment.local";
+const password = "Phase01-Test-Only!";
 
 // Apple sizes use the CSS-point viewports published in the Human Interface
 // Guidelines. Samsung publishes physical display sizes, so these entries are
@@ -27,7 +28,10 @@ const routes = [
 
 async function login(page) {
   await page.goto("/#/login");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   await page.locator("[data-demo-login]").selectOption(financeManager);
+  await expect(page.locator('input[name="email"]')).toHaveValue(financeManager);
+  await expect(page.locator('input[name="password"]')).toHaveValue(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/#\/dashboard$/);
   await expect(page.locator("[data-account-menu]")).toBeVisible({ timeout: 20_000 });

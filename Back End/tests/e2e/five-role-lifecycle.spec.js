@@ -12,6 +12,7 @@ const accounts = {
 
 async function loginThroughUi(page, email) {
   await page.goto("/#/login");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   await page.locator("[data-demo-login]").selectOption(email);
   await expect(page.locator('input[name="email"]')).toHaveValue(email);
   const responsePromise = page.waitForResponse((response) => response.url().endsWith("/api/v1/auth/login") && response.request().method() === "POST");
