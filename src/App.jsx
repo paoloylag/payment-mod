@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { printSystemGuide } from "./guide-print.js";
 import { guideSections, guideStages } from "./guide-data.js";
 
 const paymentTypes = {
@@ -888,13 +889,6 @@ function Tracker({ selectedId, onSelect }) {
           </tbody>
         </table>
       </div>
-      <div className="report-band">
-        <div>
-          <span className="eyebrow">Report</span>
-          <strong>Unclaimed Checks</strong>
-        </div>
-        <p>Flags checks marked available but not yet released to the payee.</p>
-      </div>
     </section>
   );
 }
@@ -1002,7 +996,7 @@ function SystemGuide() {
     <section className="system-guide-page">
       <header className="guide-hero">
         <div><span className="eyebrow">Automated Payment System</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div>
-        <button type="button" className="guide-print-button" onClick={() => window.print()}>Print / Save PDF</button>
+        <button type="button" className="guide-print-button" onClick={printSystemGuide}>Print / Save PDF</button>
       </header>
       <nav className="guide-anchor-nav" aria-label="Guide sections">
         {guideSections.map((section) => <a key={section.id} href={`#guide-${section.id}`} onClick={(event) => { event.preventDefault(); setQuery(""); requestAnimationFrame(() => document.getElementById(`guide-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })); }}><span>{section.number}</span>{section.title}</a>)}

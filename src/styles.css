@@ -191,7 +191,6 @@ button {
 :root[data-theme="dark"] th,
 :root[data-theme="dark"] .voucher-table th,
 :root[data-theme="dark"] .route-box,
-:root[data-theme="dark"] .report-band,
 :root[data-theme="dark"] .workflow-summary-stages > div,
 :root[data-theme="dark"] .duplicate-match-details div {
   color: var(--ink);
@@ -3287,8 +3286,7 @@ label {
   font-size: 12px;
 }
 
-.route-box,
-.report-band {
+.route-box {
   margin-top: 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3975,15 +3973,15 @@ label {
     print-color-adjust: exact !important;
   }
 
-  body * {
+  body:has(.voucher-card):not(:has(.system-guide-page)) * {
     visibility: hidden;
   }
 
-  body *:not(:has(.voucher-card)):not(.voucher-card):not(.voucher-card *) {
+  body:has(.voucher-card):not(:has(.system-guide-page)) *:not(:has(.voucher-card)):not(.voucher-card):not(.voucher-card *) {
     display: none !important;
   }
 
-  body *:has(.voucher-card) {
+  body:has(.voucher-card):not(:has(.system-guide-page)) *:has(.voucher-card) {
     position: static !important;
     display: block !important;
     width: 100% !important;

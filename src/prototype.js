@@ -1,4 +1,5 @@
 import { createDataSource } from "./data-source.js";
+import { printSystemGuide } from "./guide-print.js";
 import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260909-navigation-steps";
 
 const dataSource = createDataSource();
@@ -1193,7 +1194,7 @@ function tracker() {
   if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Payment Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${paymentOperationsPanel(selected)}${detail(selected)}${workflow(selected.currentStep)}${vendorNotificationModal(selected)}</section>`;
   const bankStatus = (request) => request.currentStep === 10 ? `<button type="button" class="tracker-status-link pending" data-tracker-request="${request.id}">For Bank Approval</button>` : request.currentStep === 11 ? `<button type="button" class="tracker-status-link pending" data-tracker-request="${request.id}">For Signatory Approval</button>` : request.currentStep > 11 ? `<span class="tracker-status-text complete">Authorized</span>` : `<span class="tracker-status-text">Not Started</span>`;
   const releaseStatus = (request) => request.pickupAvailableAt ? `<span class="tracker-status-text complete">Available for Pick-up</span>` : request.currentStep === 12 ? `<span class="tracker-status-text pending">Vendor Email Pending</span>` : request.currentStep === 13 ? `<button type="button" class="tracker-status-link pending" data-tracker-request="${request.id}">Payment Release</button>` : request.currentStep > 13 ? `<span class="tracker-status-text complete">Released</span>` : `<span class="tracker-status-text">Pending</span>`;
-  return `<section class="panel"><div class="panel-header"><h3>Payment Tracker</h3></div><div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Bank Status</th><th>Payment Release</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td>${r.id}</td><td>${r.submitted}</td><td>${r.returned || "-"}</td><td>${r.resubmitted || "-"}</td><td>${i === 0 ? "Pending" : "2026-06-24"}</td><td>${bankStatus(r)}</td><td>${releaseStatus(r)}</td></tr>`).join("")}</tbody></table></div><div class="report-band"><div><span class="eyebrow">Report</span><strong>Unclaimed Checks</strong></div><p>Flags checks marked available but not yet released to the payee.</p></div></section>`;
+  return `<section class="panel"><div class="panel-header"><h3>Payment Tracker</h3></div><div class="table-wrap"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Bank Status</th><th>Payment Release</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td>${r.id}</td><td>${r.submitted}</td><td>${r.returned || "-"}</td><td>${r.resubmitted || "-"}</td><td>${i === 0 ? "Pending" : "2026-06-24"}</td><td>${bankStatus(r)}</td><td>${releaseStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
 
 function documentUploads() {
@@ -1314,7 +1315,7 @@ function render() {
     localStorage.setItem("payment-module-theme", state.theme);
     render();
   });
-  document.querySelector("[data-guide-print]")?.addEventListener("click", () => window.print());
+  document.querySelector("[data-guide-print]")?.addEventListener("click", printSystemGuide);
   document.querySelectorAll("[data-guide-anchor]").forEach((anchor) => anchor.addEventListener("click", (event) => {
     event.preventDefault();
     const search = document.querySelector("[data-guide-search]");
