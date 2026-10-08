@@ -1735,16 +1735,16 @@ function dashboardFilters(visibleRequests = requests) {
   const statusOptions = [...new Set(visibleRequests.map((r) => r.status))].sort();
   const departmentOptions = [...new Set(visibleRequests.map((r) => r.department))].sort();
   const financeView = ["all", "financeAssociate", "financeManager"].includes(state.persona);
-  return `<section class="panel dashboard-filter-panel"><div class="panel-header"><div><span class="eyebrow">Find a Request</span><h3>Search and Sort</h3></div><button type="button" class="clear-filter-button" data-clear-filters="true">Clear Filters</button></div><div class="dashboard-filters dashboard-filters-primary">
-    <label>Voucher Number<input data-dashboard-filter="voucher" placeholder="Search voucher no." value="${filters.voucher}"></label>
+  const activeCount = [filters.department !== "all", filters.status !== "all", filters.type !== "all", filters.minAmount !== "", filters.maxAmount !== ""].filter(Boolean).length;
+  return `<section class="panel dashboard-filter-panel"><div class="request-filter-toolbar"><label class="request-filter-search"><span class="sr-only">Search voucher number</span><input data-dashboard-filter="voucher" type="search" placeholder="Search voucher number" value="${filters.voucher}"></label><button type="button" class="request-filter-toggle" data-toggle-request-filters aria-expanded="${Boolean(state.requestFiltersExpanded)}" aria-controls="requestAdvancedFilters">☰ Filter${activeCount ? ` (${activeCount})` : ""}</button><div class="request-filter-sort">    <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
+    <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
+</div><button type="button" class="clear-filter-button" data-clear-filters="true">Clear Filters</button></div><div class="dashboard-filters dashboard-filters-primary">
     ${financeView ? `<label>Department<select data-dashboard-filter="department"><option value="all">All Departments</option>${departmentOptions.map((department) => `<option value="${department}" ${filters.department === department ? "selected" : ""}>${department}</option>`).join("")}</select></label>` : ""}
     <label>Status<select data-dashboard-filter="status"><option value="all">All Statuses</option>${statusOptions.map((status) => `<option value="${status}" ${filters.status === status ? "selected" : ""}>${status}</option>`).join("")}</select></label>
-  </div><details class="advanced-filter-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary>More filters and reporting</summary><div class="dashboard-filters dashboard-filters-advanced"><label>Type<select data-dashboard-filter="type"><option value="all">All Types</option>${Object.entries(paymentTypes).map(([id, type]) => `<option value="${id}" ${filters.type === id ? "selected" : ""}>${type.label}</option>`).join("")}</select></label>
+  </div><div id="requestAdvancedFilters" class="advanced-filter-options" ${state.requestFiltersExpanded ? "" : "hidden"}><div class="dashboard-filters dashboard-filters-advanced"><label>Type<select data-dashboard-filter="type"><option value="all">All Types</option>${Object.entries(paymentTypes).map(([id, type]) => `<option value="${id}" ${filters.type === id ? "selected" : ""}>${type.label}</option>`).join("")}</select></label>
     <label>Minimum Amount<input data-dashboard-filter="minAmount" type="number" min="0" placeholder="0" value="${filters.minAmount}"></label>
     <label>Maximum Amount<input data-dashboard-filter="maxAmount" type="number" min="0" placeholder="No limit" value="${filters.maxAmount}"></label>
-    <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
-    <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
-  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="xlsx">Export Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</details></section>`;
+  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="xlsx">Export Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</div></section>`;
 }
 
 function reportRows() {
@@ -1975,7 +1975,7 @@ function dashboard() {
   const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   return `<section class="content-grid"><div class="persona-banner"><div><span class="eyebrow">Persona View</span><strong>${personas[state.persona].label}</strong></div><p>${state.persona === "all" ? "The original all-access prototype is retained in this view." : `Navigation, request visibility, and actions are scoped for ${personas[state.persona].label}.`}</p></div>
     <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${totalDisplay}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
-    ${dashboardFilters(visibleRequests)}<div class="two-column">${requestTable(filteredRequests, true)}${detail(selected, true)}</div>${workflowModal}
+    ${dashboardFilters(visibleRequests)}<div class="two-column">${requestTable(filteredRequests, true)}${dashboardRequestPreview(selected)}</div>${workflowModal}
   </section>`;
 }
 
@@ -2666,7 +2666,33 @@ function render() {
   document.querySelector("[data-add-accounting-row]")?.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, entries: [...state.documentValidation.entries, { account: "", debit: 0, credit: 0 }] } }));
   document.querySelectorAll("[data-remove-accounting-row]").forEach((button) => button.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, entries: state.documentValidation.entries.filter((_, index) => index !== Number(button.dataset.removeAccountingRow)) } })));
   document.querySelector("[data-complete-validation]")?.addEventListener("click", () => setState({ documentValidation: { ...state.documentValidation, completionDate: new Date().toISOString().slice(0, 10) } }));
-  document.querySelectorAll("[data-request]").forEach((row) => row.addEventListener("click", () => navigate(state.tab === "approvals" ? `/approvals/request/${row.dataset.request}` : `/dashboard/request/${row.dataset.request}`)));
+  document.querySelectorAll("[data-request]").forEach((row) => {
+    const isApprovalQueue = state.tab === "approvals";
+    row.tabIndex = 0;
+    row.title = "Click to preview; double-click or press Enter to open details";
+    const preview = () => {
+      const request = requests.find((item) => item.id === row.dataset.request);
+      if (!request) return;
+      state.selectedId = request.id;
+      document.querySelectorAll("[data-request]").forEach((item) => {
+        item.classList.toggle("selected", item === row);
+        item.setAttribute("aria-selected", String(item === row));
+      });
+      const pane = document.querySelector(".dashboard-preview-pane");
+      if (pane) pane.outerHTML = isApprovalQueue ? approvalQueuePreview(request) : dashboardRequestPreview(request);
+      pane?.querySelector("[data-view-workflow]")?.addEventListener("click", () => navigate(`/dashboard/workflow/${request.id}`));
+      document.querySelector("[data-open-dashboard-full]")?.addEventListener("click", () => navigate(`/requests/${request.id}`));
+      document.querySelector("[data-preview-action-route]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.previewActionRoute));
+      document.querySelector("[data-open-approval-workspace]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.actionRoute));
+      document.querySelector("[data-open-approval-full]")?.addEventListener("click", () => navigate(`/requests/${request.id}`));
+    };
+    row.addEventListener("click", preview);
+    row.addEventListener("dblclick", () => navigate(`/${isApprovalQueue ? "approvals" : "dashboard"}/request/${row.dataset.request}`));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); navigate(`/${isApprovalQueue ? "approvals" : "dashboard"}/request/${row.dataset.request}`); }
+      if (event.key === " ") { event.preventDefault(); preview(); }
+    });
+  });
   document.querySelector("[data-back-approval-list]")?.addEventListener("click", () => navigate("/approvals"));
   document.querySelector("[data-open-approval-workspace]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.actionRoute || `/approvals/review/${event.currentTarget.dataset.openApprovalWorkspace}`));
   document.querySelector("[data-open-approval-full]")?.addEventListener("click", (event) => navigate(`/requests/${event.currentTarget.dataset.openApprovalFull}`));
@@ -2859,6 +2885,12 @@ function render() {
     };
     if (!visible.some((request) => request.id === state.selectedId) && persona !== "all") state.persona = "all";
     navigate(button.dataset.emailTargetRoute);
+  });
+  const advancedFilters = document.getElementById("requestAdvancedFilters");
+
+  document.querySelector("[data-toggle-request-filters]")?.addEventListener("click", () => {
+    state.requestFiltersExpanded = !state.requestFiltersExpanded; advancedFilters.hidden = !state.requestFiltersExpanded;
+    document.querySelector("[data-toggle-request-filters]")?.setAttribute("aria-expanded", String(state.requestFiltersExpanded));
   });
   document.querySelectorAll("[data-dashboard-filter]").forEach((input) => input.addEventListener(input.tagName === "INPUT" && input.type !== "number" ? "input" : "change", () => {
     state.dashboardFilters = { ...state.dashboardFilters, [input.dataset.dashboardFilter]: input.value };
