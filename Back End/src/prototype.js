@@ -1,4 +1,5 @@
 import { createDataSource } from "./data-source.js";
+import { paginateTables } from "./table-pagination.js";
 import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260920-backend-integration";
 
 const dataSource = createDataSource();
@@ -2450,6 +2451,7 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  paginateTables(document.getElementById("root"), `${state.persona}:${location.hash}`);
   bindToast();
   bindActionPrompt();
   if (["users", "roles", "departments"].includes(state.tab) && state.authUser && !state.identityLoading && !state.identityData.departments.length && !state.identityError) {

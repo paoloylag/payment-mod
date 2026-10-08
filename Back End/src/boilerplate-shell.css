@@ -43,6 +43,13 @@
 }
 
 body { color: var(--text); background: var(--bg); }
+.table-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.table-pagination label, .table-pagination > div { display: flex; align-items: center; gap: 10px; }
+.table-pagination select { width: 82px; }
+.table-pagination button { min-height: 42px; }
+table tr.pagination-hidden { display: none !important; }
+@media (max-width: 640px) { .table-pagination > div { width: 100%; justify-content: space-between; } }
+@media print { .table-pagination { display: none !important; } table tr.pagination-hidden { display: table-row !important; } }
 
 select {
   width: 100%;
