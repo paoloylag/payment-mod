@@ -21,6 +21,13 @@ On 2026-09-29, the owner confirmed the unbudgeted PHP route above 1,000,000 as C
 
 Remaining Phase 05 work: decide later-stage return/decline destinations, delegation/reassignment/reroute/unlock authority, SLA/escalation rules, and permitted Finance validation action; then implement those transitions and connect the remaining frontend persona screens. These actions are not enabled by the current API.
 
+## Development update — 2026-10-09
+
+- The approval queue now includes the assigned request summary, allowing reviewer roles to see work assigned by the backend even when their general request list does not include that request. The frontend uses the saved current stage for queue and review displays.
+- Department Head, Finance Manager, COO, President, and Board approval buttons now submit versioned, idempotent decisions to the backend. The first-stage Return/Fully Decline control remains available only at the active Department Head stage.
+- Later-stage Return/Fully Decline is rejected by the API until its destination and authority are confirmed. The Finance Associate validation screen is explicitly held for Phase 06 rather than advancing from prototype-only controls.
+- Focused workflow tests passed (5 tests). The frontend build passed. Headless Chrome checks found no horizontal overflow on dashboard and approval screens at 390px, 768px, and 1280px. These checks cover the current queue shell; a multi-role action walkthrough remains required before Phase 05 acceptance.
+
 ## Objective
 
 Create a backend-authoritative approval engine that snapshots policy at submission and preserves every assignment and decision.

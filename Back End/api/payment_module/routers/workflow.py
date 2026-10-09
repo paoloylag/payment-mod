@@ -24,7 +24,7 @@ from ..models import (
 from ..security import current_user
 from ..workflow_policy import PolicyCannotRoute, route_for
 from ..workflow_service import close_workflow, start_workflow
-from .requests import visible_query
+from .requests import serialize_many, visible_query
 
 router = APIRouter(prefix="/api/v1/workflow", tags=["workflow"])
 
@@ -77,11 +77,13 @@ def approval_queue(request: Request, db: Session = Depends(get_db), actor: User 
         .where(WorkflowInstance.state == "active", PaymentRequest.status == "submitted")
         .order_by(PaymentRequest.submitted_at, PaymentRequest.id)
     ).all()
-    return [
-        view(instance)
+    assigned = [
+        (instance, item)
         for instance, item in rows
         if can_review(request, actor, item, instance.route_snapshot["stages"][instance.current_stage], roles)
     ]
+    summaries = serialize_many(db, [item for _, item in assigned])
+    return [{**view(instance), "request": summary} for (instance, _), summary in zip(assigned, summaries, strict=True)]
 
 
 @router.get("/{request_id}")
@@ -219,10 +221,10 @@ def reject_first_stage(
     if instance.version != payload.version:
         raise HTTPException(409, "Workflow changed; reload before deciding")
     stage = instance.route_snapshot["stages"][instance.current_stage]
-    if stage["role"] not in {"department_head", "finance_manager", "coo", "president", "board_member"}:
-        raise HTTPException(409, "This step uses a separate correction or processing action")
     if not can_review(request, actor, item, stage, actor_roles(db, actor)):
         raise HTTPException(403, "This approval stage is not assigned to this reviewer")
+    if instance.current_stage != 0 or stage["role"] != "department_head":
+        raise HTTPException(409, "Return and decline rules for later stages are pending confirmation")
     stage_index = instance.current_stage
     target_status = "returned" if payload.decision == "return" else "declined"
     item.status = target_status

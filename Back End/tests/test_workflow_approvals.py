@@ -63,6 +63,7 @@ def test_board_route_advances_once_per_stage_and_rejects_wrong_reviewer(client):
     assert blank_reason.status_code == 422
     queue = client.get("/api/v1/workflow/queue").json()
     assert [entry["request_id"] for entry in queue] == [str(request_id)]
+    assert queue[0]["request"]["id"] == str(request_id)
     assert [stage["role"] for stage in queue[0]["route"]["stages"][-3:]] == ["coo", "president", "board_member"]
     approval = client.post(
         f"/api/v1/workflow/{request_id}/approve",
@@ -76,7 +77,7 @@ def test_board_route_advances_once_per_stage_and_rejects_wrong_reviewer(client):
         json={"version": 2, "decision": "return", "note": "Too late"},
         headers={**head_headers, "Idempotency-Key": "later-rejection"},
     )
-    assert later_rejection.status_code == 409
+    assert later_rejection.status_code == 403
     repeat = client.post(
         f"/api/v1/workflow/{request_id}/approve",
         json={"version": 1},
@@ -102,6 +103,12 @@ def test_board_route_advances_once_per_stage_and_rejects_wrong_reviewer(client):
         )
 
     finance_headers = login(client, "finance.associate@payment.local")
+    unconfirmed_rejection = client.post(
+        f"/api/v1/workflow/{request_id}/reject",
+        json={"version": 2, "decision": "return", "note": "Later-stage rule pending"},
+        headers={**finance_headers, "Idempotency-Key": "finance-return-pending"},
+    )
+    assert unconfirmed_rejection.status_code == 409
     next_decision = client.post(
         f"/api/v1/workflow/{request_id}/approve",
         json={"version": 2},
@@ -224,9 +231,16 @@ def test_configured_rate_routes_in_php_and_is_frozen_at_submission(client):
             db.get(Currency, "USD").php_per_unit = previous_rate
 
 
-def test_return_and_decline_at_every_request_approval_stage(client):
+def test_return_and_decline_only_at_first_approval_stage(client):
     seed()
-    for index, email in [(0, "department.head@payment.local"), (2, "finance.manager@payment.local"), (3, "coo@payment.local"), (4, "president@payment.local"), (5, "board.member@payment.local")]:
+    reviewers = [
+        (0, "department.head@payment.local"),
+        (2, "finance.manager@payment.local"),
+        (3, "coo@payment.local"),
+        (4, "president@payment.local"),
+        (5, "board.member@payment.local"),
+    ]
+    for index, email in reviewers:
         for decision in ["return", "decline"]:
             request_id = create_submitted()
             with SessionLocal.begin() as db:
@@ -234,12 +248,27 @@ def test_return_and_decline_at_every_request_approval_stage(client):
                 instance.current_stage = index
             wrong_headers = login(client, "requestor@payment.local")
             payload = {"version": 1, "decision": decision, "note": "Please correct the request"}
-            denied = client.post(f"/api/v1/workflow/{request_id}/reject", json=payload, headers={**wrong_headers, "Idempotency-Key": str(uuid4())})
+            denied = client.post(
+                f"/api/v1/workflow/{request_id}/reject",
+                json=payload,
+                headers={**wrong_headers, "Idempotency-Key": str(uuid4())},
+            )
             assert denied.status_code == 403
             headers = login(client, email)
             key = str(uuid4())
-            response = client.post(f"/api/v1/workflow/{request_id}/reject", json=payload, headers={**headers, "Idempotency-Key": key})
-            assert response.status_code == 200, response.text
-            assert response.json()["request_status"] == ("returned" if decision == "return" else "declined")
-            repeated = client.post(f"/api/v1/workflow/{request_id}/reject", json=payload, headers={**headers, "Idempotency-Key": key})
-            assert repeated.json() == response.json()
+            response = client.post(
+                f"/api/v1/workflow/{request_id}/reject",
+                json=payload,
+                headers={**headers, "Idempotency-Key": key},
+            )
+            if index == 0:
+                assert response.status_code == 200, response.text
+                assert response.json()["request_status"] == ("returned" if decision == "return" else "declined")
+                repeated = client.post(
+                    f"/api/v1/workflow/{request_id}/reject",
+                    json=payload,
+                    headers={**headers, "Idempotency-Key": key},
+                )
+                assert repeated.json() == response.json()
+            else:
+                assert response.status_code == 409

@@ -188,6 +188,14 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}`);
     },
+    listWorkflowQueue() {
+      if (mode === "mock") return Promise.resolve([]);
+      return apiRequest("/api/v1/workflow/queue");
+    },
+    approveWorkflow(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/workflow/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
+    },
     rejectFirstStage(id, version, decision, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, decision, note }) });
