@@ -1547,6 +1547,10 @@ function administrationWorkspace(content) {
   return `<section class="administration-workspace"><div class="administration-workspace-heading"><span class="eyebrow">${isSystemAdministrator ? "System Settings" : "Finance Settings"}</span><h3>Administration</h3><p>${description}</p></div><label class="administration-mobile-select">Administration section<select data-administration-select>${visibleTabs.map(([id, label]) => `<option value="${id}" ${state.tab === id ? "selected" : ""}>${label}</option>`).join("")}</select></label><nav class="administration-tabs" aria-label="Administration settings">${visibleTabs.map(([id, label]) => `<button type="button" data-tab="${id}" class="${state.tab === id ? "active" : ""}">${label}</button>`).join("")}</nav>${content}</section>`;
 }
 
+function canViewAdminReference() {
+  return state.authUser ? state.authUser.roles?.includes("system_administrator") === true : dataSource.mode === "mock" && state.persona === "all";
+}
+
 function shell(content) {
   const allNavGroups = [
     ["Overview", [["dashboard", "Dashboard", "▦"]]],
@@ -1566,7 +1570,10 @@ function shell(content) {
     president: [["Overview", [["dashboard", "Executive Dashboard", "◦"]]], ["Approvals", [["approvals", "Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
     boardMember: [["Overview", [["dashboard", "Board Dashboard", "◦"]]], ["Approvals", [["approvals", "Board Approval Queue", "✓"]]], ["Help", [["guide", "System Guide", "?"]]]],
   };
-  const navGroups = personaNav[state.persona] || allNavGroups;
+  const navGroups = (personaNav[state.persona] || allNavGroups)
+    .map(([label, items]) => [label, items.filter(([id]) => !["documents", "emails"].includes(id))])
+    .filter(([, items]) => items.length);
+  if (canViewAdminReference()) navGroups.splice(navGroups.length - 1, 0, ["Reference", [["documents", "Document Rules", "□"], ["emails", "Email Samples", "@"]]]);
   const persona = personas[state.persona];
   const displayName = state.authUser?.display_name || persona.name;
   const displayRole = state.authUser?.roles?.map((role) => role.replaceAll("_", " ")).join(", ") || persona.label;
@@ -2443,6 +2450,10 @@ function emails() {
 
 function render() {
   document.documentElement.dataset.theme = state.theme;
+  if (["documents", "emails"].includes(state.tab) && !canViewAdminReference() && ["mock", "authenticated"].includes(state.authStatus)) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/dashboard`);
+    state = { ...state, ...routeStateFromHash() };
+  }
   if (!["mock", "authenticated"].includes(state.authStatus)) {
     document.getElementById("root").innerHTML = loginView();
     bindLogin();
