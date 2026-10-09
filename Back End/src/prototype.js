@@ -210,7 +210,7 @@ const personas = {
   requestor: { label: "Requestor", name: "Mika Santos", subtitle: "Marketing Department" },
   departmentHead: { label: "Department Head", name: "Department Head", subtitle: "Department Approval" },
   financeAssociate: { label: "Finance Associate", name: "Ms. Rhee", subtitle: "Document Validation" },
-  financeManager: { label: "Finance Manager", name: "Finance Manager", subtitle: "All-Request Visibility" },
+  financeManager: { label: "Finance Manager", name: "Finance Manager", subtitle: "" },
   authorizedSignatory: { label: "Authorized Signatory", name: "Authorized Signatory", subtitle: "Signatory Approval" },
   coo: { label: "COO", name: "Chief Operating Officer", subtitle: "Routed Approvals Only" },
   president: { label: "President", name: "President", subtitle: "Routed Approvals Only" },
@@ -891,7 +891,7 @@ function masterDataModal() {
   let fields = common;
   if (edit.tab === "accounts") fields += `<label>Account type<select name="account_type"><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option><option value="income">Income</option><option value="expense">Expense</option></select></label><label>Normal balance<select name="normal_balance"><option value="debit">Debit</option><option value="credit">Credit</option></select></label><label class="identity-checkbox"><input name="is_posting" type="checkbox" ${item?.is_posting !== false ? "checked" : ""}> Posting account</label>`;
   if (edit.tab === "taxCodes") fields += `<label>VAT classification<input name="vat_classification" value="${escapeHtml(item?.vat_classification || "")}" required></label><label>VAT rate<input name="vat_rate" type="number" min="0" max="100" step="0.0001" value="${item?.vat_rate ?? 0}" required></label><label>EWT classification<input name="ewt_classification" value="${escapeHtml(item?.ewt_classification || "")}" required></label><label>EWT rate<input name="ewt_rate" type="number" min="0" max="100" step="0.0001" value="${item?.ewt_rate ?? 0}" required></label>`;
-  if (edit.tab === "currencies") fields = `${common}<label>Symbol<input name="symbol" value="${escapeHtml(item?.symbol || "")}" required maxlength="8"></label><label>Decimal precision<input name="decimal_precision" type="number" min="0" max="6" value="${item?.decimal_precision ?? 2}" required></label><label>PHP per 1 ${escapeHtml(item?.code || "currency unit")}<input name="php_per_unit" type="number" min="0.00000001" step="0.00000001" value="${escapeHtml(item?.php_per_unit ?? (item?.code === "PHP" ? "1" : ""))}" ${item?.code === "PHP" ? "readonly" : ""}></label><p>Leave blank to keep foreign-currency approvals pending. Existing submitted routes keep their saved rate.</p>`;
+  if (edit.tab === "currencies") fields = `${common}<label>Symbol<input name="symbol" value="${escapeHtml(item?.symbol || "")}" required maxlength="8"></label><label>Decimal precision<input name="decimal_precision" type="number" min="0" max="6" value="${item?.decimal_precision ?? 2}" required></label><label>PHP per 1 ${escapeHtml(item?.code || "currency unit")}<input name="php_per_unit" type="number" min="0.00000001" step="0.00000001" value="${escapeHtml(item?.php_per_unit ?? (item?.code === "PHP" ? "1" : ""))}" ${item?.code === "PHP" ? "readonly" : ""}></label><p>Foreign currencies without a conversion rate are unavailable for new requests. Existing submitted routes keep their saved rate.</p>`;
   if (edit.tab === "paymentMethods") fields += `<label>Category<input name="category" value="${escapeHtml(item?.category || "")}" required></label><label class="identity-checkbox"><input name="requires_reference" type="checkbox" ${item?.requires_reference ? "checked" : ""}> Requires transaction reference</label>`;
   if (edit.tab === "documentTypes") fields += `<label>Description<textarea name="description">${escapeHtml(item?.description || "")}</textarea></label><label>Copy requirement<select name="copy_requirement"><option value="soft" ${item?.copy_requirement === "soft" ? "selected" : ""}>Soft copy</option><option value="hard" ${item?.copy_requirement === "hard" ? "selected" : ""}>Hard copy</option><option value="both" ${item?.copy_requirement === "both" ? "selected" : ""}>Both</option></select></label><fieldset class="document-type-request-fieldset"><legend>Included in request types</legend><p>Select every request form where this document type can be uploaded.</p><div class="document-type-request-grid">${Object.entries(requestTypeLabels).map(([id, label]) => `<label class="identity-checkbox"><input name="allowed_request_types" type="checkbox" value="${id}" ${(item?.allowed_request_types || []).includes(id) ? "checked" : ""}> ${label}</label>`).join("")}</div></fieldset>`;
   if (!isEdit && edit.tab !== "currencies" && edit.tab !== "documentTypes") fields += `<label>Description<textarea name="description"></textarea></label>`;
@@ -1064,13 +1064,13 @@ function apiRequestToPrototype(item) {
     submittedByFinance: item.requestor_name === personas.financeAssociate.name,
     validationAssignee: item.type_data?.validation_assignee || personas.financeAssociate.name,
     bankSubmittedAt: currentStep >= 11 ? item.updated_at : "",
-    bankSubmittedBy: currentStep >= 11 ? "Development Finance Associate" : "",
+    bankSubmittedBy: currentStep >= 11 ? "Nina Santos" : "",
     bankAuthorizedAt: currentStep >= 12 ? item.updated_at : "",
-    bankAuthorizedBy: currentStep >= 12 ? "Development Authorized Signatory" : "",
+    bankAuthorizedBy: currentStep >= 12 ? "Sofia Bautista" : "",
     vendorNotifiedAt: currentStep >= 13 ? item.updated_at : "",
-    vendorNotifiedBy: currentStep >= 13 ? "Development Finance Associate" : "",
+    vendorNotifiedBy: currentStep >= 13 ? "Nina Santos" : "",
     pickupAvailableAt: currentStep >= 14 ? item.updated_at : "",
-    pickupAvailableBy: currentStep >= 14 ? "Development Finance Associate" : "",
+    pickupAvailableBy: currentStep >= 14 ? "Nina Santos" : "",
   };
 }
 
@@ -1490,7 +1490,7 @@ function approvalRequests(persona = state.persona) {
   const activeRequests = requests.filter((request) => !request.backendId || request.backendStatus === "submitted" && assignedIds.has(request.backendId));
   if (persona === "departmentHead") return activeRequests.filter((request) => request.currentStep === 3);
   if (persona === "authorizedSignatory") return activeRequests.filter((request) => request.currentStep === 11);
-  if (persona === "financeAssociate") return activeRequests.filter((request) => [4, 9, 10, 12, 13].includes(request.currentStep) && (request.currentStep !== 4 || request.validationAssignee === personas.financeAssociate.name));
+  if (persona === "financeAssociate") return activeRequests.filter((request) => [4, 9, 10, 12, 13].includes(request.currentStep) && (state.authStatus === "authenticated" || request.currentStep !== 4 || request.validationAssignee === personas.financeAssociate.name));
   if (persona === "financeManager") return activeRequests.filter((request) => request.currentStep === 5);
   if (persona === "coo") return activeRequests.filter((request) => request.currentStep === 7);
   if (persona === "president") return activeRequests.filter((request) => request.currentStep === 8);
@@ -1705,7 +1705,7 @@ function shell(content) {
         </div>
       </aside>
       <main class="${state.tab === "guide" ? "guide-main" : ""}">
-        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" data-toggle-notifications aria-label="Notifications${state.notifications.unread_count ? `, ${state.notifications.unread_count} unread` : ""}" aria-expanded="${state.notificationsOpen}" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>${state.notifications.unread_count ? `<span class="notification-count">${Math.min(state.notifications.unread_count, 99)}${state.notifications.unread_count > 99 ? "+" : ""}</span>` : ""}</button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button></div>${notificationPanel()}</header>
+        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2>${persona.subtitle ? `<p>${persona.subtitle}</p>` : ""}</div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" data-toggle-notifications aria-label="Notifications${state.notifications.unread_count ? `, ${state.notifications.unread_count} unread` : ""}" aria-expanded="${state.notificationsOpen}" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>${state.notifications.unread_count ? `<span class="notification-count">${Math.min(state.notifications.unread_count, 99)}${state.notifications.unread_count > 99 ? "+" : ""}</span>` : ""}</button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button></div>${notificationPanel()}</header>
         ${administrationWorkspace(content)}
         ${unlockRequestModal()}
       </main>
@@ -2216,8 +2216,12 @@ function requestBuilder() {
   const poRecords = purchaseOrderRecords();
   const poRecord = poRecords.find((record) => record.id === state.selectedPO) || poRecords[0];
   const effectiveAmount = isPoPayment ? poRecord.amount : draftAmount;
-  const currencyOptions = state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso" }, { code: "USD", name: "US Dollar" }, { code: "EUR", name: "Euro" }];
-  const currencyField = `<label>Currency<select data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => `<option value="${item.code}" ${state.draftCurrency === item.code ? "selected" : ""}>${item.code} — ${escapeHtml(item.name)}</option>`).join("")}</select></label>`;
+  const currencyOptions = state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso", php_per_unit: 1 }];
+  const missingConversion = currencyOptions.some((item) => item.is_active !== false && item.code !== "PHP" && !Number(item.php_per_unit));
+  const currencyField = `<label>Currency<select data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => {
+    const unavailable = item.code !== "PHP" && !Number(item.php_per_unit);
+    return `<option value="${escapeHtml(item.code)}" ${state.draftCurrency === item.code ? "selected" : ""} ${unavailable ? 'disabled title="there is no set conversion"' : ""}>${escapeHtml(item.code)} — ${escapeHtml(item.name)}${unavailable ? " (conversion not set)" : ""}</option>`;
+  }).join("")}</select>${missingConversion ? `<span class="field-warning-tooltip" tabindex="0" aria-label="there is no set conversion"><span class="field-warning-icon" aria-hidden="true">⚠</span><span class="field-warning-message" role="tooltip">there is no set conversion</span></span>` : ""}</label>`;
   const cashAdvanceFields = config.mandatoryFields.map((field) => `${fieldInput(field)}${field.label === "Last Day of the Event" ? `<label>Date to Liquidate <small>(System Generated: 15 Days After Event)</small><input data-liquidation-due-date data-request-field="liquidation_due_date" type="date" value="${state.cashAdvanceLiquidationDate}" readonly></label>` : ""}`).join("");
   const requestorName = escapeHtml(activeRequestor());
   const primaryFields = state.draftType === "reimbursement"
@@ -2728,6 +2732,9 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  const administrationTabs = document.querySelector(".administration-tabs");
+  const activeAdministrationTab = administrationTabs?.querySelector("button.active");
+  if (activeAdministrationTab) administrationTabs.scrollLeft = Math.max(0, activeAdministrationTab.offsetLeft - administrationTabs.offsetLeft - (administrationTabs.clientWidth - activeAdministrationTab.offsetWidth) / 2);
   if (state.authStatus === "authenticated" && !state.notificationsLoaded && !state.notificationsLoading) queueMicrotask(loadNotifications);
   if (state.highlightMessageId) {
     const target = document.getElementById(`message-${state.highlightMessageId}`);

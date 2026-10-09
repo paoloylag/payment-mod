@@ -63,7 +63,7 @@ export function createDataSource() {
   };
   const mockPurchaseOrders = [
     { poNumber: "PO-DEMO-1001", requester: "Angela Mendoza", vendorId: "VEND-DEMO-001", vendorName: "Sample BrightTech Supply", amount: 89000, currency: "PHP", department: "Academics / Residential Campus", departmentCode: "ACAD", status: "Approved", newSupplier: false, paymentEligible: true, items: [{ name: "Sample Staff Laptop", description: "14-inch laptop, 16 GB RAM, 512 GB SSD", quantity: 2, unitPrice: 44500 }] },
-    { poNumber: "PO-DEMO-1002", requester: "Development Requestor", vendorId: "VEND-DEMO-003", vendorName: "Sample NewBuild Services", amount: 125000, currency: "PHP", department: "Operations", departmentCode: "OPS", status: "Approved", newSupplier: true, paymentEligible: true, items: [{ name: "Repair materials lot", description: "Sample construction and repair materials", quantity: 1, unitPrice: 125000 }] },
+    { poNumber: "PO-DEMO-1002", requester: "Mara Reyes", vendorId: "VEND-DEMO-003", vendorName: "Sample NewBuild Services", amount: 125000, currency: "PHP", department: "Operations", departmentCode: "OPS", status: "Approved", newSupplier: true, paymentEligible: true, items: [{ name: "Repair materials lot", description: "Sample construction and repair materials", quantity: 1, unitPrice: 125000 }] },
   ];
 
   async function masterDataRequest(resource, options) {

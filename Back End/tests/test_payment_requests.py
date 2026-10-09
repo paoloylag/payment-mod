@@ -81,7 +81,7 @@ def payload_for_type(request_type: str):
     result["request_type"] = request_type
     result["lines"][0]["invoice_number"] = f"REF-{uuid4()}"
     if request_type == "cashAdvance":
-        result["payee_name"] = "Development Requestor"
+        result["payee_name"] = "Mara Reyes"
         result["type_data"] = {
             "event_end_date": "2026-09-15",
             "liquidation_due_date": "2026-09-30",
@@ -397,7 +397,7 @@ def test_request_lifecycle_return_resubmit_cancel_and_reopen(client):
     seed()
     requestor_headers = login(client)
     created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
-    assert created["requestor_name"] == "Development Requestor"
+    assert created["requestor_name"] == "Mara Reyes"
     assert created["department_name"] == "Marketing"
     submitted = client.post(
         f"/api/v1/requests/{created['id']}/submit",

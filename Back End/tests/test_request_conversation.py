@@ -144,7 +144,7 @@ def test_mentions_notify_only_eligible_participants_without_advancing_workflow(c
         before = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id))
         before_version = before.version
         before_stage = before.current_stage
-    payload = {"body": "@Development COO Can you review the timing?", "mention_user_ids": [coo["id"]]}
+    payload = {"body": "@Adrian Lim Can you review the timing?", "mention_user_ids": [coo["id"]]}
     headers = {**head_headers, "Idempotency-Key": "mention-coo-1"}
     posted = client.post(url, json=payload, headers=headers)
     assert posted.status_code == 201
@@ -162,7 +162,7 @@ def test_mentions_notify_only_eligible_participants_without_advancing_workflow(c
     assert (
         client.post(
             url,
-            json={"body": "@Development Authorized Signatory", "mention_user_ids": [str(signatory_id)]},
+            json={"body": "@Sofia Bautista", "mention_user_ids": [str(signatory_id)]},
             headers={**head_headers, "Idempotency-Key": "outsider-tag"},
         ).status_code
         == 422

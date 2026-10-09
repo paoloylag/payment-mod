@@ -87,7 +87,7 @@ function payloadFor(type, refs, index) {
     lines: [line],
   };
   if (type === "cashAdvance") {
-    payload.payee_name = "Development Requestor";
+    payload.payee_name = "Mara Reyes";
     payload.type_data = { event_end_date: "2026-09-15", liquidation_due_date: "2026-09-30", accountability_acknowledged: true };
     Object.assign(line, { invoice_number: null, invoice_date: null, vendor_name: "", chart_account_id: null, cost_center_id: null, attachment_refs: [] });
   } else if (type === "liquidation") {

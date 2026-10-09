@@ -52,7 +52,7 @@ SAMPLE_PURCHASE_ORDERS = (
         "status": "Approved",
         "department": "Operations",
         "departmentCode": "OPS",
-        "requester": "Development Requestor",
+        "requester": "Mara Reyes",
         "requesterId": "USER-DEMO-REQUESTOR",
         "purposeType": "Project",
         "purpose": "Purchase materials for scheduled campus repairs.",

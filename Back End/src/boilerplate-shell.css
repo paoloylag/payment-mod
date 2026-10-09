@@ -1026,10 +1026,45 @@ textarea:focus {
   padding: 5px;
 }
 
+.app-shell main .administration-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 11px;
+  background: var(--bg);
+  box-shadow: none;
+}
+.app-shell main .administration-tabs::-webkit-scrollbar { display: none; }
+.app-shell main .administration-tabs button {
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  color: var(--muted) !important;
+  background: transparent !important;
+  box-shadow: none;
+  font-weight: 500;
+  transform: none;
+}
+.app-shell main .administration-tabs button:hover {
+  color: var(--text) !important;
+  background: var(--panel-strong) !important;
+}
 .app-shell main .administration-tabs button.active {
-  border-color: var(--maroon-strong) !important;
-  color: #fffaf3 !important;
-  background: var(--maroon-strong) !important;
+  border-color: var(--line) !important;
+  color: var(--text) !important;
+  background: var(--panel) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .10);
+}
+.app-shell main .administration-tabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Workflow cards are interactive containers, not standard action buttons.
@@ -1317,9 +1352,8 @@ body:has(.guide-main) { overflow: visible; }
 .guide-card > ol { margin-top: 20px; }
 
 @media screen and (max-width: 639px) {
-  .administration-tabs { display: none !important; }
   .administration-mobile-select {
-    display: grid;
+    display: none;
     gap: 7px;
     color: var(--muted);
     font-size: 11px;

@@ -150,16 +150,27 @@ ROLE_PERMISSIONS["system_administrator"] |= {
 }
 ROLE_PERMISSIONS["system_administrator"].add("documents.manage_own")
 DEMO_USERS = [
-    ("requestor", "requestor@payment.local", "Development Requestor", "MKTG"),
-    ("department_head", "department.head@payment.local", "Development Department Head", "MKTG"),
-    ("finance_associate", "finance.associate@payment.local", "Development Finance Associate", "FIN"),
-    ("finance_manager", "finance.manager@payment.local", "Development Finance Manager", "FIN"),
-    ("coo", "coo@payment.local", "Development COO", "OPS"),
-    ("president", "president@payment.local", "Development President", "DT"),
-    ("board_member", "board.member@payment.local", "Development Board Member", "DT"),
-    ("authorized_signatory", "signatory@payment.local", "Development Authorized Signatory", "FIN"),
-    ("system_administrator", "admin@payment.local", "Development System Administrator", "DT"),
+    ("requestor", "requestor@payment.local", "Mara Reyes", "MKTG"),
+    ("department_head", "department.head@payment.local", "Elena Cruz", "MKTG"),
+    ("finance_associate", "finance.associate@payment.local", "Nina Santos", "FIN"),
+    ("finance_manager", "finance.manager@payment.local", "Carlo Mendoza", "FIN"),
+    ("coo", "coo@payment.local", "Adrian Lim", "OPS"),
+    ("president", "president@payment.local", "Isabel Navarro", "DT"),
+    ("board_member", "board.member@payment.local", "Rafael Villanueva", "DT"),
+    ("authorized_signatory", "signatory@payment.local", "Sofia Bautista", "FIN"),
+    ("system_administrator", "admin@payment.local", "Daniel Torres", "DT"),
 ]
+LEGACY_DEMO_NAMES = {
+    "requestor": "Development Requestor",
+    "department_head": "Development Department Head",
+    "finance_associate": "Development Finance Associate",
+    "finance_manager": "Development Finance Manager",
+    "coo": "Development COO",
+    "president": "Development President",
+    "board_member": "Development Board Member",
+    "authorized_signatory": "Development Authorized Signatory",
+    "system_administrator": "Development System Administrator",
+}
 
 DOCUMENT_TYPES = (
     ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general"], "soft"),
@@ -576,21 +587,28 @@ def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None
                 )
             )
     mention_message_id = stable_id("demo-conversation-message", f"{seed_code}:3")
-    if session.get(RequestConversationMessage, mention_message_id) is None:
-        reviewer = session.get(User, reviewer_id)
+    reviewer = session.get(User, reviewer_id)
+    mention_body = (
+        f"@{reviewer.display_name} Thank you for reviewing this request. "
+        "Please let me know if anything else is needed."
+    )
+    mention_message = session.get(RequestConversationMessage, mention_message_id)
+    if mention_message is None:
         session.add(
             RequestConversationMessage(
                 id=mention_message_id,
                 request_id=item.id,
                 author_user_id=user_ids["requestor"],
                 idempotency_key=f"demo:{seed_code}:3",
-                body=(
-                    f"@{reviewer.display_name} Thank you for reviewing this request. "
-                    "Please let me know if anything else is needed."
-                ),
+                body=mention_body,
                 created_at=item.submitted_at + timedelta(hours=stage_index + 6),
             )
         )
+    elif mention_message.body == (
+        f"@{LEGACY_DEMO_NAMES[reviewer_role]} Thank you for reviewing this request. "
+        "Please let me know if anything else is needed."
+    ):
+        mention_message.body = mention_body
     mention_id = stable_id("demo-mention-notification", seed_code)
     if session.get(RequestMentionNotification, mention_id) is None:
         session.add(
@@ -822,6 +840,8 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                     session.add(user)
                 elif settings.app_env == "test":
                     user.password_hash = hash_password(settings.development_demo_password)
+                if user.display_name == LEGACY_DEMO_NAMES[role_code]:
+                    user.display_name = display_name
                 user.department_id = department_ids[department_code]
                 user_role_id = stable_id("user-role", f"{email}:{role_code}")
                 role_id = stable_id("role", role_code)
@@ -855,7 +875,7 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                         "demo_current_step": current_step,
                         "demo_display_status": display_status,
                         "budgeted": budgeted,
-                        "validation_assignee": "Development Finance Associate",
+                        "validation_assignee": "Nina Santos",
                     }
                     if request_type == "cashAdvance":
                         type_data.update(

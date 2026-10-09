@@ -74,14 +74,10 @@ test("current iPhone and Samsung viewports keep finance pages usable", async ({ 
       await page.goto("/#/administration/request-settings");
       const administrationTabs = page.getByRole("navigation", { name: "Administration settings" });
       const administrationSelect = page.getByLabel("Administration section");
-      if (device.width < 640) {
-        await expect(administrationTabs).toBeHidden();
-        await expect(administrationSelect).toBeVisible();
-      } else {
-        await expect(administrationTabs).toBeVisible();
-        await expect(administrationSelect).toBeHidden();
-        expect(await administrationTabs.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
-      }
+      await expect(administrationTabs).toBeVisible();
+      await expect(administrationSelect).toBeHidden();
+      await expect(administrationTabs.locator("button.active")).toBeInViewport();
+      expect(await administrationTabs.evaluate((element) => element.scrollWidth >= element.clientWidth)).toBeTruthy();
 
       if (device.width < 480) {
         await page.goto("/#/dashboard");

@@ -10,6 +10,7 @@ from payment_module.models import (
     RequestConversationMessage,
     SystemSetting,
     TaxCode,
+    User,
     WorkflowInstance,
 )
 from payment_module.seed import DEMO_REQUESTS, DOCUMENT_REQUIREMENT_RULES, SEED_SETTINGS, seed, stable_id
@@ -42,7 +43,15 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
         lambda: SimpleNamespace(app_env="local", development_demo_password="Phase01-Test-Only!"),
     )
     seed_module.seed(include_document_requirement_rules=True)
+    with SessionLocal.begin() as session:
+        session.get(User, stable_id("user", "requestor@payment.local")).display_name = "Development Requestor"
+        session.get(User, stable_id("user", "coo@payment.local")).display_name = "Custom COO Name"
     seed_module.seed(include_document_requirement_rules=True)
+    with SessionLocal() as session:
+        assert session.get(User, stable_id("user", "requestor@payment.local")).display_name == "Mara Reyes"
+        assert session.get(User, stable_id("user", "coo@payment.local")).display_name == "Custom COO Name"
+    with SessionLocal.begin() as session:
+        session.get(User, stable_id("user", "coo@payment.local")).display_name = "Adrian Lim"
     with SessionLocal() as session:
         demo_requests = list(
             session.scalars(
