@@ -17,14 +17,18 @@ from .models import (
     PaymentRequest,
     PaymentRequestLine,
     Permission,
+    RequestConversationMessage,
     Role,
     RolePermission,
     SystemSetting,
     TaxCode,
     User,
     UserRole,
+    WorkflowEvent,
+    WorkflowInstance,
 )
 from .security import hash_password
+from .workflow_service import start_workflow
 
 SEED_SETTINGS = {
     "application.name": "Automated Payment System",
@@ -365,14 +369,236 @@ DEMO_REQUESTS = (
 
 # Append to preserve the request numbers of existing development samples.
 DEMO_REQUESTS += (
-    ("DEMO-DEPT-002", "general", "submitted", 3, "Department Approval",
-     "Marketing campaign print materials", "Sample Print Studio", "16200.00", True),
-    ("DEMO-DEPT-003", "general", "submitted", 3, "Department Approval",
-     "Department event supplies", "Sample Event Supplier", "28750.00", True),
+    (
+        "DEMO-DEPT-002",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Marketing campaign print materials",
+        "Sample Print Studio",
+        "16200.00",
+        True,
+    ),
+    (
+        "DEMO-DEPT-003",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Department event supplies",
+        "Sample Event Supplier",
+        "28750.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-002",
+        "reimbursement",
+        "submitted",
+        4,
+        "Document Validation",
+        "Field team travel reimbursement",
+        "Sample Travel Desk",
+        "35640.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-003",
+        "general",
+        "submitted",
+        4,
+        "Document Validation",
+        "Office maintenance supplies",
+        "Sample Office Systems",
+        "42800.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-002",
+        "general",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Staff training venue",
+        "Sample Training Center",
+        "76000.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-003",
+        "poPayment",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Department computer peripherals",
+        "Sample BrightTech Supply",
+        "138500.00",
+        True,
+    ),
+    (
+        "DEMO-COO-002",
+        "general",
+        "submitted",
+        7,
+        "COO Approval",
+        "Campus safety improvements",
+        "Sample BuildWorks",
+        "275000.00",
+        True,
+    ),
+    (
+        "DEMO-COO-003",
+        "poPayment",
+        "submitted",
+        7,
+        "COO Approval",
+        "Classroom equipment replacement",
+        "Sample Office Systems",
+        "185000.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-002",
+        "general",
+        "submitted",
+        8,
+        "President Approval",
+        "Student services platform",
+        "Sample CloudWorks",
+        "410000.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-003",
+        "poPayment",
+        "submitted",
+        8,
+        "President Approval",
+        "Campus network upgrade",
+        "Sample Enterprise Systems",
+        "620000.00",
+        True,
+    ),
+    (
+        "DEMO-BOARD-002",
+        "general",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "New learning center fit-out",
+        "Sample BuildWorks",
+        "1450000.00",
+        False,
+    ),
+    (
+        "DEMO-BOARD-003",
+        "poPayment",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "Multi-campus equipment project",
+        "Sample Enterprise Systems",
+        "2100000.00",
+        False,
+    ),
 )
+
+DEMO_APPROVAL_STAGES = {3: 0, 4: 1, 5: 2, 7: 3, 8: 3, 8.5: 5}
+DEMO_REVIEW_NOTES = {
+    3: ("Please confirm the department cost center.", "Confirmed; this will be charged to Marketing."),
+    4: ("Is the supporting invoice attached?", "Yes, the invoice is attached to the request."),
+    5: ("Please confirm the budget source.", "Finance confirmed the approved department budget."),
+    7: ("Does the requested timing affect operations?", "Finance confirmed the proposed payment schedule."),
+    8: ("Please clarify the expected benefit.", "The request supports the approved campus plan."),
+    8.5: ("Can Finance confirm the project milestones?", "Finance confirmed the milestone schedule and amounts."),
+}
+
 
 def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
+
+
+def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None:
+    """Give local samples real, stable assignments and visible discussion history."""
+    stage_index = DEMO_APPROVAL_STAGES.get(current_step)
+    if stage_index is None or item.status != "submitted":
+        return
+    instance = session.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
+    if instance is None:
+        instance = start_workflow(session, item, user_ids["requestor"])
+        if stage_index >= len(instance.route_snapshot["stages"]):
+            raise ValueError(f"Demo approval stage is outside the route: {seed_code}")
+        instance.current_stage = stage_index
+        instance.version = stage_index + 1
+        instance.created_at = item.submitted_at
+        session.flush()
+        route_event = session.scalar(
+            select(WorkflowEvent).where(
+                WorkflowEvent.workflow_id == instance.id, WorkflowEvent.action == "route_started"
+            )
+        )
+        route_event.occurred_at = item.submitted_at
+        for previous_index, stage in enumerate(instance.route_snapshot["stages"][:stage_index]):
+            session.add(
+                WorkflowEvent(
+                    id=stable_id("demo-workflow-approval", f"{seed_code}:{previous_index}"),
+                    request_id=item.id,
+                    workflow_id=instance.id,
+                    actor_user_id=user_ids[stage["role"]],
+                    action="stage_approved",
+                    stage_index=previous_index,
+                    note=f"Demo review completed by {stage['role'].replace('_', ' ').title()}.",
+                    details={"stage": stage["code"]},
+                    occurred_at=item.submitted_at + timedelta(hours=previous_index + 1),
+                )
+            )
+    reviewer_role = instance.route_snapshot["stages"][stage_index]["role"]
+    reviewer_id = user_ids[reviewer_role]
+    reply_id = user_ids["finance_associate"] if current_step in {5, 7, 8, 8.5} else user_ids["requestor"]
+    question, answer = DEMO_REVIEW_NOTES[current_step]
+    conversation = (
+        (user_ids["requestor"], f"I submitted the supporting details for {item.purpose.lower()}."),
+        (reviewer_id, question),
+        (reply_id, answer),
+    )
+    for message_index, (author_id, body) in enumerate(conversation):
+        message_id = stable_id("demo-conversation-message", f"{seed_code}:{message_index}")
+        if session.get(RequestConversationMessage, message_id) is None:
+            session.add(
+                RequestConversationMessage(
+                    id=message_id,
+                    request_id=item.id,
+                    author_user_id=author_id,
+                    idempotency_key=f"demo:{seed_code}:{message_index}",
+                    body=body,
+                    created_at=item.submitted_at + timedelta(hours=stage_index + 3 + message_index),
+                )
+            )
+    if seed_code == "DEMO-BOARD-001":
+        for offset, action, author_id, note in (
+            (0, "information_requested", reviewer_id, "Please confirm the project milestone amounts."),
+            (
+                1,
+                "information_provided",
+                user_ids["finance_associate"],
+                "Finance confirmed the milestone schedule against the submitted breakdown.",
+            ),
+        ):
+            event_id = stable_id("demo-information-event", f"{seed_code}:{action}")
+            if session.get(WorkflowEvent, event_id) is None:
+                session.add(
+                    WorkflowEvent(
+                        id=event_id,
+                        request_id=item.id,
+                        workflow_id=instance.id,
+                        actor_user_id=author_id,
+                        action=action,
+                        stage_index=stage_index,
+                        note=note,
+                        details={"stage": instance.route_snapshot["stages"][stage_index]["code"]},
+                        occurred_at=item.submitted_at + timedelta(hours=stage_index + 6 + offset),
+                    )
+                )
 
 
 def seed(*, include_document_requirement_rules: bool | None = None) -> None:
@@ -627,7 +853,10 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                     item.currency_code = "PHP"
                     item.gross_amount = Decimal(amount)
                     item.type_data = type_data
-                    item.submitted_at = None if status == "draft" else now - timedelta(days=16 - index)
+                    if status == "draft":
+                        item.submitted_at = None
+                    elif item.submitted_at is None:
+                        item.submitted_at = now - timedelta(days=max(1, 16 - index))
                     item.archived_at = now - timedelta(days=1) if status == "archived" else None
                     session.flush()
                     line_id = stable_id("demo-payment-request-line", seed_code)
@@ -644,6 +873,7 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                     line.amount = Decimal(amount)
                     line.currency_code = "PHP"
                     line.attachment_refs = [f"demo-{seed_code.lower()}.pdf"] if status != "draft" else []
+                    seed_demo_approval(session, item, seed_code, current_step, user_ids)
 
 
 if __name__ == "__main__":

@@ -77,6 +77,7 @@ Create a backend-authoritative approval engine that snapshots policy at submissi
 - Frontend persona views show only permitted queues/actions and provide accessible confirmation/comment dialogs.
 - Returned work clearly identifies required corrections without exposing restricted reviewer-only data.
 - Mock mode contains representative threshold routes for independent UI validation.
+- Local development seeding provides three assigned requests for each Phase 05 reviewer (Department Head, Finance Associate, Finance Manager, COO, President, and Board Member), with three shared messages per request. One Board sample also includes a resolved Request More Information exchange. The seed uses stable IDs and preserves existing conversations on rerun.
 
 ## Operational requirements
 
