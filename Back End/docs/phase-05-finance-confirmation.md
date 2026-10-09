@@ -3,7 +3,7 @@
 Prepared: 2026-09-29  
 Status: PHP conversion basis confirmed by owner on 2026-10-08. Rates remain blank until configured per currency.
 
-The owner also confirmed the first Department Head rejection choices on 2026-10-08: Return to Requestor for editing and resubmission, or Fully Decline to end the request. Both require a reviewer reason. Later-stage rejection destinations remain open.
+The owner confirmed on 2026-10-08 that Department Head may Return to Requestor for editing and resubmission, or Fully Decline to end the request. On 2026-10-09 the owner extended both actions through the Finance Manager approval stage. Both require a reviewer reason. COO, President, and Board use Request More Information: the question goes to Finance Associate, and after Finance Associate responds the request resumes at the same executive or Board stage without restarting approvals.
 
 ## 1. Foreign-currency threshold basis
 
@@ -22,7 +22,7 @@ The owner also confirmed the first Department Head rejection choices on 2026-10-
 | Which executive role, if any, must approve before Board Member review? | COO, then President | Owner direction, 2026-09-29 |
 | Is the sequence Finance Manager → executive → Board Member, or another order? | Finance Manager review → COO approval → President approval → Board review | Owner direction applied to the prototype sequence, 2026-09-29 |
 | Is Board Member the final approval stage? | Board review is last in the confirmed sequence; decision authority still needs definition. | Owner direction, 2026-09-29 |
-| What happens if the executive returns or declines the request? |  |  |
+| What happens when COO, President, or Board needs clarification? | Request More Information sends the question to Finance Associate. The current stage pauses; Finance Associate responds, then that same stage resumes. Earlier approvals remain complete. | Owner direction, 2026-10-09 |
 
 ## Provisional tiers available for testing
 

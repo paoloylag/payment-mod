@@ -79,7 +79,7 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
 
 def close_workflow(db: Session, item: PaymentRequest, actor_id, reason: str, note: str = "") -> None:
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id).with_for_update())
-    if instance and instance.state in {"active", "policy_pending"}:
+    if instance and instance.state in {"active", "information_requested", "policy_pending"}:
         previous_stage = instance.current_stage
         instance.state = reason
         instance.current_stage = None

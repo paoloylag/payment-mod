@@ -34,9 +34,14 @@ class ApprovalDecision(BaseModel):
     note: str = Field(default="", max_length=2000)
 
 
-class FirstStageRejection(BaseModel):
+class ApprovalRejection(BaseModel):
     version: int = Field(ge=1)
     decision: Literal["return", "decline"]
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class InformationNote(BaseModel):
+    version: int = Field(ge=1)
     note: str = Field(min_length=1, max_length=2000)
 
 
@@ -52,6 +57,14 @@ def can_review(request: Request, actor: User, item: PaymentRequest, stage: dict,
         and stage["role"] in roles
         and actor.id != item.requestor_id
         and (stage["role"] != "department_head" or actor.department_id == item.department_id)
+    )
+
+
+def can_respond_information(request: Request, actor: User, item: PaymentRequest, roles: set[str]) -> bool:
+    return (
+        "workflow.review" in getattr(request.state, "permissions", set())
+        and "finance_associate" in roles
+        and actor.id != item.requestor_id
     )
 
 
@@ -74,16 +87,37 @@ def approval_queue(request: Request, db: Session = Depends(get_db), actor: User 
     rows = db.execute(
         select(WorkflowInstance, PaymentRequest)
         .join(PaymentRequest, PaymentRequest.id == WorkflowInstance.request_id)
-        .where(WorkflowInstance.state == "active", PaymentRequest.status == "submitted")
+        .where(WorkflowInstance.state.in_({"active", "information_requested"}), PaymentRequest.status == "submitted")
         .order_by(PaymentRequest.submitted_at, PaymentRequest.id)
     ).all()
     assigned = [
         (instance, item)
         for instance, item in rows
-        if can_review(request, actor, item, instance.route_snapshot["stages"][instance.current_stage], roles)
+        if (
+            instance.state == "active"
+            and can_review(request, actor, item, instance.route_snapshot["stages"][instance.current_stage], roles)
+        ) or (instance.state == "information_requested" and can_respond_information(request, actor, item, roles))
     ]
     summaries = serialize_many(db, [item for _, item in assigned])
-    return [{**view(instance), "request": summary} for (instance, _), summary in zip(assigned, summaries, strict=True)]
+    result = []
+    for (instance, _), summary in zip(assigned, summaries, strict=True):
+        entry = {**view(instance), "request": summary}
+        if instance.state == "information_requested":
+            question = db.scalar(
+                select(WorkflowEvent)
+                .where(WorkflowEvent.workflow_id == instance.id, WorkflowEvent.action == "information_requested")
+                .order_by(WorkflowEvent.occurred_at.desc(), WorkflowEvent.id.desc())
+            )
+            entry["information_request"] = {
+                "note": question.note,
+                "requested_at": question.occurred_at.isoformat(),
+                "stage_index": question.stage_index,
+            }
+            entry["assignment_role"] = "finance_associate"
+        else:
+            entry["assignment_role"] = instance.route_snapshot["stages"][instance.current_stage]["role"]
+        result.append(entry)
+    return result
 
 
 @router.get("/{request_id}")
@@ -97,9 +131,10 @@ def workflow_detail(
     if instance is None:
         raise HTTPException(404, "Workflow not started")
     normally_visible = db.scalar(visible_query(request, actor).where(PaymentRequest.id == request_id)) is not None
+    roles = actor_roles(db, actor)
     assigned = instance.state == "active" and can_review(
-        request, actor, item, instance.route_snapshot["stages"][instance.current_stage], actor_roles(db, actor)
-    )
+        request, actor, item, instance.route_snapshot["stages"][instance.current_stage], roles
+    ) or instance.state == "information_requested" and can_respond_information(request, actor, item, roles)
     if not normally_visible and not assigned:
         raise HTTPException(404, "Workflow not started")
     events = db.scalars(
@@ -191,9 +226,9 @@ def approve_stage(
 
 
 @router.post("/{request_id}/reject")
-def reject_first_stage(
+def reject_approval_stage(
     request_id: UUID,
-    payload: FirstStageRejection,
+    payload: ApprovalRejection,
     request: Request,
     idempotency_key: str = Header(alias="Idempotency-Key"),
     db: Session = Depends(get_db),
@@ -223,8 +258,8 @@ def reject_first_stage(
     stage = instance.route_snapshot["stages"][instance.current_stage]
     if not can_review(request, actor, item, stage, actor_roles(db, actor)):
         raise HTTPException(403, "This approval stage is not assigned to this reviewer")
-    if instance.current_stage != 0 or stage["role"] != "department_head":
-        raise HTTPException(409, "Return and decline rules for later stages are pending confirmation")
+    if stage["role"] not in {"department_head", "finance_manager"} or instance.current_stage not in {0, 2}:
+        raise HTTPException(409, "This stage does not allow Return or Fully Decline")
     stage_index = instance.current_stage
     target_status = "returned" if payload.decision == "return" else "declined"
     item.status = target_status
@@ -255,6 +290,142 @@ def reject_first_stage(
         request_id=request.state.request_id,
         before={"state": "active", "stage_index": stage_index, "request_status": "submitted"},
         after={"state": instance.state, "request_status": item.status, "request_version": item.version, "reason": note},
+    )
+    db.add(
+        WorkflowCommand(request_id=request_id, actor_user_id=actor.id, idempotency_key=idempotency_key, result=result)
+    )
+    db.commit()
+    return result
+
+
+@router.post("/{request_id}/request-information")
+def request_more_information(
+    request_id: UUID,
+    payload: InformationNote,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    note = payload.note.strip()
+    if not note or not idempotency_key.strip():
+        raise HTTPException(422, "A question and Idempotency-Key are required")
+    item = db.scalar(select(PaymentRequest).where(PaymentRequest.id == request_id).with_for_update())
+    if item is None:
+        raise HTTPException(404, "Payment request not found")
+    existing = db.scalar(
+        select(WorkflowCommand).where(
+            WorkflowCommand.actor_user_id == actor.id,
+            WorkflowCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        if existing.request_id != request_id or existing.result.get("action") != "information_requested":
+            raise HTTPException(409, "Idempotency key belongs to another action")
+        return existing.result
+    instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id).with_for_update())
+    if item.status != "submitted" or instance is None or instance.state != "active" or instance.current_stage is None:
+        raise HTTPException(409, "Request has no active executive approval stage")
+    if instance.version != payload.version:
+        raise HTTPException(409, "Workflow changed; reload before requesting information")
+    stage_index = instance.current_stage
+    stage = instance.route_snapshot["stages"][stage_index]
+    if not can_review(request, actor, item, stage, actor_roles(db, actor)):
+        raise HTTPException(403, "This approval stage is not assigned to this reviewer")
+    if stage["role"] not in {"coo", "president", "board_member"}:
+        raise HTTPException(409, "Request More Information is available from COO review onward")
+    instance.state = "information_requested"
+    instance.version += 1
+    db.add(
+        WorkflowEvent(
+            request_id=request_id,
+            workflow_id=instance.id,
+            actor_user_id=actor.id,
+            action="information_requested",
+            stage_index=stage_index,
+            note=note,
+            details={"stage": stage["code"], "response_role": "finance_associate"},
+        )
+    )
+    db.flush()
+    result = {**view(instance), "action": "information_requested"}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="workflow.information_requested",
+        entity_type="workflow_instance",
+        entity_id=instance.id,
+        request_id=request.state.request_id,
+        before={"state": "active", "stage_index": stage_index, "version": payload.version},
+        after={"state": instance.state, "stage_index": stage_index, "version": instance.version, "question": note},
+    )
+    db.add(
+        WorkflowCommand(request_id=request_id, actor_user_id=actor.id, idempotency_key=idempotency_key, result=result)
+    )
+    db.commit()
+    return result
+
+
+@router.post("/{request_id}/respond-information")
+def respond_to_information_request(
+    request_id: UUID,
+    payload: InformationNote,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    note = payload.note.strip()
+    if not note or not idempotency_key.strip():
+        raise HTTPException(422, "A response and Idempotency-Key are required")
+    item = db.scalar(select(PaymentRequest).where(PaymentRequest.id == request_id).with_for_update())
+    if item is None:
+        raise HTTPException(404, "Payment request not found")
+    existing = db.scalar(
+        select(WorkflowCommand).where(
+            WorkflowCommand.actor_user_id == actor.id,
+            WorkflowCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        if existing.request_id != request_id or existing.result.get("action") != "information_provided":
+            raise HTTPException(409, "Idempotency key belongs to another action")
+        return existing.result
+    instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id).with_for_update())
+    if item.status != "submitted" or instance is None or instance.state != "information_requested":
+        raise HTTPException(409, "Request is not awaiting Finance Associate information")
+    if instance.version != payload.version:
+        raise HTTPException(409, "Workflow changed; reload before responding")
+    if not can_respond_information(request, actor, item, actor_roles(db, actor)):
+        raise HTTPException(403, "Information response is assigned to Finance Associate")
+    stage_index = instance.current_stage
+    stage = instance.route_snapshot["stages"][stage_index]
+    if stage["role"] not in {"coo", "president", "board_member"}:
+        raise HTTPException(409, "Information request has no executive stage to resume")
+    instance.state = "active"
+    instance.version += 1
+    db.add(
+        WorkflowEvent(
+            request_id=request_id,
+            workflow_id=instance.id,
+            actor_user_id=actor.id,
+            action="information_provided",
+            stage_index=stage_index,
+            note=note,
+            details={"resume_stage": stage["code"]},
+        )
+    )
+    db.flush()
+    result = {**view(instance), "action": "information_provided"}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="workflow.information_provided",
+        entity_type="workflow_instance",
+        entity_id=instance.id,
+        request_id=request.state.request_id,
+        before={"state": "information_requested", "stage_index": stage_index, "version": payload.version},
+        after={"state": instance.state, "stage_index": stage_index, "version": instance.version, "response": note},
     )
     db.add(
         WorkflowCommand(request_id=request_id, actor_user_id=actor.id, idempotency_key=idempotency_key, result=result)

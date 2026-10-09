@@ -231,7 +231,7 @@ def test_configured_rate_routes_in_php_and_is_frozen_at_submission(client):
             db.get(Currency, "USD").php_per_unit = previous_rate
 
 
-def test_return_and_decline_only_at_first_approval_stage(client):
+def test_return_and_decline_through_finance_manager_approval(client):
     seed()
     reviewers = [
         (0, "department.head@payment.local"),
@@ -261,7 +261,7 @@ def test_return_and_decline_only_at_first_approval_stage(client):
                 json=payload,
                 headers={**headers, "Idempotency-Key": key},
             )
-            if index == 0:
+            if index in {0, 2}:
                 assert response.status_code == 200, response.text
                 assert response.json()["request_status"] == ("returned" if decision == "return" else "declined")
                 repeated = client.post(
@@ -272,3 +272,95 @@ def test_return_and_decline_only_at_first_approval_stage(client):
                 assert repeated.json() == response.json()
             else:
                 assert response.status_code == 409
+
+
+def test_executive_information_request_returns_to_same_stage_after_finance_response(client):
+    seed()
+    request_id = create_submitted()
+    for version, email in enumerate(
+        ("department.head@payment.local", "finance.associate@payment.local", "finance.manager@payment.local"),
+        start=1,
+    ):
+        headers = login(client, email)
+        approval = client.post(
+            f"/api/v1/workflow/{request_id}/approve",
+            json={"version": version},
+            headers={**headers, "Idempotency-Key": f"advance-to-coo-{version}"},
+        )
+        assert approval.status_code == 200, approval.text
+    coo_headers = login(client, "coo@payment.local")
+    assert [row["request_id"] for row in client.get("/api/v1/workflow/queue").json()] == [str(request_id)]
+    question = client.post(
+        f"/api/v1/workflow/{request_id}/request-information",
+        json={"version": 4, "note": "Please explain the payee details"},
+        headers={**coo_headers, "Idempotency-Key": "coo-question"},
+    )
+    assert question.status_code == 200, question.text
+    assert question.json()["state"] == "information_requested"
+    assert question.json()["current_stage"] == 3
+    repeated = client.post(
+        f"/api/v1/workflow/{request_id}/request-information",
+        json={"version": 4, "note": "Please explain the payee details"},
+        headers={**coo_headers, "Idempotency-Key": "coo-question"},
+    )
+    assert repeated.json() == question.json()
+    assert client.get("/api/v1/workflow/queue").json() == []
+    requestor_headers = login(client, "requestor@payment.local")
+    denied = client.post(
+        f"/api/v1/workflow/{request_id}/respond-information",
+        json={"version": 5, "note": "I am not the Finance Associate"},
+        headers={**requestor_headers, "Idempotency-Key": "wrong-responder"},
+    )
+    assert denied.status_code == 403
+    finance_headers = login(client, "finance.associate@payment.local")
+    finance_queue = client.get("/api/v1/workflow/queue").json()
+    assert [row["request_id"] for row in finance_queue] == [str(request_id)]
+    assert finance_queue[0]["assignment_role"] == "finance_associate"
+    assert finance_queue[0]["information_request"]["note"] == "Please explain the payee details"
+    response = client.post(
+        f"/api/v1/workflow/{request_id}/respond-information",
+        json={"version": 5, "note": "The payee matches the attached billing document"},
+        headers={**finance_headers, "Idempotency-Key": "finance-response"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["state"] == "active"
+    assert response.json()["current_stage"] == 3
+    assert response.json()["version"] == 6
+    assert client.get("/api/v1/workflow/queue").json() == []
+    coo_headers = login(client, "coo@payment.local")
+    assert [row["request_id"] for row in client.get("/api/v1/workflow/queue").json()] == [str(request_id)]
+    detail = client.get(f"/api/v1/workflow/{request_id}").json()
+    assert [event["action"] for event in detail["events"]][-2:] == ["information_requested", "information_provided"]
+    approval = client.post(
+        f"/api/v1/workflow/{request_id}/approve",
+        json={"version": 6},
+        headers={**coo_headers, "Idempotency-Key": "coo-after-response"},
+    )
+    assert approval.status_code == 200
+    assert approval.json()["current_stage"] == 4
+
+
+def test_president_and_board_information_requests_resume_their_own_stage(client):
+    seed()
+    for stage_index, email in [(4, "president@payment.local"), (5, "board.member@payment.local")]:
+        request_id = create_submitted()
+        with SessionLocal.begin() as db:
+            instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id))
+            instance.current_stage = stage_index
+        reviewer_headers = login(client, email)
+        question = client.post(
+            f"/api/v1/workflow/{request_id}/request-information",
+            json={"version": 1, "note": "Clarify the payment basis"},
+            headers={**reviewer_headers, "Idempotency-Key": f"question-{stage_index}"},
+        )
+        assert question.status_code == 200
+        assert question.json()["current_stage"] == stage_index
+        finance_headers = login(client, "finance.associate@payment.local")
+        response = client.post(
+            f"/api/v1/workflow/{request_id}/respond-information",
+            json={"version": 2, "note": "The supporting documents explain the basis"},
+            headers={**finance_headers, "Idempotency-Key": f"response-{stage_index}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["state"] == "active"
+        assert response.json()["current_stage"] == stage_index

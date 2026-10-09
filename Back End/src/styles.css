@@ -3438,6 +3438,17 @@ label {
 
 .approval-actions .danger { color: #fff; }
 
+.approval-information-question {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.approval-information-question p { margin: 6px 0 0; }
+
 .first-stage-reject-control {
   grid-column: span 2;
   display: grid;

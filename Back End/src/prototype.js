@@ -1095,10 +1095,10 @@ async function loadApiPaymentRequests(filters = null) {
   const submitted = allItems.filter((item) => item.status !== "draft").map((item) => {
     const request = { ...apiRequestToPrototype(item), decisionReason: decisions.get(item.id) || "" };
     const workflow = queueById.get(item.id);
-    if (workflow?.state === "active") {
+    if (workflow && ["active", "information_requested"].includes(workflow.state)) {
       const stage = workflow.route.stages[workflow.current_stage];
-      request.currentStep = stageSteps[stage.role] || request.currentStep;
-      request.status = stage.purpose;
+      request.currentStep = stageSteps[workflow.assignment_role || stage.role] || request.currentStep;
+      request.status = workflow.state === "information_requested" ? `Information Requested by ${stage.role === "board_member" ? "Board" : stage.role === "president" ? "President" : "COO"}` : stage.purpose;
     }
     return request;
   });
@@ -2294,7 +2294,7 @@ function downloadValidationDocument(request, index) {
 
 function approvalQueuePreview(request) {
   const financeAction = dashboardPreviewAction(request);
-  const financeAssociateLabel = financeAction.label;
+  const financeAssociateLabel = request.status.startsWith("Information Requested") ? "Respond to Information Request" : financeAction.label;
   const labels = { departmentHead: "Review Department Approval", financeAssociate: financeAssociateLabel, financeManager: "Review Budget and Approve", authorizedSignatory: "Review Signatory Approval", coo: "Review COO Approval", president: "Review President Approval", boardMember: "Review Board Approval", all: "Open Approval Workspace" };
   const owner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   return `<aside class="panel dashboard-preview-pane approval-preview-pane" aria-live="polite">
@@ -2309,6 +2309,9 @@ function approvalQueuePreview(request) {
 function unifiedRoleAction(request, lifecycleButtons = "") {
   const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   if (request.backendId && request.backendStatus !== "submitted") return "";
+  const informationAssignment = request.backendId && state.workflowQueue.find((entry) => entry.request_id === request.backendId && entry.state === "information_requested");
+  if (informationAssignment && state.persona === "financeAssociate") return backendInformationResponseCard(request, informationAssignment);
+  if (!request.backendId && request.infoRequest && state.persona === "financeAssociate") return mockInformationResponseCard(request);
   if (request.backendId && state.persona === "financeAssociate" && request.currentStep === 4) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>Finance Validation</h3><p>Document, tax, and accounting validation will be connected in Phase 06. This approval stage cannot be completed from the prototype controls.</p></div></section>`;
   if (state.persona === "financeAssociate") {
     if (request.currentStep === 4) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>Document Validation</h3><p>Validate documents, tax treatment, and accounting entries for this request.</p></div></section><section class="panel unified-action-workspace">${documentValidationWorkspace(request)}</section>`;
@@ -2318,7 +2321,7 @@ function unifiedRoleAction(request, lifecycleButtons = "") {
   if (state.persona === "authorizedSignatory" && request.currentStep === 11) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Authorized Signatory Action</span><h3>Signatory Approval</h3><p>Review the approved voucher, payee, amount, and payment instruction before authorizing the transaction.</p></div></section>${paymentOperationsPanel(request)}`;
   const approvalRoleMatches = state.persona === "departmentHead" && request.currentStep === 3 || state.persona === "financeManager" && request.currentStep === 5 || state.persona === "coo" && request.currentStep === 7 || state.persona === "president" && request.currentStep === 8 || state.persona === "boardMember" && request.currentStep === 8.5 || state.persona === "all" && [3, 5, 7, 8, 8.5].includes(request.currentStep);
   if (request.backendId && approvalRoleMatches) return backendApprovalCard(request, lifecycleButtons);
-  if (approvalRoleMatches) return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">${personas[state.persona].label} Action</span><h3>${request.status}</h3><p>Review the request and supporting documents, then record your decision.</p></div>${["financeManager", "coo", "president", "boardMember"].includes(state.persona) ? validationReadOnlySummary(request) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">Approve and Notify Next Owner</button>${canRejectApproval(request) ? approvalRejectControl(request) : `<button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button>`}</div><label class="approval-reviewer-note">Reviewer Note<textarea>Reviewed request details, supporting documents, and approval route.</textarea></label>${lifecycleButtons ? `<div class="approval-lifecycle-actions">${lifecycleButtons}</div>` : ""}</section>`;
+  if (approvalRoleMatches) return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">${personas[state.persona].label} Action</span><h3>${request.status}</h3><p>Review the request and supporting documents, then record your decision.</p></div>${["financeManager", "coo", "president", "boardMember"].includes(state.persona) ? validationReadOnlySummary(request) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">Approve and Notify Next Owner</button>${canRejectApproval(request) ? approvalRejectControl(request) : `<button type="button" class="request-info-button" data-mock-request-information>Request More Information</button>`}</div><label class="approval-reviewer-note">Reviewer Note<textarea>Reviewed request details, supporting documents, and approval route.</textarea></label>${lifecycleButtons ? `<div class="approval-lifecycle-actions">${lifecycleButtons}</div>` : ""}</section>`;
   if (state.persona === "requestor" && request.currentStep <= 2) return `<section class="panel unified-action-note"><div class="unified-action-heading"><span class="eyebrow">Requestor Action</span><h3>Complete Required Documents</h3><p>Upload or replace the documents required before this request can proceed.</p></div></section><section class="panel unified-action-workspace"><button type="button" class="primary-button" data-tab="uploads">Manage Document Uploads</button></section>`;
   return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><span class="eyebrow">Current Workflow Owner</span><h3>${request.status}</h3><p>${currentOwner} currently owns this request. No action is required from ${personas[state.persona].label}.</p></div></section>`;
 }
@@ -2327,12 +2330,22 @@ function canManageRequestLifecycle() {
   return state.authUser?.roles?.some((role) => ["department_head", "finance_associate", "finance_manager", "system_administrator"].includes(role));
 }
 
+function backendInformationResponseCard(request, assignment) {
+  const stage = assignment.route.stages[assignment.current_stage];
+  return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>Respond to Information Request</h3><p>${escapeHtml(stage.purpose)} will resume after you provide the requested information. Earlier approvals remain recorded.</p></div><div class="approval-information-question"><strong>Reviewer question</strong><p>${escapeHtml(assignment.information_request?.note || "Open the workflow history for the request details.")}</p></div><div class="approval-actions"><button type="button" class="confirmation-button" data-backend-respond-information="${escapeHtml(request.id)}">Respond and Return to Reviewer</button></div></section>`;
+}
+
+function mockInformationResponseCard(request) {
+  return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">Finance Associate Action</span><h3>Respond to Information Request</h3><p>The request returns to the same reviewer after your response.</p></div><div class="approval-information-question"><strong>Reviewer question</strong><p>${escapeHtml(request.infoRequest.note)}</p></div><div class="approval-actions"><button type="button" class="confirmation-button" data-mock-respond-information="${escapeHtml(request.id)}">Respond and Return to Reviewer</button></div></section>`;
+}
+
 function backendApprovalCard(request, lifecycleButtons = "") {
   const assignment = state.workflowQueue.find((entry) => entry.request_id === request.backendId);
+  if (assignment?.state === "information_requested") return backendInformationResponseCard(request, assignment);
   if (!assignment || assignment.state !== "active") return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><h3>No assigned approval action</h3><p>This request is not currently assigned to your account.</p></div></section>`;
   const stage = assignment.route.stages[assignment.current_stage];
   if (stage.role === "finance_associate") return `<section class="panel unified-action-note"><div class="unified-action-heading"><h3>Finance Validation</h3><p>This stage awaits the Phase 06 validation workbench.</p></div></section>`;
-  return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">Assigned Approval</span><h3>${escapeHtml(stage.purpose)}</h3><p>Review the request and supporting documents before recording your decision.</p></div><div class="approval-actions"><button type="button" class="confirmation-button" data-backend-approve="${escapeHtml(request.id)}">Approve</button>${canRejectApproval(request) ? approvalRejectControl(request) : `<p>Return and decline rules for this stage are pending confirmation.</p>`}</div><label class="approval-reviewer-note">Reviewer Note<textarea placeholder="Add a note for the approval history"></textarea></label>${lifecycleButtons ? `<div class="approval-lifecycle-actions">${lifecycleButtons}</div>` : ""}</section>`;
+  return `<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">Assigned Approval</span><h3>${escapeHtml(stage.purpose)}</h3><p>Review the request and supporting documents before recording your decision.</p></div><div class="approval-actions"><button type="button" class="confirmation-button" data-backend-approve="${escapeHtml(request.id)}">Approve</button>${canRejectApproval(request) ? approvalRejectControl(request) : `<button type="button" class="request-info-button" data-backend-request-information="${escapeHtml(request.id)}">Request More Information</button>`}</div><label class="approval-reviewer-note">Reviewer Note<textarea placeholder="Add a note for the approval history"></textarea></label>${lifecycleButtons ? `<div class="approval-lifecycle-actions">${lifecycleButtons}</div>` : ""}</section>`;
 }
 
 function approvalRejectControl(request) {
@@ -2340,7 +2353,11 @@ function approvalRejectControl(request) {
 }
 
 function canRejectApproval(request) {
-  return request.currentStep === 3 && (!request.backendId || request.backendStatus === "submitted") && (state.persona === "departmentHead" || state.persona === "all") && (!request.backendId || state.workflowQueue.some((entry) => entry.request_id === request.backendId && entry.current_stage === 0 && entry.route.stages[0]?.role === "department_head"));
+  const allowed = { 3: ["departmentHead", "department_head", 0], 5: ["financeManager", "finance_manager", 2] }[request.currentStep];
+  if (!allowed || request.backendId && request.backendStatus !== "submitted") return false;
+  if (state.persona !== allowed[0] && state.persona !== "all") return false;
+  if (!request.backendId) return true;
+  return state.workflowQueue.some((entry) => entry.request_id === request.backendId && entry.current_stage === allowed[2] && entry.route.stages[allowed[2]]?.role === allowed[1]);
 }
 
 function ownsApiRequest(request) {
@@ -2389,12 +2406,13 @@ function approvals() {
   if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Signatory Approval Queue" : "Approval Queue"}</h3><p>Click a request to preview it. Double-click to open its details.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
   if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
   if (selected.backendId) return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3><p>${paymentTypes[selected.type].label} · ${selected.department} · ${requestMoney(selected)}</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}${backendApprovalCard(selected)}${documentViewerModal(selected)}</section>`;
+  if (selected.infoRequest && state.persona === "financeAssociate") return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3></div>${statusPill(selected.status)}</div>${detail(selected, true)}${mockInformationResponseCard(selected)}</section>`;
   const isVoucherCreation = state.persona === "financeAssociate" && selected.currentStep === 9;
   const actionTitle = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Document Validation" : isVoucherCreation ? "Voucher Creation" : "Approval Action";
   const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
   const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
   const showReadOnlyValidation = ["financeManager", "coo", "president", "boardMember"].includes(state.persona);
-  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Finance Associate Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : isVoucherCreation ? (state.voucherDetails.created ? "" : voucherFor(selected, true)) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button>${canRejectApproval(selected) ? approvalRejectControl(selected) : `<button class="request-info-button">Request More Information</button><button class="danger">Disapprove</button>`}</div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
+  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Finance Associate Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : isVoucherCreation ? (state.voucherDetails.created ? "" : voucherFor(selected, true)) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button>${canRejectApproval(selected) ? approvalRejectControl(selected) : `<button type="button" class="request-info-button" data-mock-request-information>Request More Information</button>`}</div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
 }
 
 function paymentOperationsPanel(request) {
@@ -3031,6 +3049,78 @@ function render() {
           state.toast = successToast("The approval was recorded.", "Decision recorded");
           navigate("/approvals");
         } catch (error) { showErrorToast(error.message || "The approval could not be recorded.", "Decision failed"); }
+      },
+    });
+  }));
+  document.querySelectorAll("[data-backend-request-information]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === button.dataset.backendRequestInformation);
+    const assignment = state.workflowQueue.find((entry) => entry.request_id === request?.backendId);
+    if (!request || assignment?.state !== "active") return;
+    openActionPrompt({
+      eyebrow: "Approval Decision", title: `Request more information for ${request.id}?`,
+      message: "Finance Associate will answer your question. This request will return to your approval stage afterward.",
+      inputLabel: "Information needed", required: true, confirmLabel: "Send to Finance Associate",
+      onConfirm: async (note) => {
+        try {
+          await dataSource.requestWorkflowInformation(request.backendId, assignment.version, note, state.csrfToken);
+          await loadApiPaymentRequests();
+          state.toast = successToast("Finance Associate has been asked for more information.", "Request recorded");
+          navigate("/approvals");
+        } catch (error) { showErrorToast(error.message || "The information request could not be recorded."); }
+      },
+    });
+  }));
+  document.querySelectorAll("[data-backend-respond-information]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === button.dataset.backendRespondInformation);
+    const assignment = state.workflowQueue.find((entry) => entry.request_id === request?.backendId);
+    if (!request || assignment?.state !== "information_requested") return;
+    openActionPrompt({
+      eyebrow: "Information Response", title: `Respond for ${request.id}?`,
+      message: "Your response will return the request to the same reviewer and approval stage.",
+      inputLabel: "Response to reviewer", required: true, confirmLabel: "Return to Reviewer",
+      onConfirm: async (note) => {
+        try {
+          await dataSource.respondWorkflowInformation(request.backendId, assignment.version, note, state.csrfToken);
+          await loadApiPaymentRequests();
+          state.toast = successToast("Your response was recorded and the review resumed.", "Response recorded");
+          navigate("/approvals");
+        } catch (error) { showErrorToast(error.message || "The response could not be recorded."); }
+      },
+    });
+  }));
+  document.querySelectorAll("[data-mock-request-information]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === (state.tab === "requestDetail" ? state.requestDetailId : state.selectedId));
+    if (!request || request.backendId || ![7, 8, 8.5].includes(request.currentStep)) return;
+    openActionPrompt({
+      eyebrow: "Approval Decision", title: `Request more information for ${request.id}?`,
+      message: "Finance Associate will respond, then this request will return to your approval stage.",
+      inputLabel: "Information needed", required: true, confirmLabel: "Send to Finance Associate",
+      onConfirm: (note) => {
+        const reviewer = { 7: "COO", 8: "President", 8.5: "Board" }[request.currentStep];
+        request.infoRequest = { stage: request.currentStep, status: request.status, note };
+        request.currentStep = 4;
+        request.status = `Information Requested by ${reviewer}`;
+        request.validationAssignee = personas.financeAssociate.name;
+        request.audit = [...(request.audit || []), { action: "Information Requested", actor: personas[state.persona].name, timestamp: new Date().toISOString(), reason: note }];
+        state.toast = successToast("Finance Associate has been asked for more information.", "Request recorded");
+        navigate("/approvals");
+      },
+    });
+  }));
+  document.querySelectorAll("[data-mock-respond-information]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => item.id === button.dataset.mockRespondInformation);
+    if (!request?.infoRequest || request.backendId) return;
+    openActionPrompt({
+      eyebrow: "Information Response", title: `Respond for ${request.id}?`,
+      message: "The request will return to the same approval stage.",
+      inputLabel: "Response to reviewer", required: true, confirmLabel: "Return to Reviewer",
+      onConfirm: (note) => {
+        request.currentStep = request.infoRequest.stage;
+        request.status = request.infoRequest.status;
+        request.audit = [...(request.audit || []), { action: "Information Provided", actor: personas[state.persona].name, timestamp: new Date().toISOString(), reason: note }];
+        delete request.infoRequest;
+        state.toast = successToast("Your response was recorded and the review resumed.", "Response recorded");
+        navigate("/approvals");
       },
     });
   }));

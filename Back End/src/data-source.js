@@ -196,6 +196,14 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
     },
+    requestWorkflowInformation(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/workflow/${id}/request-information`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
+    },
+    respondWorkflowInformation(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/workflow/${id}/respond-information`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
+    },
     rejectFirstStage(id, version, decision, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, decision, note }) });
