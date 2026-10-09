@@ -1838,9 +1838,49 @@ function conversationPanel(r) {
   const draftBody = state.conversationDraftBody[key] || "";
   if (state.conversationCollapsed) return `<section class="panel request-conversation is-collapsed" data-conversation-request="${escapeHtml(key)}"><button type="button" class="conversation-toggle conversation-expand" data-toggle-conversation aria-label="Open request conversation, ${items.length} messages" aria-expanded="false" title="Open conversation"><span aria-hidden="true">◀</span><span class="conversation-rail-label">Messages</span>${items.length ? `<span class="conversation-rail-count">${items.length}</span>` : ""}</button></section>`;
   return `<section class="panel request-conversation" data-conversation-request="${escapeHtml(key)}"><div class="panel-header"><div><span class="eyebrow">Request Conversation</span><h3>Messages & Notes</h3><p>Shared with everyone in this request's approval flow.</p></div><div class="conversation-header-actions"><span class="count">${items.length}</span><button type="button" class="conversation-toggle" data-toggle-conversation aria-label="Collapse request conversation to the right" aria-expanded="true" title="Collapse conversation">→</button></div></div>
-    ${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note for everyone in the request flow">${escapeHtml(draftBody)}</textarea>${participants.length ? `<label class="conversation-mention-label">Tag a participant<select data-mention-select="${escapeHtml(key)}"><option value="">Choose a person to notify</option>${participants.filter((person) => !selectedMentions.includes(person.id)).map((person) => `<option value="${escapeHtml(person.id)}">${escapeHtml(person.display_name)} · ${escapeHtml(person.role.replaceAll("_", " "))}</option>`).join("")}</select></label>${selectedMentions.length ? `<div class="conversation-mention-chips">${selectedMentions.map((id) => { const person = participants.find((entry) => entry.id === id); return person ? `<span class="conversation-mention-chip">@${escapeHtml(person.display_name)}<button type="button" data-remove-mention="${escapeHtml(id)}" data-mention-request="${escapeHtml(key)}" aria-label="Remove mention of ${escapeHtml(person.display_name)}">×</button></span>` : ""; }).join("")}</div>` : ""}` : ""}<div><small>Tag someone to notify them. Messages cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}
+    ${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><div class="conversation-composer-input"><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note. Type @ to tag someone" aria-autocomplete="list" aria-controls="conversation-mention-options-${escapeHtml(key)}" aria-expanded="false">${escapeHtml(draftBody)}</textarea><div id="conversation-mention-options-${escapeHtml(key)}" class="conversation-mention-menu" role="listbox" aria-label="Participants to tag" hidden></div></div>${selectedMentions.length ? `<div class="conversation-mention-chips">${selectedMentions.map((id) => { const person = participants.find((entry) => entry.id === id); return person ? `<span class="conversation-mention-chip">@${escapeHtml(person.display_name)}<button type="button" data-remove-mention="${escapeHtml(id)}" data-mention-request="${escapeHtml(key)}" aria-label="Remove mention of ${escapeHtml(person.display_name)}">×</button></span>` : ""; }).join("")}</div>` : ""}<div><small>Type @ and choose a participant to notify them. Messages cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}
     ${loading ? `<p class="conversation-muted">Loading messages…</p>` : error ? `<div class="conversation-error" role="alert"><p>${escapeHtml(error)}</p><button type="button" data-retry-conversation="${escapeHtml(key)}">Try again</button></div>` : items.length ? `<div class="conversation-list" aria-label="Request messages, newest first">${[...items].reverse().map((item) => `<article class="conversation-entry" id="message-${escapeHtml(item.id)}"><div class="conversation-entry-header"><strong>${escapeHtml(item.author_name)}</strong>${item.kind !== "message" ? `<span class="conversation-event-tag">${escapeHtml(labels[item.kind] || item.kind)}</span>` : ""}<time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></div><p>${escapeHtml(item.body)}</p></article>`).join("")}</div>` : `<p class="conversation-muted">No messages yet.</p>`}
 </section>`;
+}
+
+function conversationMentionMatch(textarea) {
+  const beforeCaret = textarea.value.slice(0, textarea.selectionStart);
+  const match = /(^|[\s(])@([^@\n]*)$/.exec(beforeCaret);
+  if (!match || match[2].length > 60 || /[.,!?]/.test(match[2])) return null;
+  const query = match[2];
+  const key = textarea.form?.dataset.conversationForm;
+  const participants = state.conversations[key]?.participants || [];
+  if (/\s$/.test(query) && participants.some((person) => person.display_name.toLowerCase() === query.trim().toLowerCase())) return null;
+  return { start: beforeCaret.length - query.length - 1, end: textarea.selectionStart, query: query.trim().toLowerCase() };
+}
+
+function updateConversationMentionMenu(textarea) {
+  const menu = textarea.parentElement.querySelector(".conversation-mention-menu");
+  const key = textarea.form?.dataset.conversationForm;
+  const match = conversationMentionMatch(textarea);
+  const participants = (state.conversations[key]?.participants || []).filter((person) => person.id !== state.authUser?.id);
+  const options = match ? participants.filter((person) => `${person.display_name} ${person.role.replaceAll("_", " ")}`.toLowerCase().includes(match.query)).slice(0, 8) : [];
+  menu.innerHTML = options.map((person, index) => `<button type="button" role="option" id="mention-option-${escapeHtml(person.id)}" data-mention-option="${escapeHtml(person.id)}" aria-selected="${index === 0}"><strong>${escapeHtml(person.display_name)}</strong><small>${escapeHtml(person.role.replaceAll("_", " "))}</small></button>`).join("");
+  menu.hidden = options.length === 0;
+  menu.dataset.activeIndex = "0";
+  textarea.setAttribute("aria-expanded", String(!menu.hidden));
+  if (options.length) textarea.setAttribute("aria-activedescendant", `mention-option-${options[0].id}`);
+  else textarea.removeAttribute("aria-activedescendant");
+}
+
+function chooseConversationMention(textarea, personId) {
+  const key = textarea.form?.dataset.conversationForm;
+  const person = state.conversations[key]?.participants?.find((entry) => entry.id === personId);
+  const match = conversationMentionMatch(textarea);
+  if (!person || !match) return;
+  const insertion = `@${person.display_name} `;
+  state.conversationDraftBody[key] = `${textarea.value.slice(0, match.start)}${insertion}${textarea.value.slice(match.end)}`;
+  state.conversationDraftMentions[key] = [...new Set([...(state.conversationDraftMentions[key] || []), person.id])];
+  const caret = match.start + insertion.length;
+  render();
+  const nextTextarea = document.querySelector(`[data-conversation-form="${key}"] textarea`);
+  nextTextarea?.focus();
+  nextTextarea?.setSelectionRange(caret, caret);
 }
 
 async function loadConversation(r, force = false) {
@@ -2728,18 +2768,50 @@ function render() {
     const request = requests.find((item) => (item.backendId || item.id) === button.dataset.retryConversation);
     if (request) loadConversation(request, true);
   }));
-  document.querySelectorAll("[data-mention-select]").forEach((select) => select.addEventListener("change", () => {
-    const key = select.dataset.mentionSelect;
-    const person = state.conversations[key]?.participants?.find((entry) => entry.id === select.value);
-    if (!person) return;
-    state.conversationDraftMentions[key] = [...new Set([...(state.conversationDraftMentions[key] || []), person.id])];
-    state.conversationDraftBody[key] = `${state.conversationDraftBody[key] || ""}${state.conversationDraftBody[key] ? " " : ""}@${person.display_name} `;
-    render();
-    document.querySelector(`[data-conversation-form="${key}"] textarea`)?.focus();
-  }));
-  document.querySelectorAll("[data-conversation-form] textarea").forEach((textarea) => textarea.addEventListener("input", () => {
-    state.conversationDraftBody[textarea.form.dataset.conversationForm] = textarea.value;
-  }));
+  document.querySelectorAll("[data-conversation-form] textarea").forEach((textarea) => {
+    textarea.addEventListener("input", () => {
+      const key = textarea.form.dataset.conversationForm;
+      state.conversationDraftBody[key] = textarea.value;
+      state.conversationDraftMentions[key] = (state.conversationDraftMentions[key] || []).filter((id) => {
+        const person = state.conversations[key]?.participants?.find((entry) => entry.id === id);
+        return person && textarea.value.includes(`@${person.display_name}`);
+      });
+      textarea.form.querySelectorAll("[data-remove-mention]").forEach((button) => {
+        button.parentElement.hidden = !state.conversationDraftMentions[key].includes(button.dataset.removeMention);
+      });
+      updateConversationMentionMenu(textarea);
+    });
+    textarea.addEventListener("click", () => updateConversationMentionMenu(textarea));
+    textarea.addEventListener("keydown", (event) => {
+      const menu = textarea.parentElement.querySelector(".conversation-mention-menu");
+      if (menu.hidden) return;
+      const options = [...menu.querySelectorAll("[data-mention-option]")];
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        menu.hidden = true;
+        textarea.setAttribute("aria-expanded", "false");
+        textarea.removeAttribute("aria-activedescendant");
+      } else if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        const next = (Number(menu.dataset.activeIndex || 0) + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+        menu.dataset.activeIndex = String(next);
+        options.forEach((option, index) => option.setAttribute("aria-selected", String(index === next)));
+        textarea.setAttribute("aria-activedescendant", options[next].id);
+        options[next].scrollIntoView({ block: "nearest" });
+      } else if (["Enter", "Tab"].includes(event.key)) {
+        event.preventDefault();
+        chooseConversationMention(textarea, options[Number(menu.dataset.activeIndex || 0)].dataset.mentionOption);
+      }
+    });
+  });
+  document.querySelectorAll(".conversation-mention-menu").forEach((menu) => {
+    menu.addEventListener("mousedown", (event) => event.preventDefault());
+    menu.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-mention-option]");
+      if (option) chooseConversationMention(menu.parentElement.querySelector("textarea"), option.dataset.mentionOption);
+    });
+  });
   document.querySelectorAll("[data-remove-mention]").forEach((button) => button.addEventListener("click", () => {
     const key = button.dataset.mentionRequest;
     const person = state.conversations[key]?.participants?.find((entry) => entry.id === button.dataset.removeMention);
