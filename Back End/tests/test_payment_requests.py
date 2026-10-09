@@ -13,12 +13,14 @@ from payment_module.models import (
     AuditEvent,
     ChartAccount,
     CostCenter,
+    Currency,
     Department,
     PaymentRequest,
     PaymentRequestLine,
     Permission,
     User,
     UserPermissionOverride,
+    WorkflowInstance,
 )
 from payment_module.routers.requests import academic_year_start, reimbursement_batch_date
 from payment_module.seed import seed
@@ -263,6 +265,113 @@ def test_foreign_currency_amount_is_logged_without_conversion(client):
     checks = result["type_data"]["duplicate_invoice_checks"]
     assert checks and all(check["match_level"] == "warning" for check in checks)
     assert all("currency_code" in check["differing_fields"] for check in checks)
+
+
+def test_configured_currency_rate_is_used_when_submitting(client):
+    seed()
+    with SessionLocal.begin() as db:
+        currency = db.get(Currency, "USD")
+        previous_rate = currency.php_per_unit
+        currency.php_per_unit = Decimal("50")
+    try:
+        headers = login(client)
+        draft_payload = payload("USD")
+        draft_payload["type_data"]["budgeted"] = False
+        draft_payload["lines"][0]["amount"] = "20000.0001"
+        created = client.post("/api/v1/requests", json=draft_payload, headers=headers)
+        assert created.status_code == 201
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 200
+        with SessionLocal() as db:
+            workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == created.json()["id"]))
+            assert workflow.state == "active"
+            assert Decimal(workflow.route_snapshot["php_amount"]) == Decimal("1000000.005")
+            assert workflow.route_snapshot["stages"][-1]["role"] == "board_member"
+    finally:
+        with SessionLocal.begin() as db:
+            db.get(Currency, "USD").php_per_unit = previous_rate
+
+
+def test_first_stage_return_allows_requestor_to_edit_and_resubmit(client):
+    seed()
+    request_payload = payload()
+    owner_headers = login(client)
+    created = client.post("/api/v1/requests", json=request_payload, headers=owner_headers).json()
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    path = f"/api/v1/workflow/{created['id']}/reject"
+    decision = {"version": 1, "decision": "return", "note": "Correct the expense purpose."}
+    returned = client.post(path, json=decision, headers={**head_headers, "Idempotency-Key": "first-return"})
+    assert returned.status_code == 200
+    assert returned.json()["request_status"] == "returned"
+    repeated = client.post(path, json=decision, headers={**head_headers, "Idempotency-Key": "first-return"})
+    assert repeated.status_code == 200 and repeated.json() == returned.json()
+    switched = client.post(
+        path, json={**decision, "decision": "decline"}, headers={**head_headers, "Idempotency-Key": "first-return"}
+    )
+    assert switched.status_code == 409
+
+    client.cookies.clear()
+    owner_headers = login(client)
+    request_payload["purpose"] = "Corrected expense purpose"
+    edited = client.patch(
+        f"/api/v1/requests/{created['id']}",
+        json={**request_payload, "version": returned.json()["request_version"]},
+        headers=owner_headers,
+    )
+    assert edited.status_code == 200 and edited.json()["purpose"] == "Corrected expense purpose"
+    resubmitted = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": edited.json()["version"], "note": "Purpose corrected."},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert resubmitted.status_code == 200 and resubmitted.json()["status"] == "submitted"
+
+
+def test_first_stage_decline_is_terminal_for_requestor(client):
+    seed()
+    request_payload = payload()
+    owner_headers = login(client)
+    created = client.post("/api/v1/requests", json=request_payload, headers=owner_headers).json()
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    declined = client.post(
+        f"/api/v1/workflow/{created['id']}/reject",
+        json={"version": 1, "decision": "decline", "note": "Expense is outside the approved purpose."},
+        headers={**head_headers, "Idempotency-Key": "first-decline"},
+    )
+    assert declined.status_code == 200 and declined.json()["request_status"] == "declined"
+    assert declined.json()["state"] == "declined"
+    client.cookies.clear()
+    owner_headers = login(client)
+    change = client.patch(
+        f"/api/v1/requests/{created['id']}",
+        json={**request_payload, "version": declined.json()["request_version"]},
+        headers=owner_headers,
+    )
+    assert change.status_code == 409
+    resubmit = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": declined.json()["request_version"], "note": "Please reconsider"},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert resubmit.status_code == 409
 
 
 def test_department_head_can_return_submitted_department_request(client):
@@ -583,9 +692,7 @@ def test_po_submission_uses_authoritative_procurement_data_and_safe_snapshot(cli
         (lambda body: body["type_data"].update({"po_reference": "PO-DEMO-1003"}), "type_data.po_reference"),
         (lambda body: body["lines"][0].update({"amount": "88000.00"}), "gross_amount"),
         (
-            lambda body: body.update(
-                {"currency_code": "USD", "lines": [{**body["lines"][0], "currency_code": "USD"}]}
-            ),
+            lambda body: body.update({"currency_code": "USD", "lines": [{**body["lines"][0], "currency_code": "USD"}]}),
             "currency_code",
         ),
         (lambda body: body.update({"payee_name": "Different Vendor"}), "payee_name"),
@@ -765,9 +872,7 @@ def test_line_totals_reconcile_with_exact_four_decimal_precision(client):
     assert created.json()["gross_amount"] == 10.01
     assert sum(Decimal(str(line["amount"])) for line in created.json()["lines"]) == Decimal("10.010")
     with SessionLocal() as db:
-        stored_total = db.scalar(
-            select(PaymentRequest.gross_amount).where(PaymentRequest.id == created.json()["id"])
-        )
+        stored_total = db.scalar(select(PaymentRequest.gross_amount).where(PaymentRequest.id == created.json()["id"]))
         stored_line_total = db.scalar(
             select(func.sum(PaymentRequestLine.amount)).where(PaymentRequestLine.request_id == created.json()["id"])
         )
@@ -809,9 +914,7 @@ def test_simultaneous_edits_allow_exactly_one_version_to_commit(client):
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(
             pool.map(
-                lambda changed: _concurrent_request(
-                    barrier, "PATCH", f"/api/v1/requests/{draft['id']}", json=changed
-                ),
+                lambda changed: _concurrent_request(barrier, "PATCH", f"/api/v1/requests/{draft['id']}", json=changed),
                 changes,
             )
         )

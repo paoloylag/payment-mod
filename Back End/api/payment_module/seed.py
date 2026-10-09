@@ -95,10 +95,13 @@ PERMISSIONS = {
     "documents.review": "Record document review and hard-copy tracking decisions",
     "documents.rules.manage": "Configure required-document rules",
     "documents.cleanup": "Retry protected document object cleanup",
+    "workflow.review": "Review an assigned approval stage",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 for role_code in ROLES:
     ROLE_PERMISSIONS[role_code].add("documents.read")
+for role_code in ("department_head", "finance_associate", "finance_manager", "coo", "president", "board_member"):
+    ROLE_PERMISSIONS[role_code].add("workflow.review")
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
 ROLE_PERMISSIONS["finance_manager"] |= {
     "master_data.read",
@@ -360,6 +363,14 @@ DEMO_REQUESTS = (
 )
 
 
+# Append to preserve the request numbers of existing development samples.
+DEMO_REQUESTS += (
+    ("DEMO-DEPT-002", "general", "submitted", 3, "Department Approval",
+     "Marketing campaign print materials", "Sample Print Studio", "16200.00", True),
+    ("DEMO-DEPT-003", "general", "submitted", 3, "Department Approval",
+     "Department event supplies", "Sample Event Supplier", "28750.00", True),
+)
+
 def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
 
@@ -429,7 +440,17 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
         for code, name, symbol in (("PHP", "Philippine Peso", "₱"), ("USD", "US Dollar", "$"), ("EUR", "Euro", "€")):
             item = session.get(Currency, code)
             if item is None:
-                session.add(Currency(code=code, name=name, symbol=symbol, decimal_precision=2))
+                session.add(
+                    Currency(
+                        code=code,
+                        name=name,
+                        symbol=symbol,
+                        decimal_precision=2,
+                        php_per_unit=Decimal("1") if code == "PHP" else None,
+                    )
+                )
+            elif code == "PHP" and item.php_per_unit != Decimal("1"):
+                item.php_per_unit = Decimal("1")
         for code, name, category, required in (
             ("CHECK", "Check", "check", True),
             ("BANK_TRANSFER", "Bank Transfer / DigiBanker", "bank_transfer", True),

@@ -66,6 +66,8 @@ Deliver durable notifications and role-scoped operational reporting that reconci
 
 ## Acceptance gates
 
+- Existing transaction flows remain usable; notifications, dashboards, search, tracker, and reports pass mobile-first checks at mobile, tablet, and desktop widths without clipped controls or horizontal page overflow.
+
 - Retrying a business operation never creates duplicate notifications.
 - Delivery attempts and failures are durable, observable, and safely retryable.
 - Dashboard and report totals reconcile to source transactions for every role scope.

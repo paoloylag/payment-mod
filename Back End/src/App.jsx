@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const paymentTypes = {
   reimbursement: {
@@ -39,7 +39,7 @@ const paymentTypes = {
     lineColumns: ["Merchant Name", "Invoice Date", "Invoice Number", "Particulars", "Expense Account", "Department to Be Charged", "Amount", "Attachment"],
   },
   poPayment: {
-    label: "P.O. Payment",
+    label: "Purchase Order Payment",
     prefix: "PO",
     required: ["Department / Cost Center for Each Line Item", "P.O. Reference from Procurement"],
     mandatoryFields: [],
@@ -66,8 +66,8 @@ const steps = [
   { id: 8, name: "President Approval", owner: "President", rule: "Budgeted above 300,000" },
   { id: 8.5, displayId: "8B", name: "Board Approval", owner: "Board Member", rule: "Unbudgeted above 1,000,000" },
   { id: 9, name: "Voucher", owner: "Finance Associate" },
-  { id: 10, name: "Bank Processing", owner: "Finance Associate" },
-  { id: 11, name: "Bank Authorization", owner: "Authorized Signatories" },
+  { id: 10, name: "Payment Preparation", owner: "Finance Associate" },
+  { id: 11, name: "Signatory Approval", owner: "Authorized Signatories" },
   { id: 12, name: "Vendor Notice", owner: "Finance Associate" },
   { id: 13, name: "Release", owner: "Finance Associate" },
   { id: 14, name: "Tracker", owner: "System" },
@@ -84,9 +84,9 @@ const emailTemplates = {
   8: { recipient: "President", subject: "President approval required: payment request", trigger: "Finance review completed", intro: "A high-value budgeted payment request requires your approval.", message: "This budgeted request exceeds PHP 300,000. Review the approval trail and supporting documents before deciding.", action: "Review and Approve" },
   "8.5": { recipient: "Board Member", subject: "Board approval required: unbudgeted payment request", trigger: "Executive review completed", intro: "An unbudgeted payment request above PHP 1,000,000 requires Board approval.", message: "Review the complete executive approval trail, funding justification, payee details, and supporting documents before deciding.", action: "Review and Approve" },
   9: { recipient: "Finance Associate", subject: "Create payment voucher", trigger: "Final approval completed", intro: "The payment request has received its final approval.", message: "Create the payment voucher and confirm the payee, tax deductions, net payment, and accounting entries.", action: "Create Voucher" },
-  10: { recipient: "Finance Associate", subject: "Payment is ready for bank processing", trigger: "Voucher created", intro: "An approved payment voucher is ready for processing.", message: "Prepare the bank transfer or check and record the payment reference in the request.", action: "Process Payment" },
-  11: { recipient: "Authorized Signatories", subject: "Bank authorization required", trigger: "Payment instruction prepared", intro: "A payment instruction is awaiting bank authorization.", message: "Review the voucher, approval trail, payee details, and payment instruction before authorizing.", action: "Authorize Payment" },
-  12: { recipient: "Vendor", subject: "Payment ready for processing: {{request_id}}", trigger: "Bank authorization completed", intro: "Your payment is ready for processing.", message: "The payment instruction has completed bank authorization. Review the payment details and reference below.", action: "View Payment Details" },
+  10: { recipient: "Finance Associate", subject: "Payment is ready for payment preparation", trigger: "Voucher created", intro: "An approved payment voucher is ready for processing.", message: "Prepare the bank transfer or check and record the payment reference in the request.", action: "Process Payment" },
+  11: { recipient: "Authorized Signatories", subject: "Signatory approval required", trigger: "Payment instruction prepared", intro: "A payment instruction is awaiting signatory approval.", message: "Review the voucher, approval trail, payee details, and payment instruction before authorizing.", action: "Authorize Payment" },
+  12: { recipient: "Vendor", subject: "Payment ready for processing: {{request_id}}", trigger: "Signatory approval completed", intro: "Your payment is ready for processing.", message: "The payment instruction has completed signatory approval. Review the payment details and reference below.", action: "View Payment Details" },
   13: { recipient: "Department Requestor and Vendor", subject: "Payment available for pick-up: {{request_id}}", trigger: "Payment marked available for pick-up", intro: "The payment is now available for pick-up.", message: "The update date, time, and Finance personnel who recorded the status are included for reference.", action: "View Release Details" },
   14: { recipient: "Finance Associate", subject: "Payment tracker updated", trigger: "Payment released", intro: "The payment tracker has been updated automatically.", message: "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", action: "View Tracker" },
   15: { recipient: "Department Requestor and Vendor", subject: "Payment completed: {{request_id}}", trigger: "Transaction completed", intro: "Your payment transaction has been completed.", message: "Payment has been completed. The payment date, amount, method, and reference are included for your records.", action: "View Payment Record" },
@@ -184,9 +184,9 @@ const seedRequests = [
   ["GEN-2026-0037", "general", "Alex Cruz", "Admin", "City Utilities", 329500, true, "President Approval", 8, "2026-06-18", "", "", 3, 0, "Finance Manager routed to President based on threshold."],
   ["PO-2026-0108", "poPayment", "Bea Tan", "Procurement", "Enterprise Systems Corp.", 1250000, false, "Board Approval", 8.5, "2026-06-18", "", "", 5, 0, "The unbudgeted request exceeded PHP 1,000,000 and was routed to a Board Member."],
   ["RMB-2026-0150", "reimbursement", "Lia Dizon", "People Ops", "Training Center", 72300, true, "Voucher Creation", 9, "2026-06-17", "", "", 4, 0, "System is generating the payment voucher with approval signatures."],
-  ["GEN-2026-0041", "general", "Nico Ramos", "Facilities", "Metro Repairs", 66200, true, "Bank Payment Processing", 10, "2026-06-16", "", "", 3, 0, "Finance Associate is preparing the check payment."],
-  ["PO-2026-0098", "poPayment", "Bea Tan", "Procurement", "Atlas Office Systems", 141750, true, "Bank Authorization", 11, "2026-06-15", "", "", 5, 0, "Authorized signatories need to complete bank authorization."],
-  ["PO-2026-0120", "poPayment", "Bea Tan", "Procurement", "Multiple Vendors (3)", 287500, true, "Vendor Notification", 12, "2026-08-20", "", "", 6, 0, "Three P.O. line-item groups are ready for separate vendor notifications: Atlas Office Systems, Northstar Supplies, and TechSource Solutions."],
+  ["GEN-2026-0041", "general", "Nico Ramos", "Facilities", "Metro Repairs", 66200, true, "Payment Preparation", 10, "2026-06-16", "", "", 3, 0, "Finance Associate is preparing the check payment."],
+  ["PO-2026-0098", "poPayment", "Bea Tan", "Procurement", "Atlas Office Systems", 141750, true, "Signatory Approval", 11, "2026-06-15", "", "", 5, 0, "Authorized signatories need to complete signatory approval."],
+  ["PO-2026-0120", "poPayment", "Bea Tan", "Procurement", "Multiple Vendors (3)", 287500, true, "Vendor Notification", 12, "2026-08-20", "", "", 6, 0, "Three Purchase Order line-item groups are ready for separate vendor notifications: Atlas Office Systems, Northstar Supplies, and TechSource Solutions."],
   ["GEN-2026-0044", "general", "Carlo Uy", "IT", "CloudWorks", 88400, true, "Vendor Notification", 12, "2026-06-14", "", "", 3, 0, "Check is available and vendor notification is ready."],
   ["RMB-2026-0154", "reimbursement", "Sam Lee", "Legal", "Travel Desk", 30750, true, "Payment Release", 13, "2026-06-13", "", "", 4, 0, "Finance Associate is recording check release to the payee."],
   ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Payment Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0, "System is updating turnaround dates and tracker reporting."],
@@ -258,7 +258,7 @@ function getVoucher(request) {
     date: "2026-06-24",
     paymentMethod: "Check payment",
     bank: "BDO",
-    checkNumber: request.currentStep >= 11 ? "CHK-004918" : "Pending bank processing",
+    checkNumber: request.currentStep >= 11 ? "CHK-004918" : "Pending payment preparation",
     ...taxes,
     purpose: `${typeLabel} payment for ${request.vendor}`,
     attachments: [
@@ -722,10 +722,22 @@ function VoucherCard({ voucher, request }) {
 
 function UploadControl({ label, multiple = false, filenames, onFiles, showFilename = true }) {
   const [localNames, setLocalNames] = useState([]);
+  const inputRef = useRef(null);
   const displayedNames = filenames ?? localNames;
-  return <div className="upload-row-selection"><label className="line-upload-control" title={label}><input type="file" multiple={multiple} aria-label={label} onChange={(event) => { const files = [...(event.target.files || [])]; setLocalNames(files.map((file) => file.name)); onFiles?.(files); }} /><span className="line-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg></span></label>{showFilename && <span className="line-upload-filename" title={displayedNames.join(", ")}>{displayedNames.length ? displayedNames.join(", ") : "No files selected"}</span>}</div>;
+  const removeFile = (index) => {
+    const input = inputRef.current;
+    const remainingNames = displayedNames.filter((_, position) => position !== index);
+    const transfer = new DataTransfer();
+    [...input.files].forEach((file, position) => { if (position !== index) transfer.items.add(file); });
+    input.files = transfer.files;
+    setLocalNames(remainingNames);
+    onFiles?.(remainingNames.map((name) => [...transfer.files].find((file) => file.name === name) || { name }));
+  };
+  return <div className="upload-row-selection">
+    {showFilename && <span className="line-upload-filename file-upload-selection">{displayedNames.length ? displayedNames.map((name, index) => <span className="selected-upload-file" key={`${index}-${name}`}><span>{name}</span><button type="button" className="remove-upload-file" aria-label={`Remove ${name}`} title={`Remove ${name}`} onClick={() => removeFile(index)}>×</button></span>) : "No files selected"}</span>}
+    <label className="line-upload-control document-upload-button" title={label}><input ref={inputRef} type="file" multiple={multiple} aria-label={label} onChange={(event) => { const files = [...(event.target.files || [])]; setLocalNames(files.map((file) => file.name)); onFiles?.(files); }} /><span className="line-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /></svg></span><span>Upload Files</span></label>
+  </div>;
 }
-
 function RequestBuilder({ draftType, setDraftType, draftAmount, lineItems, updateLineItem, addLineItem, removeLineItem, budgeted, setBudgeted, draftRequest }) {
   const config = paymentTypes[draftType];
   const isReimbursement = draftType === "reimbursement";
@@ -863,9 +875,7 @@ function Tracker({ selectedId, onSelect }) {
               <th>Submitted</th>
               <th>Returned</th>
               <th>Resubmitted</th>
-              <th>Approval</th>
-              <th>Check Approval</th>
-              <th>Payment</th>
+              <th>Approval</th><th>Payment Status</th>
             </tr>
           </thead>
           <tbody>
@@ -875,9 +885,7 @@ function Tracker({ selectedId, onSelect }) {
                 <td>{request.submitted}</td>
                 <td>{request.returned || "-"}</td>
                 <td>{request.resubmitted || "-"}</td>
-                <td>{index === 0 ? "Pending" : "2026-06-24"}</td>
-                <td>{request.currentStep >= 11 ? "2026-06-25" : "Pending"}</td>
-                <td>{request.currentStep >= 13 ? "2026-06-25" : "Pending"}</td>
+                <td>{index === 0 ? "Pending" : "2026-06-24"}</td><td>{request.currentStep > 13 ? "Released" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release"}</td>
               </tr>
             ))}
           </tbody>

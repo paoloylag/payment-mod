@@ -1386,8 +1386,7 @@ body:has(.guide-main) { overflow: visible; }
   .responsive-request-table td[data-label="Returned"],
   .responsive-request-table td[data-label="Resubmitted"],
   .responsive-request-table td[data-label="Aging"] { display: none; }
-  .tracker-table td[data-label="Bank"],
-  .tracker-table td[data-label="Release"] { display: grid; }
+  .tracker-table td[data-label="Payment Status"] { display: grid; }
   .upload-request-list { max-height: min(42vh, 360px); overflow-y: auto; }
   .upload-request-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .document-file-info p small { display: none; }
@@ -1420,6 +1419,102 @@ body:has(.guide-main) { overflow: visible; }
   .guide-card, .guide-stage-list article { break-inside: avoid; border: 0; background: #f3f3f5 !important; box-shadow: none; }
 }
 
+/* Compact file tags, shared by line-item and request-document uploads. */
+.file-upload-selection:has(.selected-upload-file) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  max-width: none;
+}
+.file-upload-selection .selected-upload-file {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--line));
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--panel));
+}
+.file-upload-selection .selected-upload-file > span {
+  min-width: 0;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.app-shell main .file-upload-selection .selected-upload-file button.remove-upload-file {
+  flex: 0 0 20px;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  gap: 0;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--primary) !important;
+  background: transparent !important;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+}
+.app-shell main .file-upload-selection .selected-upload-file button.remove-upload-file:hover {
+  background: color-mix(in srgb, var(--primary) 12%, transparent) !important;
+  transform: none;
+}
+.request-form-page .accountability-box label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.5;
+}
+.request-form-page .accountability-box label input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 1px 0 0;
+  padding: 0;
+}
+.request-form-page .accountability-box label > span { min-width: 0; }
+.request-form-page .accountability-box label { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; line-height: 20px; }
+.request-form-page .accountability-box label input[type="checkbox"] { display: block; width: 16px; height: 16px; min-height: 16px; margin: 2px 0 0; align-self: start; }
+[data-cash-advance-policy] { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.cash-advance-policy-modal { width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 22px; color: var(--text); background: var(--panel); }
+.cash-advance-policy-modal::backdrop { background: rgba(0, 0, 0, .5); }
+.cash-advance-policy-modal header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.cash-advance-policy-modal h3 { margin: 0; }
+.cash-advance-policy-modal li { margin: 12px 0; line-height: 1.5; }
+.cash-advance-policy-modal footer { display: flex; justify-content: flex-end; margin-top: 18px; }
+/* Separate workflow actions, progress, and stage cards in approval details. */
+.workflow-summary > .workflow-summary-content {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+.workflow-summary-content .workflow-summary-heading { justify-content: flex-start; }
+.workflow-summary-content .workflow-summary-stages { gap: 10px; }
+.workflow-summary-content .workflow-summary-stages > div { padding: 10px 12px; }
+.approval-decision-card { display: grid; gap: 18px; }
+.approval-decision-card .unified-action-heading h3 { margin: 6px 0; }
+.approval-decision-card .unified-action-heading p { margin: 0; }
+.approval-decision-card .approval-actions { margin: 0; align-items: end; gap: 12px; }
+.app-shell main .approval-decision-card button { height: 40px; min-height: 40px; border-radius: 8px; padding: 0 14px; font-size: 13px; line-height: 1.2; }
+.approval-decision-card .first-stage-reject-control { gap: 12px; align-items: end; }
+
+.approval-decision-card .approval-reviewer-note { display: grid; gap: 8px; margin: 0; }
+.approval-decision-card .approval-reviewer-note textarea { min-height: 90px; margin: 0; }
+.approval-decision-card .approval-lifecycle-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 640px) {
+  .approval-decision-card .approval-actions,
+  .approval-decision-card .first-stage-reject-control { grid-template-columns: minmax(0, 1fr); }
+  .approval-decision-card .approval-lifecycle-actions button { width: 100%; }
+}
 .request-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
 .advanced-filter-options { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 20px; }
 .advanced-filter-options[hidden] { display: none; }
@@ -1442,4 +1537,61 @@ body:has(.guide-main) { overflow: visible; }
   .request-filter-sort { width: 100%; }
   .request-filter-sort label { flex: 1; min-width: 0; flex-direction: column; align-items: stretch; }
   .request-filter-sort select { width: 100%; max-width: none; }
+}
+/* Match the shared dropdown arrow in collapsible line-item headers. */
+.line-item-card > summary .line-card-chevron {
+  display: inline-block;
+  flex: 0 0 10px;
+  width: 10px;
+  height: 6px;
+  font-size: 0;
+  line-height: 0;
+  background: var(--muted);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transition: transform .2s ease;
+}
+.line-item-card[open] > summary .line-card-chevron { transform: rotate(180deg); }
+/* Workflow dialogs must cover the fixed navigation as well as the page. */
+/* Shared validation summaries follow the active theme in every approval view. */
+:root[data-theme="dark"] .validation-readonly {
+  color: var(--text);
+  border-color: var(--line);
+  background: var(--panel-strong);
+}
+:root[data-theme="dark"] .validation-readonly .readonly-summary-grid > div,
+:root[data-theme="dark"] .validation-readonly .readonly-review-note {
+  color: var(--text);
+  background: var(--panel);
+}
+:root[data-theme="dark"] .validation-readonly .line-review-counts span,
+:root[data-theme="dark"] .validation-readonly .validation-outcome,
+:root[data-theme="dark"] .validation-readonly .review-result {
+  color: var(--muted);
+  background: var(--panel);
+}
+:root[data-theme="dark"] .validation-readonly .line-review-counts .valid,
+:root[data-theme="dark"] .validation-readonly .validation-outcome.complete,
+:root[data-theme="dark"] .validation-readonly .review-result.valid {
+  color: #b8f2d1;
+  background: #183b2b;
+}
+:root[data-theme="dark"] .validation-readonly .line-review-counts .correction,
+:root[data-theme="dark"] .validation-readonly .review-result.correction,
+:root[data-theme="dark"] .validation-readonly .review-result.duplicate {
+  color: #ffb5b7;
+  background: #3a2022;
+}
+:root[data-theme="dark"] .validation-readonly .validation-outcome.pending,
+:root[data-theme="dark"] .validation-readonly .review-result.pending {
+  color: #f4d49a;
+  background: #3a2f1f;
+}
+.workflow-modal-backdrop { z-index: 2000; padding: 24px; }
+.workflow-modal { width: min(1100px, 100%); max-width: 100%; max-height: calc(100dvh - 48px); box-sizing: border-box; }
+.workflow-modal-header > div { min-width: 0; }
+.workflow-modal-body { max-height: calc(100dvh - 180px); }
+@media (max-width: 640px) {
+  .workflow-modal-backdrop { padding: 12px; }
+  .workflow-modal { max-height: calc(100dvh - 24px); }
+  .workflow-modal-header, .workflow-modal-body { padding: 16px; }
 }

@@ -1,14 +1,25 @@
 # Phase 05 — Workflow and Approvals
 
 Date prepared: 2026-08-28  
-Status: In progress — provisional policy preview implemented; approval decisions are not yet persisted
+Status: In progress — provisional PHP approval route, queue, and decisions implemented; unresolved rules remain pending
 Depends on: Phases 03–04 — Requests and Documents
 
 ## Prototype-policy trial — 2026-09-29
 
 Owner direction is to implement and test the approval matrix currently shown in the prototype, then adjust rules based on test and reviewer findings. `api/payment_module/workflow_policy.py` now computes a version-identified PHP route and `/api/v1/workflow/preview/{request_id}` exposes a read-only, permission-scoped preview. The preview does not assign approvers or advance a request. Threshold and API-access tests are in `tests/test_workflow_policy.py`. See `docs/phase-05-policy-trial.md` for the exact matrix, results, and unresolved behavior.
 
-On 2026-09-29, the owner confirmed the unbudgeted PHP route above 1,000,000 as COO → President → Board Member. Foreign-currency threshold treatment remains pending Finance confirmation.
+On 2026-09-29, the owner confirmed the unbudgeted PHP route above 1,000,000 as COO → President → Board Member. On 2026-10-08, the owner confirmed that foreign-currency requests use a configured PHP conversion rate and the same PHP thresholds.
+
+## Development update — 2026-10-07
+
+- Submission now stores the route policy version, submitted request values, ordered stages, and current stage in `workflow_instances`. `workflow_events` retains the route snapshot and each transition; `workflow_commands` makes approval retries idempotent.
+- Foreign-currency submissions without a configured PHP-per-unit rate enter `policy_pending` with no assignment or approval action. On 2026-10-08 the owner directed that all approval thresholds use the PHP equivalent from a configured per-currency rate. The rate and exact PHP amount are frozen in the route snapshot at submission.
+- `/api/v1/workflow/queue` lists current assignments by reviewer role, with Department Head access confined to the request department and no self-approval. `/api/v1/workflow/{request_id}` exposes route progress and history to an authorized owner or current reviewer. `/approve` requires a workflow version and idempotency key, locks the request, advances one stage, and records an audit event.
+- At the first active Department Head stage, the reviewer selects Return to Requestor or Fully Decline from a reject dropdown and provides a required reason. Return changes the request to `returned`; the requestor can edit and resubmit, which starts a fresh route snapshot. Fully Decline changes it to terminal `declined`; the requestor can read the reason but cannot edit or resubmit. Decision, stage, actor, and reason are recorded in request history, workflow events, and audit history. Returns or declines from later stages remain pending separate rules.
+- Finance Manager can set `php_per_unit` on a currency through the Currencies screen/API. An already submitted `policy_pending` request can then be activated through `POST /api/v1/workflow/{request_id}/activate` by a user with `master_data.manage`; activation freezes the current rate and PHP equivalent, creates the assignment, and is idempotent. Configuring a rate does not silently change existing active routes.
+- Migration `20261007_0011` was applied in isolated test schema `phase05_trial`. Focused tests cover the full COO → President → Board sequence, retry/stale decision behavior, role handoff, and foreign-currency pending state.
+
+Remaining Phase 05 work: decide later-stage return/decline destinations, delegation/reassignment/reroute/unlock authority, SLA/escalation rules, and permitted Finance validation action; then implement those transitions and connect the remaining frontend persona screens. These actions are not enabled by the current API.
 
 ## Objective
 
@@ -73,6 +84,8 @@ Create a backend-authoritative approval engine that snapshots policy at submissi
 6. Test every threshold boundary, invalid transition, race condition, and role/department boundary.
 
 ## Acceptance gates
+
+- Existing request, document, and approval screens retain their working layout and behavior; new workflow views pass mobile-first checks at mobile, tablet, and desktop widths with no clipped controls or horizontal page overflow.
 
 - Submitted requests retain the exact policy and route version used at submission.
 - Each persona sees only assigned work and permitted history.

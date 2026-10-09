@@ -68,6 +68,8 @@ Persist Finance review, tax/accounting decisions, and auditable voucher generati
 
 ## Acceptance gates
 
+- Existing request and approval flows remain usable; Finance and voucher views pass mobile-first checks at mobile, tablet, and desktop widths, including review forms and printable output.
+
 - Validation cannot complete with missing required documents, invalid tax data, or unbalanced entries.
 - Tax calculations and snapshots reproduce approved examples exactly.
 - A voucher can be created only after final approval and is idempotent per eligible request.

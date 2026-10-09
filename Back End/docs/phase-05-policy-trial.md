@@ -4,6 +4,8 @@ Date: 2026-09-29
 Policy version: `prototype-2026-09-29-r3`  
 Status: Provisional route preview, not an approved production approval policy.
 
+Update, 2026-10-08: This document records the original `r3` trial. The current `r4` route uses a configured PHP-per-unit rate for each foreign currency and compares the exact PHP equivalent with the same PHP thresholds. See `phase-05-plan.md` and `phase-05-finance-confirmation.md` for the current implementation and pending decisions. Statements below about foreign currency being unroutable describe the earlier trial.
+
 ## Matrix being trialed
 
 Every PHP request previews Department Head approval and Finance Associate document validation first. The Finance Manager then performs budget review, or final approval when the table names that role.

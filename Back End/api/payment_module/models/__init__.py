@@ -26,6 +26,7 @@ from .requests import (
     RequestSequence,
 )
 from .system_setting import SystemSetting
+from .workflow import WorkflowCommand, WorkflowEvent, WorkflowInstance
 
 __all__ = [
     "AuditEvent",
@@ -55,4 +56,7 @@ __all__ = [
     "PaymentRequestVersion",
     "RequestCommand",
     "RequestSequence",
+    "WorkflowCommand",
+    "WorkflowEvent",
+    "WorkflowInstance",
 ]

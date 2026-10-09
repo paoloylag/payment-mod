@@ -175,6 +175,7 @@ class CurrencyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     symbol: str = Field(min_length=1, max_length=8)
     decimal_precision: int = Field(default=2, ge=0, le=6)
+    php_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=8)
 
 
 class CurrencyUpdate(BaseModel):
@@ -182,6 +183,7 @@ class CurrencyUpdate(BaseModel):
     symbol: str | None = Field(default=None, min_length=1, max_length=8)
     decimal_precision: int | None = Field(default=None, ge=0, le=6)
     is_active: bool | None = None
+    php_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=8)
 
 
 class PaymentMethodCreate(ReferenceCreate):

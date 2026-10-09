@@ -68,6 +68,8 @@ Record payment preparation, authorization, release, and settlement attempts with
 
 ## Acceptance gates
 
+- Existing request, approval, and Finance flows remain usable; payment preparation, signatory, tracker, and pickup views pass mobile-first checks at mobile, tablet, and desktop widths.
+
 - Multiple and partial attempts reconcile to the voucher without exceeding the payable balance.
 - The preparer cannot authorize the same payment where segregation is required.
 - Failed, voided, retried, and replacement attempts remain visible and immutable.

@@ -82,6 +82,7 @@ class Currency(Base):
     name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     symbol: Mapped[str] = mapped_column(String(8), nullable=False)
     decimal_precision: Mapped[int] = mapped_column(nullable=False, default=2, server_default="2")
+    php_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

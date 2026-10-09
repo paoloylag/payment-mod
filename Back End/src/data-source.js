@@ -42,7 +42,7 @@ export function createDataSource() {
     ],
     "tax-codes": [],
     currencies: [
-      { code: "PHP", name: "Philippine Peso", symbol: "₱", decimal_precision: 2, is_active: true },
+      { code: "PHP", name: "Philippine Peso", symbol: "₱", decimal_precision: 2, php_per_unit: "1", is_active: true },
       { code: "USD", name: "US Dollar", symbol: "$", decimal_precision: 2, is_active: true },
       { code: "EUR", name: "Euro", symbol: "€", decimal_precision: 2, is_active: true },
     ],
@@ -179,6 +179,18 @@ export function createDataSource() {
     getPaymentRequest(id) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/requests/${id}`);
+    },
+    getPaymentRequestHistory(id) {
+      if (mode === "mock") return Promise.resolve([]);
+      return apiRequest(`/api/v1/requests/${id}/history`);
+    },
+    getWorkflow(id) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/workflow/${id}`);
+    },
+    rejectFirstStage(id, version, decision, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/workflow/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, decision, note }) });
     },
     updatePaymentRequest(id, payload, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);

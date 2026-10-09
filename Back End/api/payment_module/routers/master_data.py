@@ -43,7 +43,7 @@ def row(item) -> dict:
         if isinstance(value, UUID):
             result[key] = str(value)
         elif isinstance(value, Decimal):
-            result[key] = float(value)
+            result[key] = str(value) if key == "php_per_unit" else float(value)
         elif isinstance(value, date | datetime):
             result[key] = value.isoformat()
     return result
@@ -55,6 +55,8 @@ def json_values(values: dict) -> dict:
         if isinstance(value, date | datetime):
             value = value.isoformat()
         elif isinstance(value, UUID):
+            value = str(value)
+        elif isinstance(value, Decimal):
             value = str(value)
         result[key] = value
     return result
@@ -278,6 +280,10 @@ def create_currency(
     db: Session = Depends(get_db),
 ):
     values = normalized(payload.model_dump())
+    if values["code"] == "PHP":
+        if values["php_per_unit"] not in (None, Decimal("1")):
+            raise HTTPException(422, "PHP conversion rate must be 1")
+        values["php_per_unit"] = Decimal("1")
     item = Currency(**values)
     if db.get(Currency, item.code) or db.scalar(select(Currency).where(Currency.name == item.name)):
         raise HTTPException(409, "Currency code or name already exists")
@@ -288,6 +294,7 @@ def create_currency(
         actor_id=actor.id,
         action="currency.created",
         entity_type="currency",
+        entity_id=None,
         request_id=request.state.request_id,
         after=row(item),
     )
@@ -308,6 +315,8 @@ def update_currency(
         raise HTTPException(404, "Currency not found")
     before = row(item)
     changes = normalized(payload.model_dump(exclude_unset=True))
+    if item.code == "PHP" and "php_per_unit" in changes and changes["php_per_unit"] != Decimal("1"):
+        raise HTTPException(422, "PHP conversion rate must be 1")
     for key, value in changes.items():
         setattr(item, key, value)
     audit(
@@ -315,6 +324,7 @@ def update_currency(
         actor_id=actor.id,
         action="currency.updated",
         entity_type="currency",
+        entity_id=None,
         request_id=request.state.request_id,
         before=before,
         after=json_values(changes),

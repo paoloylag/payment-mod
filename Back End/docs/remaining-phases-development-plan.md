@@ -24,6 +24,8 @@ mock mode; the backend integration build must continue to require the API.
 
 For every phase, deliver: reviewed rule/decision table; reversible migration and indexes; persistence model; service-layer state rules; permission checks; version and idempotency handling for commands; append-only audit events; API schema and error contract; frontend API wiring with loading/error states; seed fixtures; automated tests; browser walkthrough; updated API/operations documentation; and a validation record with evidence. Use PostgreSQL as the authoritative state and `Asia/Manila` business timestamps with explicit offsets. Monetary calculations use decimal arithmetic and stored rule snapshots.
 
+For Phases 05–08, preserve the current working interface as the UI baseline. Build new and changed screens mobile first, then adapt them for tablet and desktop. Reuse shared components and styles. Before each phase is accepted, walk through affected existing and new flows at narrow mobile, tablet, and desktop widths, including navigation, forms, primary actions, loading/error states, and keyboard use. Resolve clipped content, horizontal page overflow, unusable touch controls, and interaction regressions before sign-off; record the viewport checks in the validation evidence.
+
 Before expanding a phase, establish a clean baseline on the backend branch: review the current uncommitted work, run migration/seed/test/build gates in the isolated Docker test environment, and preserve the Phase 03/04 evidence. Do not use the main-branch static prototype as proof that a backend feature exists.
 
 ### Near-term closeout: Phases 02–04

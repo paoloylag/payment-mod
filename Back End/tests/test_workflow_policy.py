@@ -51,6 +51,46 @@ def test_unroutable_requests_fail_explicitly(request_type, amount, currency):
         )
 
 
+@pytest.mark.parametrize(
+    ("amount", "rate", "expected"),
+    [
+        ("2000", "50", "finance_manager"),
+        ("2000.0001", "50", "coo"),
+        ("6000", "50", "coo"),
+        ("6000.0001", "50", "president"),
+    ],
+)
+def test_foreign_currency_budgeted_tiers_use_exact_php_equivalent(amount, rate, expected):
+    route = route_for(
+        request_type="general",
+        budgeted=True,
+        amount=Decimal(amount),
+        currency_code="USD",
+        php_per_unit=Decimal(rate),
+    )
+    assert route.php_amount == Decimal(amount) * Decimal(rate)
+    assert route.stages[-1].role == expected
+
+
+def test_foreign_currency_unbudgeted_board_and_cash_advance_limit_use_php():
+    board = route_for(
+        request_type="general",
+        budgeted=False,
+        amount=Decimal("20000.0001"),
+        currency_code="USD",
+        php_per_unit=Decimal("50"),
+    )
+    assert [stage.role for stage in board.stages[-3:]] == ["coo", "president", "board_member"]
+    with pytest.raises(PolicyCannotRoute, match="40,000"):
+        route_for(
+            request_type="cashAdvance",
+            budgeted=True,
+            amount=Decimal("800.0001"),
+            currency_code="USD",
+            php_per_unit=Decimal("50"),
+        )
+
+
 def test_route_preview_is_visible_only_to_authorized_request_users(client):
     seed()
     with SessionLocal.begin() as db:
@@ -108,9 +148,7 @@ def test_route_preview_is_visible_only_to_authorized_request_users(client):
     assert result.json()["stages"][-1]["role"] == "president"
     board_route = client.get(f"/api/v1/workflow/preview/{pending_ids[0]}")
     assert board_route.status_code == 200
-    assert [stage["role"] for stage in board_route.json()["stages"][-3:]] == [
-        "coo", "president", "board_member"
-    ]
+    assert [stage["role"] for stage in board_route.json()["stages"][-3:]] == ["coo", "president", "board_member"]
     assert client.get(f"/api/v1/workflow/preview/{pending_ids[1]}").status_code == 422
     client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": login.json()["csrf_token"]})
     outsider = client.post(
@@ -122,9 +160,7 @@ def test_route_preview_is_visible_only_to_authorized_request_users(client):
 
 
 def test_unbudgeted_board_route_has_confirmed_executive_order():
-    route = route_for(
-        request_type="general", budgeted=False, amount=Decimal("1000000.01"), currency_code="PHP"
-    )
+    route = route_for(request_type="general", budgeted=False, amount=Decimal("1000000.01"), currency_code="PHP")
     assert [stage.code for stage in route.stages] == [
         "department_approval",
         "document_validation",

@@ -35,7 +35,8 @@ class PaymentRequest(Base):
             name="ck_payment_requests_type",
         ),
         CheckConstraint(
-            "status IN ('draft','submitted','returned','cancelled','archived')", name="ck_payment_requests_status"
+            "status IN ('draft','submitted','returned','declined','cancelled','archived')",
+            name="ck_payment_requests_status",
         ),
         CheckConstraint("gross_amount >= 0", name="ck_payment_requests_amount"),
     )

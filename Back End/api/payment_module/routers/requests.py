@@ -26,8 +26,11 @@ from ..models import (
     PaymentRequestVersion,
     RequestCommand,
     RequestSequence,
+    Role,
     SystemSetting,
     User,
+    UserRole,
+    WorkflowInstance,
 )
 from ..procurement_adapter import get_procurement_adapter
 from ..schemas import (
@@ -40,6 +43,8 @@ from ..schemas import (
 )
 from ..security import current_user
 from ..vendor_adapter import get_vendor_adapter
+from ..workflow_policy import PolicyCannotRoute
+from ..workflow_service import close_workflow, start_workflow
 
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
@@ -737,7 +742,7 @@ def list_own_cash_advance_options(db: Session = Depends(get_db), actor: User = D
             PaymentRequest.requestor_id == actor.id,
             PaymentRequest.request_type == "cashAdvance",
             PaymentRequest.request_number.is_not(None),
-            PaymentRequest.status.notin_(("draft", "cancelled", "archived")),
+            PaymentRequest.status.notin_(("draft", "declined", "cancelled", "archived")),
         )
         .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
     )
@@ -1138,6 +1143,10 @@ def submit_payment_request(
     item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     item.version += 1
     db.flush()
+    try:
+        start_workflow(db, item, actor.id)
+    except PolicyCannotRoute as error:
+        raise HTTPException(422, str(error)) from error
     db.add(
         PaymentRequestStatusHistory(
             request_id=item.id, from_status=previous, to_status=item.status, actor_user_id=actor.id, note=payload.note
@@ -1164,10 +1173,28 @@ def return_payment_request(
     if "requests.manage_lifecycle" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.manage_lifecycle")
     item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id).with_for_update())
+    is_department_head = (
+        db.scalar(
+            select(UserRole.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == actor.id, Role.code == "department_head")
+        )
+        is not None
+    )
+    if workflow and (
+        workflow.state != "active"
+        or workflow.current_stage != 0
+        or actor.department_id != item.department_id
+        or not is_department_head
+        or actor.id == item.requestor_id
+    ):
+        raise HTTPException(409, "Only the current Department Head stage can return this request")
     if item.status != "submitted" or item.version != payload.version or not payload.note.strip():
         raise HTTPException(409, "Submitted request and a return note are required")
     item.status = "returned"
     item.version += 1
+    close_workflow(db, item, actor.id, "returned", payload.note.strip())
     db.add(
         PaymentRequestStatusHistory(
             request_id=item.id, from_status="submitted", to_status="returned", actor_user_id=actor.id, note=payload.note
@@ -1190,6 +1217,8 @@ def lifecycle_change(
     commit: bool = True,
 ) -> dict:
     previous = item.status
+    if target_status == "cancelled":
+        close_workflow(db, item, actor.id, "cancelled")
     item.status = target_status
     item.version += 1
     if target_status == "cancelled":
@@ -1302,6 +1331,10 @@ def resubmit_payment_request(
     result = lifecycle_change(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
     )
+    try:
+        start_workflow(db, item, actor.id)
+    except PolicyCannotRoute as error:
+        raise HTTPException(422, str(error)) from error
     db.add(
         RequestCommand(
             request_id=item.id,
