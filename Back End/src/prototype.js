@@ -1825,13 +1825,20 @@ function conversationLayoutClass() {
   return `request-conversation-layout${state.conversationCollapsed ? " conversation-collapsed" : ""}`;
 }
 
+function mockConversationCanPost(request) {
+  if (request.infoRequest) return state.persona === "financeAssociate";
+  if (/return/i.test(request.status)) return state.persona === "requestor";
+  const ownerByStep = { 3: "departmentHead", 4: "financeAssociate", 5: "financeManager", 7: "coo", 8: "president", 8.5: "boardMember", 9: "financeAssociate", 10: "financeAssociate", 11: "authorizedSignatory", 12: "financeAssociate", 13: "financeAssociate" };
+  return ownerByStep[request.currentStep] === state.persona;
+}
+
 function conversationPanel(r) {
   const key = r.backendId || r.id;
   const conversation = state.conversations[key];
   const loading = state.conversationLoading[key];
   const error = state.conversationErrors[key];
   const items = conversation?.items || [];
-  const canPost = conversation?.can_post ?? !["Declined", "Cancelled", "Completed"].includes(r.status);
+  const canPost = r.backendId ? conversation?.can_post === true : mockConversationCanPost(r);
   const labels = { information_requested: "Request More Information", information_provided: "Information Provided" };
   const participants = (conversation?.participants || []).filter((person) => person.id !== state.authUser?.id);
   const selectedMentions = state.conversationDraftMentions[key] || [];
@@ -1839,6 +1846,7 @@ function conversationPanel(r) {
   if (state.conversationCollapsed) return `<section class="panel request-conversation is-collapsed" data-conversation-request="${escapeHtml(key)}"><button type="button" class="conversation-toggle conversation-expand" data-toggle-conversation aria-label="Open request conversation" aria-expanded="false" title="Open conversation"><span aria-hidden="true">◀</span><span class="conversation-rail-label">Messages</span></button></section>`;
   return `<section class="panel request-conversation" data-conversation-request="${escapeHtml(key)}"><div class="panel-header"><div><span class="eyebrow">Request Conversation</span><h3>Messages & Notes</h3></div><div class="conversation-header-actions"><button type="button" class="conversation-toggle" data-toggle-conversation aria-label="Collapse request conversation to the right" aria-expanded="true" title="Collapse conversation">→</button></div></div>
     ${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><div class="conversation-composer-input"><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note. Type @ to tag someone" aria-autocomplete="list" aria-controls="conversation-mention-options-${escapeHtml(key)}" aria-expanded="false">${escapeHtml(draftBody)}</textarea><div id="conversation-mention-options-${escapeHtml(key)}" class="conversation-mention-menu" role="listbox" aria-label="Participants to tag" hidden></div></div>${selectedMentions.length ? `<div class="conversation-mention-chips">${selectedMentions.map((id) => { const person = participants.find((entry) => entry.id === id); return person ? `<span class="conversation-mention-chip">@${escapeHtml(person.display_name)}<button type="button" data-remove-mention="${escapeHtml(id)}" data-mention-request="${escapeHtml(key)}" aria-label="Remove mention of ${escapeHtml(person.display_name)}">×</button></span>` : ""; }).join("")}</div>` : ""}<div><small>Type @ and choose a participant to notify them. Messages cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}
+    ${!loading && !error && !canPost ? `<p class="conversation-muted">Only the person responsible for the current step can post a message.</p>` : ""}
     ${loading ? `<p class="conversation-muted">Loading messages…</p>` : error ? `<div class="conversation-error" role="alert"><p>${escapeHtml(error)}</p><button type="button" data-retry-conversation="${escapeHtml(key)}">Try again</button></div>` : items.length ? `<div class="conversation-list" aria-label="Request messages, newest first">${[...items].reverse().map((item) => `<article class="conversation-entry" id="message-${escapeHtml(item.id)}"><div class="conversation-entry-header"><strong>${escapeHtml(item.author_name)}</strong>${item.kind !== "message" ? `<span class="conversation-event-tag">${escapeHtml(labels[item.kind] || item.kind)}</span>` : ""}<time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></div><p>${escapeHtml(item.body)}</p></article>`).join("")}</div>` : `<p class="conversation-muted">No messages yet.</p>`}
 </section>`;
 }
@@ -1889,7 +1897,7 @@ async function loadConversation(r, force = false) {
   state.conversationLoading[key] = true;
   state.conversationErrors[key] = "";
   try {
-    state.conversations[key] = r.backendId ? await dataSource.getRequestConversation(key) : { items: r.conversation || [], can_post: true };
+    state.conversations[key] = r.backendId ? await dataSource.getRequestConversation(key) : { items: r.conversation || [], can_post: mockConversationCanPost(r) };
   } catch (error) { state.conversationErrors[key] = error.message || "Messages could not be loaded."; }
   finally { state.conversationLoading[key] = false; render(); }
 }
@@ -2839,7 +2847,13 @@ function render() {
       state.conversationDraftBody[key] = "";
       state.conversationDraftMentions[key] = [];
       setState({ toast: successToast("Message posted to the request conversation.") });
-    } catch (error) { showErrorToast(error.message || "Message could not be posted."); }
+    } catch (error) {
+      if ([403, 409].includes(error.status)) {
+        const request = requests.find((item) => (item.backendId || item.id) === key);
+        if (request) await loadConversation(request, true);
+      }
+      showErrorToast(error.message || "Message could not be posted.");
+    }
     finally { state.conversationPosting[key] = false; render(); }
   }));
   if (state.tab === "approvals" && state.requestsFiltered) {

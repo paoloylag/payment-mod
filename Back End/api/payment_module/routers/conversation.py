@@ -21,7 +21,7 @@ from ..models import (
     WorkflowInstance,
 )
 from ..security import current_user, effective_permissions
-from .workflow import actor_roles
+from .workflow import actor_roles, can_respond_information, can_review
 
 router = APIRouter(prefix="/api/v1/requests", tags=["request conversation"])
 
@@ -75,6 +75,26 @@ def visible_participant(db: Session, request: Request, actor: User, request_id: 
     if item is None or not participant(db, request, actor, item):
         raise HTTPException(404, "Payment request not found")
     return item
+
+
+def can_post_conversation(
+    db: Session, request: Request, actor: User, item: PaymentRequest, instance: WorkflowInstance | None = None
+) -> bool:
+    if item.status == "returned":
+        return actor.id == item.requestor_id
+    if item.status != "submitted":
+        return False
+    if instance is None:
+        instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
+    if instance is None:
+        return False
+    roles = actor_roles(db, actor)
+    if instance.state == "information_requested":
+        return can_respond_information(request, actor, item, roles)
+    stages = instance.route_snapshot.get("stages", [])
+    if instance.state != "active" or instance.current_stage is None or instance.current_stage >= len(stages):
+        return False
+    return can_review(request, actor, item, stages[instance.current_stage], roles)
 
 
 def mention_ids(db: Session, message_id: UUID) -> list[str]:
@@ -147,7 +167,7 @@ def get_conversation(
         "request_id": str(item.id),
         "items": entries,
         "participants": participant_users(db, item),
-        "can_post": item.status in {"submitted", "returned"},
+        "can_post": can_post_conversation(db, request, actor, item),
     }
 
 
@@ -182,8 +202,12 @@ def post_conversation(
         ):
             raise HTTPException(409, "Idempotency-Key was already used for another message")
         return message_view(existing, actor, mention_ids(db, existing.id))
+    item = db.scalar(select(PaymentRequest).where(PaymentRequest.id == item.id).with_for_update())
+    instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id).with_for_update())
     if item.status not in {"submitted", "returned"}:
         raise HTTPException(409, "Conversation is read-only for this request")
+    if not can_post_conversation(db, request, actor, item, instance):
+        raise HTTPException(403, "Only the person responsible for the current step can post a message")
     candidates = {UUID(person["id"]): person for person in participant_users(db, item)}
     if not mentioned.issubset(candidates):
         raise HTTPException(422, "Mentions must be active participants in this request")

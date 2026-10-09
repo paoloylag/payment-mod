@@ -68,7 +68,7 @@ Create a backend-authoritative approval engine that snapshots policy at submissi
 
 ## API and frontend behavior
 
-- Each request has a shared conversation visible to its requestor and participants named in its saved approval route. Participants may post immutable notes while the request is submitted or returned; terminal requests retain a read-only log. Notes do not change the workflow stage or count as approval decisions.
+- Each request has a shared conversation visible to its requestor and participants named in its saved approval route. Only the reviewer responsible for the active approval stage may post. While Request More Information is pending, Finance Associate may post; for a returned request, the requestor may post. Other participants can read the log. Terminal requests retain a read-only log. Notes do not change the workflow stage or count as approval decisions.
 - Request More Information and Finance Associate responses appear in the conversation from their existing workflow events. Messages use idempotency keys to avoid duplicates after mobile retries.
 - A participant can tag another active route participant in a message. The tagged person receives an in-app notification linking to that message; the header bell shows unread mentions and checks for new ones while the app is open. Mentions do not change workflow assignments. Local demo requests include one unread mention for each assigned reviewer.
 
