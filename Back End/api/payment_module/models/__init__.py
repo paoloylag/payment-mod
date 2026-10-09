@@ -19,6 +19,7 @@ from .identity import (
 from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode
 from .requests import (
     PaymentRequest,
+    RequestConversationMessage,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
     PaymentRequestVersion,
@@ -51,6 +52,7 @@ __all__ = [
     "DocumentReviewDecision",
     "DocumentVersion",
     "PaymentRequest",
+    "RequestConversationMessage",
     "PaymentRequestLine",
     "PaymentRequestStatusHistory",
     "PaymentRequestVersion",

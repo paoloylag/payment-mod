@@ -184,6 +184,18 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve([]);
       return apiRequest(`/api/v1/requests/${id}/history`);
     },
+    getRequestConversation(id) {
+      if (mode === "mock") return Promise.resolve({ items: [], can_post: true });
+      return apiRequest(`/api/v1/requests/${id}/conversation`);
+    },
+    postRequestConversation(id, body, csrfToken, idempotencyKey) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/requests/${id}/conversation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ body }),
+      });
+    },
     getWorkflow(id) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}`);

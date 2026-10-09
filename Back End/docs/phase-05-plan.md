@@ -68,6 +68,9 @@ Create a backend-authoritative approval engine that snapshots policy at submissi
 
 ## API and frontend behavior
 
+- Each request has a shared conversation visible to its requestor and participants named in its saved approval route. Participants may post immutable notes while the request is submitted or returned; terminal requests retain a read-only log. Notes do not change the workflow stage or count as approval decisions.
+- Request More Information and Finance Associate responses appear in the conversation from their existing workflow events. Messages use idempotency keys to avoid duplicates after mobile retries.
+
 - Queue API supports assigned-to-me, role, department, status, aging, type, amount, stable sort, and pagination.
 - Decision commands require workflow/version tokens and idempotency keys.
 - Request detail returns the current stage, permitted actions, safe assignee display, progress, and immutable timeline.

@@ -261,6 +261,10 @@ let state = {
   approvalView: "list",
   workflowQueue: [],
   workflowQueueError: "",
+  conversations: {},
+  conversationLoading: {},
+  conversationErrors: {},
+  conversationPosting: {},
   requestsFiltered: false,
   selectedId: requests[0].id,
   dashboardRequestId: null,
@@ -1105,6 +1109,7 @@ async function loadApiPaymentRequests(filters = null) {
   requests.splice(0, requests.length, ...submitted);
   state = {
     ...state,
+    conversations: {},
     drafts: filters ? state.drafts : items.filter((item) => item.status === "draft").map(apiRequestToDraft),
     selectedId: submitted.some((item) => item.id === state.selectedId) ? state.selectedId : submitted[0]?.id || null,
     requestsError: "",
@@ -1807,6 +1812,28 @@ function detail(r, showWorkflowSummary = false) {
     </dl></details>${r.decisionReason ? `<div class="request-control-bar"><div><span class="eyebrow">${r.backendStatus === "declined" ? "Decline Reason" : "Correction Requested"}</span><strong>${escapeHtml(r.decisionReason)}</strong></div></div>` : ""}${requestControls}<details class="request-routing-card responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Routing</span><strong>${r.budgeted ? "Budgeted" : "Unbudgeted"} · ${requestMoney(r)}</strong></span><span class="disclosure-label">Why this route?</span></summary><div class="routing-detail"><strong>${route(r)}</strong></div></details>${showWorkflowSummary ? workflowSummary(r) : ""}${requestActivity(r)}</section>`;
 }
 
+function conversationPanel(r) {
+  const key = r.backendId || r.id;
+  const conversation = state.conversations[key];
+  const loading = state.conversationLoading[key];
+  const error = state.conversationErrors[key];
+  const items = conversation?.items || [];
+  const canPost = conversation?.can_post ?? !["Declined", "Cancelled", "Completed"].includes(r.status);
+  const labels = { information_requested: "Request More Information", information_provided: "Information Provided" };
+  return `<section class="panel request-conversation" data-conversation-request="${escapeHtml(key)}"><div class="panel-header"><div><span class="eyebrow">Request Conversation</span><h3>Messages & Notes</h3><p>Shared with everyone in this request's approval flow.</p></div><span class="count">${items.length}</span></div>${loading ? `<p class="conversation-muted">Loading messages…</p>` : error ? `<div class="conversation-error" role="alert"><p>${escapeHtml(error)}</p><button type="button" data-retry-conversation="${escapeHtml(key)}">Try again</button></div>` : items.length ? `<div class="conversation-list" aria-label="Request messages">${items.map((item) => `<article class="conversation-entry"><div class="conversation-entry-header"><strong>${escapeHtml(item.author_name)}</strong>${item.kind !== "message" ? `<span class="conversation-event-tag">${escapeHtml(labels[item.kind] || item.kind)}</span>` : ""}<time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></div><p>${escapeHtml(item.body)}</p></article>`).join("")}</div>` : `<p class="conversation-muted">No messages yet.</p>`}${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note for everyone in the request flow"></textarea><div><small>Messages are shared and cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}</section>`;
+}
+
+async function loadConversation(r, force = false) {
+  const key = r.backendId || r.id;
+  if (state.conversationLoading[key] || (!force && state.conversations[key])) return;
+  state.conversationLoading[key] = true;
+  state.conversationErrors[key] = "";
+  try {
+    state.conversations[key] = r.backendId ? await dataSource.getRequestConversation(key) : { items: r.conversation || [], can_post: true };
+  } catch (error) { state.conversationErrors[key] = error.message || "Messages could not be loaded."; }
+  finally { state.conversationLoading[key] = false; render(); }
+}
+
 function allRolesActionPanel(request) {
   if (state.persona !== "all") return "";
   const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
@@ -2395,7 +2422,7 @@ function unifiedRequestDetails() {
   const lifecycleButtons = lifecycleActions.match(/<div class="request-submit-actions">([\s\S]*?)<\/div>/)?.[1] || "";
   const roleAction = unifiedRoleAction(request, lifecycleButtons);
   const separateLifecycle = roleAction.includes("approval-decision-card") ? "" : lifecycleActions;
-  return `<section class="metric-detail-view unified-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-unified-request>← Back</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Details</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div>${statusPill(request.status)}</div>${detail(request, true)}${separateLifecycle}${roleAction}${voucherFor(request)}${vendorNotificationModal(request)}${documentViewerModal(request)}</section>`;
+  return `<section class="metric-detail-view unified-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-unified-request>← Back</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Details</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department} · ${requestMoney(request)}</p></div>${statusPill(request.status)}</div>${detail(request, true)}${conversationPanel(request)}${separateLifecycle}${roleAction}${voucherFor(request)}${vendorNotificationModal(request)}${documentViewerModal(request)}</section>`;
 }
 
 function approvals() {
@@ -2404,15 +2431,15 @@ function approvals() {
   if (!queue.length) return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Signatory Approval Queue" : "Approval Queue"}</h3><p>Click a request to preview it. Double-click to open its details.</p></div></div><div class="approval-queue-workspace approval-queue-workspace-empty">${requestTable(queue)}</div></section>`;
   const selected = queue.find((r) => r.id === state.selectedId) || queue[0];
   if (state.approvalView === "list") return `<section class="approval-landing"><div class="approval-page-intro"><div><span class="eyebrow">${personas[state.persona].label} Workspace</span><h3>${state.persona === "authorizedSignatory" ? "Signatory Approval Queue" : "Approval Queue"}</h3><p>Click a request to preview it. Double-click to open its details.</p></div><span class="count">${queue.length} requests</span></div><div class="approval-queue-workspace">${requestTable(queue)}${approvalQueuePreview(selected)}</div></section>`;
-  if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
-  if (selected.backendId) return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3><p>${paymentTypes[selected.type].label} · ${selected.department} · ${requestMoney(selected)}</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}${backendApprovalCard(selected)}${documentViewerModal(selected)}</section>`;
-  if (selected.infoRequest && state.persona === "financeAssociate") return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3></div>${statusPill(selected.status)}</div>${detail(selected, true)}${mockInformationResponseCard(selected)}</section>`;
+  if (state.approvalView === "detail") return `<section class="approval-request-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-list>← Back to Live Requests</button></div><div class="metric-detail-header"><div><span class="eyebrow">Request Review</span><h3>${selected.id}</h3><p>Review the request information before beginning the approval process.</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}${conversationPanel(selected)}<div class="approval-start-card"><div><span class="eyebrow">Next Step</span><h4>Ready to Review This Request?</h4><p>Continue to the dedicated approval workspace to validate documents, record notes, and make a decision.</p></div><button type="button" class="primary-button" data-start-approval="${selected.id}">Go Through Approval</button></div></section>`;
+  if (selected.backendId) return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3><p>${paymentTypes[selected.type].label} · ${selected.department} · ${requestMoney(selected)}</p></div>${statusPill(selected.status)}</div>${detail(selected, true)}${conversationPanel(selected)}${backendApprovalCard(selected)}${documentViewerModal(selected)}</section>`;
+  if (selected.infoRequest && state.persona === "financeAssociate") return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Approval Workspace</span><h3>${selected.id}</h3></div>${statusPill(selected.status)}</div>${detail(selected, true)}${conversationPanel(selected)}${mockInformationResponseCard(selected)}</section>`;
   const isVoucherCreation = state.persona === "financeAssociate" && selected.currentStep === 9;
   const actionTitle = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Document Validation" : isVoucherCreation ? "Voucher Creation" : "Approval Action";
   const primaryAction = state.persona === "financeAssociate" && selected.currentStep === 4 ? "Open Document Validation" : "Approve and Notify Next Owner";
   const isDocumentValidation = state.persona === "financeAssociate" && selected.currentStep === 4;
   const showReadOnlyValidation = ["financeManager", "coo", "president", "boardMember"].includes(state.persona);
-  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Finance Associate Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : isVoucherCreation ? (state.voucherDetails.created ? "" : voucherFor(selected, true)) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button>${canRejectApproval(selected) ? approvalRejectControl(selected) : `<button type="button" class="request-info-button" data-mock-request-information>Request More Information</button>`}</div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${documentViewerModal(selected)}</section>`;
+  return `<section class="approval-review-page"><div class="metric-detail-actions"><button type="button" class="back-button" data-back-approval-detail="${selected.id}">← Back to Request Details</button></div><div class="metric-detail-header"><div><span class="eyebrow">Finance Associate Workspace</span><h3>${actionTitle}</h3><p>${selected.id} · ${paymentTypes[selected.type].label} · ${money(selected.amount)}</p></div>${statusPill(selected.status)}</div><section class="panel action-panel">${detail(selected)}${isDocumentValidation ? documentValidationWorkspace(selected) : isVoucherCreation ? (state.voucherDetails.created ? "" : voucherFor(selected, true)) : `${showReadOnlyValidation ? validationReadOnlySummary(selected) : ""}<div class="approval-actions"><button class="confirmation-button approve-notify-button">${primaryAction}</button>${canRejectApproval(selected) ? approvalRejectControl(selected) : `<button type="button" class="request-info-button" data-mock-request-information>Request More Information</button>`}</div><label>Reviewer Note<textarea>Validated supporting documents and routing threshold.</textarea></label>`}</section>${conversationPanel(selected)}${documentViewerModal(selected)}</section>`;
 }
 
 function paymentOperationsPanel(request) {
@@ -2613,9 +2640,35 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  const conversationKey = document.querySelector("[data-conversation-request]")?.dataset.conversationRequest;
+  if (conversationKey) {
+    const conversationRequest = requests.find((item) => (item.backendId || item.id) === conversationKey);
+    if (conversationRequest && !state.conversations[conversationKey] && !state.conversationLoading[conversationKey] && !state.conversationErrors[conversationKey]) queueMicrotask(() => loadConversation(conversationRequest));
+  }
   paginateTables(document.getElementById("root"), `${state.persona}:${location.hash}`);
   bindToast();
   bindActionPrompt();
+  document.querySelectorAll("[data-retry-conversation]").forEach((button) => button.addEventListener("click", () => {
+    const request = requests.find((item) => (item.backendId || item.id) === button.dataset.retryConversation);
+    if (request) loadConversation(request, true);
+  }));
+  document.querySelectorAll("[data-conversation-form]").forEach((form) => form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const key = form.dataset.conversationForm;
+    const body = String(new FormData(form).get("body") || "").trim();
+    if (!body || state.conversationPosting[key]) return;
+    state.conversationPosting[key] = true;
+    form.querySelector("button[type=submit]").disabled = true;
+    try {
+      let posted;
+      if (state.authStatus === "authenticated") posted = await dataSource.postRequestConversation(key, body, state.csrfToken, crypto.randomUUID());
+      else posted = { id: crypto.randomUUID(), kind: "message", body, author_name: activeRequestor(), created_at: new Date().toISOString() };
+      const conversation = state.conversations[key] || { items: [], can_post: true };
+      state.conversations[key] = { ...conversation, items: [...conversation.items, posted] };
+      setState({ toast: successToast("Message posted to the request conversation.") });
+    } catch (error) { showErrorToast(error.message || "Message could not be posted."); }
+    finally { state.conversationPosting[key] = false; render(); }
+  }));
   if (state.tab === "approvals" && state.requestsFiltered) {
     state.requestsFiltered = false;
     queueMicrotask(async () => {
@@ -2697,7 +2750,7 @@ function render() {
   });
   document.querySelector("[data-logout]")?.addEventListener("click", async () => {
     await dataSource.logout(state.csrfToken).catch(() => undefined);
-    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null });
+    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {} });
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);

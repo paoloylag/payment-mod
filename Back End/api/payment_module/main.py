@@ -9,6 +9,7 @@ from .errors import install_exception_handlers
 from .logging import configure_logging
 from .middleware import RequestContextMiddleware
 from .routers.auth import router as auth_router
+from .routers.conversation import router as conversation_router
 from .routers.documents import router as documents_router
 from .routers.identity import router as identity_router
 from .routers.master_data import router as master_data_router
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     application.include_router(master_data_router)
     application.include_router(documents_router)
     application.include_router(requests_router)
+    application.include_router(conversation_router)
     application.include_router(request_settings_router)
     application.include_router(workflow_router)
     return application

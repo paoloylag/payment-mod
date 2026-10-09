@@ -123,3 +123,17 @@ class RequestCommand(Base):
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RequestConversationMessage(Base):
+    __tablename__ = "request_conversation_messages"
+    __table_args__ = (UniqueConstraint("author_user_id", "idempotency_key", name="uq_request_conversation_author_key"),)
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("payment_requests.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    author_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
