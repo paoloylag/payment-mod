@@ -1867,7 +1867,7 @@ function updateConversationMentionMenu(textarea) {
   const key = textarea.form?.dataset.conversationForm;
   const match = conversationMentionMatch(textarea);
   const participants = (state.conversations[key]?.participants || []).filter((person) => person.id !== state.authUser?.id);
-  const options = match ? participants.filter((person) => `${person.display_name} ${person.role.replaceAll("_", " ")}`.toLowerCase().includes(match.query)).slice(0, 8) : [];
+  const options = match ? participants.filter((person) => `${person.display_name} ${person.role.replaceAll("_", " ")}`.toLowerCase().includes(match.query)) : [];
   menu.innerHTML = options.map((person, index) => `<button type="button" role="option" id="mention-option-${escapeHtml(person.id)}" data-mention-option="${escapeHtml(person.id)}" aria-selected="${index === 0}"><strong>${escapeHtml(person.display_name)}</strong><small>${escapeHtml(person.role.replaceAll("_", " "))}</small></button>`).join("");
   menu.hidden = options.length === 0;
   menu.dataset.activeIndex = "0";

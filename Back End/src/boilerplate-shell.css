@@ -1623,7 +1623,7 @@ body:has(.guide-main) { overflow: visible; }
 .conversation-form label { font-weight: 600; }
 .conversation-form textarea { box-sizing: border-box; width: 100%; min-height: 88px; resize: vertical; padding: 11px 12px; border: 1px solid var(--border, #cbd5e1); border-radius: 10px; font: inherit; background: var(--surface, #fff); color: inherit; }
 .conversation-form > .conversation-composer-input { position: relative; display: block; }
-.conversation-mention-menu { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 5; max-height: 220px; overflow-y: auto; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
+.conversation-mention-menu { position: absolute; top: calc(100% + 4px); right: 0; left: 0; z-index: 5; box-sizing: border-box; max-height: 166px; overflow-y: auto; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); }
 .conversation-mention-menu[hidden] { display: none; }
 .conversation-form .conversation-mention-menu button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; box-sizing: border-box; width: 100%; min-width: 0; height: 52px; min-height: 52px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; }
 .conversation-mention-menu button:hover, .conversation-mention-menu button[aria-selected="true"] { background: var(--accent); }
