@@ -18,6 +18,7 @@ from .models import (
     PaymentRequestLine,
     Permission,
     RequestConversationMessage,
+    RequestMentionNotification,
     Role,
     RolePermission,
     SystemSetting,
@@ -574,6 +575,33 @@ def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None
                     created_at=item.submitted_at + timedelta(hours=stage_index + 3 + message_index),
                 )
             )
+    mention_message_id = stable_id("demo-conversation-message", f"{seed_code}:3")
+    if session.get(RequestConversationMessage, mention_message_id) is None:
+        reviewer = session.get(User, reviewer_id)
+        session.add(
+            RequestConversationMessage(
+                id=mention_message_id,
+                request_id=item.id,
+                author_user_id=user_ids["requestor"],
+                idempotency_key=f"demo:{seed_code}:3",
+                body=(
+                    f"@{reviewer.display_name} Thank you for reviewing this request. "
+                    "Please let me know if anything else is needed."
+                ),
+                created_at=item.submitted_at + timedelta(hours=stage_index + 6),
+            )
+        )
+    mention_id = stable_id("demo-mention-notification", seed_code)
+    if session.get(RequestMentionNotification, mention_id) is None:
+        session.add(
+            RequestMentionNotification(
+                id=mention_id,
+                request_id=item.id,
+                message_id=mention_message_id,
+                recipient_user_id=reviewer_id,
+                created_at=item.submitted_at + timedelta(hours=stage_index + 6),
+            )
+        )
     if seed_code == "DEMO-BOARD-001":
         for offset, action, author_id, note in (
             (0, "information_requested", reviewer_id, "Please confirm the project milestone amounts."),

@@ -265,6 +265,14 @@ let state = {
   conversationLoading: {},
   conversationErrors: {},
   conversationPosting: {},
+  conversationDraftBody: {},
+  conversationDraftMentions: {},
+  notifications: { unread_count: 0, items: [] },
+  notificationsLoaded: false,
+  notificationsLoading: false,
+  notificationsError: "",
+  notificationsOpen: false,
+  highlightMessageId: null,
   requestsFiltered: false,
   selectedId: requests[0].id,
   dashboardRequestId: null,
@@ -690,7 +698,7 @@ function bindLogin() {
     try {
       const session = await dataSource.login(form.get("email"), form.get("password"));
       const persona = personaForRoles(session.user.roles);
-      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null };
+      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false };
       await loadApiPaymentRequests();
       navigate("/dashboard");
     } catch (error) {
@@ -1696,7 +1704,7 @@ function shell(content) {
         </div>
       </aside>
       <main class="${state.tab === "guide" ? "guide-main" : ""}">
-        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" aria-label="Notifications" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span class="notification-dot"></span></button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button></div></header>
+        <header class="topbar"><div class="mobile-title-row"><button type="button" class="hamburger-button icon-button" data-open-mobile-nav aria-label="Open navigation" aria-controls="primarySidebar" aria-expanded="${state.mobileNavOpen}"><span></span><span></span><span></span></button><div><h2>${titles[state.tab]}</h2><p>${persona.subtitle}</p></div></div><div class="topbar-actions"><label class="shell-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" aria-label="Search payment application" placeholder="Search" /></label><button type="button" class="icon-button notification-button" data-toggle-notifications aria-label="Notifications${state.notifications.unread_count ? `, ${state.notifications.unread_count} unread` : ""}" aria-expanded="${state.notificationsOpen}" title="Notifications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>${state.notifications.unread_count ? `<span class="notification-count">${Math.min(state.notifications.unread_count, 99)}${state.notifications.unread_count > 99 ? "+" : ""}</span>` : ""}</button><button type="button" class="theme-toggle icon-button" data-theme-toggle aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" title="Switch to ${state.theme === "dark" ? "light" : "dark"} mode" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>` : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`}</button></div>${notificationPanel()}</header>
         ${administrationWorkspace(content)}
         ${unlockRequestModal()}
       </main>
@@ -1820,7 +1828,12 @@ function conversationPanel(r) {
   const items = conversation?.items || [];
   const canPost = conversation?.can_post ?? !["Declined", "Cancelled", "Completed"].includes(r.status);
   const labels = { information_requested: "Request More Information", information_provided: "Information Provided" };
-  return `<section class="panel request-conversation" data-conversation-request="${escapeHtml(key)}"><div class="panel-header"><div><span class="eyebrow">Request Conversation</span><h3>Messages & Notes</h3><p>Shared with everyone in this request's approval flow.</p></div><span class="count">${items.length}</span></div>${loading ? `<p class="conversation-muted">Loading messages…</p>` : error ? `<div class="conversation-error" role="alert"><p>${escapeHtml(error)}</p><button type="button" data-retry-conversation="${escapeHtml(key)}">Try again</button></div>` : items.length ? `<div class="conversation-list" aria-label="Request messages">${items.map((item) => `<article class="conversation-entry"><div class="conversation-entry-header"><strong>${escapeHtml(item.author_name)}</strong>${item.kind !== "message" ? `<span class="conversation-event-tag">${escapeHtml(labels[item.kind] || item.kind)}</span>` : ""}<time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></div><p>${escapeHtml(item.body)}</p></article>`).join("")}</div>` : `<p class="conversation-muted">No messages yet.</p>`}${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note for everyone in the request flow"></textarea><div><small>Messages are shared and cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}</section>`;
+  const participants = (conversation?.participants || []).filter((person) => person.id !== state.authUser?.id);
+  const selectedMentions = state.conversationDraftMentions[key] || [];
+  const draftBody = state.conversationDraftBody[key] || "";
+  return `<section class="panel request-conversation" data-conversation-request="${escapeHtml(key)}"><div class="panel-header"><div><span class="eyebrow">Request Conversation</span><h3>Messages & Notes</h3><p>Shared with everyone in this request's approval flow.</p></div><span class="count">${items.length}</span></div>
+    ${loading ? `<p class="conversation-muted">Loading messages…</p>` : error ? `<div class="conversation-error" role="alert"><p>${escapeHtml(error)}</p><button type="button" data-retry-conversation="${escapeHtml(key)}">Try again</button></div>` : items.length ? `<div class="conversation-list" aria-label="Request messages">${items.map((item) => `<article class="conversation-entry" id="message-${escapeHtml(item.id)}"><div class="conversation-entry-header"><strong>${escapeHtml(item.author_name)}</strong>${item.kind !== "message" ? `<span class="conversation-event-tag">${escapeHtml(labels[item.kind] || item.kind)}</span>` : ""}<time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></div><p>${escapeHtml(item.body)}</p></article>`).join("")}</div>` : `<p class="conversation-muted">No messages yet.</p>`}
+    ${!loading && !error && canPost ? `<form class="conversation-form" data-conversation-form="${escapeHtml(key)}"><label for="conversation-${escapeHtml(key)}">Add a message</label><textarea id="conversation-${escapeHtml(key)}" name="body" maxlength="2000" required rows="3" placeholder="Write a note for everyone in the request flow">${escapeHtml(draftBody)}</textarea>${participants.length ? `<label class="conversation-mention-label">Tag a participant<select data-mention-select="${escapeHtml(key)}"><option value="">Choose a person to notify</option>${participants.filter((person) => !selectedMentions.includes(person.id)).map((person) => `<option value="${escapeHtml(person.id)}">${escapeHtml(person.display_name)} · ${escapeHtml(person.role.replaceAll("_", " "))}</option>`).join("")}</select></label>${selectedMentions.length ? `<div class="conversation-mention-chips">${selectedMentions.map((id) => { const person = participants.find((entry) => entry.id === id); return person ? `<span class="conversation-mention-chip">@${escapeHtml(person.display_name)}<button type="button" data-remove-mention="${escapeHtml(id)}" data-mention-request="${escapeHtml(key)}" aria-label="Remove mention of ${escapeHtml(person.display_name)}">×</button></span>` : ""; }).join("")}</div>` : ""}` : ""}<div><small>Tag someone to notify them. Messages cannot be edited after posting.</small><button type="submit" class="primary-button" ${state.conversationPosting[key] ? "disabled" : ""}>${state.conversationPosting[key] ? "Posting…" : "Post Message"}</button></div></form>` : ""}</section>`;
 }
 
 async function loadConversation(r, force = false) {
@@ -1832,6 +1845,26 @@ async function loadConversation(r, force = false) {
     state.conversations[key] = r.backendId ? await dataSource.getRequestConversation(key) : { items: r.conversation || [], can_post: true };
   } catch (error) { state.conversationErrors[key] = error.message || "Messages could not be loaded."; }
   finally { state.conversationLoading[key] = false; render(); }
+}
+
+async function loadNotifications() {
+  if (state.authStatus !== "authenticated" || state.notificationsLoading) return;
+  state.notificationsLoading = true;
+  const wasLoaded = state.notificationsLoaded;
+  let changed = !wasLoaded;
+  try {
+    const next = await dataSource.getNotifications();
+    changed = changed || JSON.stringify(next) !== JSON.stringify(state.notifications) || Boolean(state.notificationsError);
+    state.notifications = next;
+    state.notificationsError = "";
+  } catch (error) { state.notificationsError = error.message || "Notifications could not be loaded."; changed = true; }
+  finally { state.notificationsLoaded = true; state.notificationsLoading = false; if (changed) render(); }
+}
+
+function notificationPanel() {
+  if (!state.notificationsOpen) return "";
+  const items = state.notifications.items || [];
+  return `<section class="notification-panel" aria-label="Mention notifications"><div class="notification-panel-header"><div><strong>Notifications</strong><small>${state.notifications.unread_count} unread</small></div><button type="button" data-close-notifications aria-label="Close notifications">×</button></div>${state.notificationsLoading ? `<p class="notification-empty">Loading…</p>` : state.notificationsError ? `<div class="notification-empty" role="alert"><p>${escapeHtml(state.notificationsError)}</p><button type="button" data-retry-notifications>Try again</button></div>` : items.length ? `<div class="notification-list">${items.map((item) => `<button type="button" class="notification-item ${item.read_at ? "" : "unread"}" data-open-notification="${escapeHtml(item.id)}"><span class="notification-item-title">${escapeHtml(item.author_name)} mentioned you</span><span class="notification-item-request">${escapeHtml(item.request.request_number || "Payment request")}</span><span class="notification-item-preview">${escapeHtml(item.preview)}</span><time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></button>`).join("")}</div>` : `<p class="notification-empty">No mentions yet.</p>`}</section>`;
 }
 
 function allRolesActionPanel(request) {
@@ -2640,6 +2673,11 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  if (state.authStatus === "authenticated" && !state.notificationsLoaded && !state.notificationsLoading) queueMicrotask(loadNotifications);
+  if (state.highlightMessageId) {
+    const target = document.getElementById(`message-${state.highlightMessageId}`);
+    if (target) { target.scrollIntoView({ block: "center" }); target.classList.add("conversation-highlight"); state.highlightMessageId = null; }
+  }
   const conversationKey = document.querySelector("[data-conversation-request]")?.dataset.conversationRequest;
   if (conversationKey) {
     const conversationRequest = requests.find((item) => (item.backendId || item.id) === conversationKey);
@@ -2648,23 +2686,75 @@ function render() {
   paginateTables(document.getElementById("root"), `${state.persona}:${location.hash}`);
   bindToast();
   bindActionPrompt();
+  document.querySelector("[data-toggle-notifications]")?.addEventListener("click", () => {
+    state.notificationsOpen = !state.notificationsOpen;
+    render();
+    if (state.notificationsOpen) loadNotifications();
+  });
+  document.querySelector("[data-close-notifications]")?.addEventListener("click", () => setState({ notificationsOpen: false }));
+  document.querySelector("[data-retry-notifications]")?.addEventListener("click", loadNotifications);
+  document.querySelectorAll("[data-open-notification]").forEach((button) => button.addEventListener("click", async () => {
+    const item = state.notifications.items.find((entry) => entry.id === button.dataset.openNotification);
+    if (!item) return;
+    if (!item.read_at) {
+      try { await dataSource.markNotificationRead(item.id, state.csrfToken); }
+      catch (error) { showErrorToast(error.message || "Could not mark the notification as read."); }
+    }
+    const request = apiRequestToPrototype(item.request);
+    const stageSteps = { department_head: 3, finance_associate: 4, finance_manager: 5, coo: 7, president: 8, board_member: 8.5 };
+    if (item.workflow_stage_role) {
+      request.currentStep = stageSteps[item.workflow_stage_role] || request.currentStep;
+      request.status = item.workflow_stage_purpose || request.status;
+    }
+    const existingIndex = requests.findIndex((entry) => entry.backendId === item.request_id);
+    if (existingIndex < 0) requests.push(request);
+    state.highlightMessageId = item.message_id;
+    state.notificationsOpen = false;
+    navigate(`/requests/${request.id}`);
+    loadNotifications();
+  }));
   document.querySelectorAll("[data-retry-conversation]").forEach((button) => button.addEventListener("click", () => {
     const request = requests.find((item) => (item.backendId || item.id) === button.dataset.retryConversation);
     if (request) loadConversation(request, true);
+  }));
+  document.querySelectorAll("[data-mention-select]").forEach((select) => select.addEventListener("change", () => {
+    const key = select.dataset.mentionSelect;
+    const person = state.conversations[key]?.participants?.find((entry) => entry.id === select.value);
+    if (!person) return;
+    state.conversationDraftMentions[key] = [...new Set([...(state.conversationDraftMentions[key] || []), person.id])];
+    state.conversationDraftBody[key] = `${state.conversationDraftBody[key] || ""}${state.conversationDraftBody[key] ? " " : ""}@${person.display_name} `;
+    render();
+    document.querySelector(`[data-conversation-form="${key}"] textarea`)?.focus();
+  }));
+  document.querySelectorAll("[data-conversation-form] textarea").forEach((textarea) => textarea.addEventListener("input", () => {
+    state.conversationDraftBody[textarea.form.dataset.conversationForm] = textarea.value;
+  }));
+  document.querySelectorAll("[data-remove-mention]").forEach((button) => button.addEventListener("click", () => {
+    const key = button.dataset.mentionRequest;
+    const person = state.conversations[key]?.participants?.find((entry) => entry.id === button.dataset.removeMention);
+    state.conversationDraftMentions[key] = (state.conversationDraftMentions[key] || []).filter((id) => id !== button.dataset.removeMention);
+    if (person) state.conversationDraftBody[key] = (state.conversationDraftBody[key] || "").replace(`@${person.display_name}`, "").trim();
+    render();
   }));
   document.querySelectorAll("[data-conversation-form]").forEach((form) => form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const key = form.dataset.conversationForm;
     const body = String(new FormData(form).get("body") || "").trim();
+    const mentions = (state.conversationDraftMentions[key] || []).filter((id) => {
+      const person = state.conversations[key]?.participants?.find((entry) => entry.id === id);
+      return person && body.includes(`@${person.display_name}`);
+    });
     if (!body || state.conversationPosting[key]) return;
     state.conversationPosting[key] = true;
     form.querySelector("button[type=submit]").disabled = true;
     try {
       let posted;
-      if (state.authStatus === "authenticated") posted = await dataSource.postRequestConversation(key, body, state.csrfToken, crypto.randomUUID());
+      if (state.authStatus === "authenticated") posted = await dataSource.postRequestConversation(key, body, mentions, state.csrfToken, crypto.randomUUID());
       else posted = { id: crypto.randomUUID(), kind: "message", body, author_name: activeRequestor(), created_at: new Date().toISOString() };
       const conversation = state.conversations[key] || { items: [], can_post: true };
       state.conversations[key] = { ...conversation, items: [...conversation.items, posted] };
+      state.conversationDraftBody[key] = "";
+      state.conversationDraftMentions[key] = [];
       setState({ toast: successToast("Message posted to the request conversation.") });
     } catch (error) { showErrorToast(error.message || "Message could not be posted."); }
     finally { state.conversationPosting[key] = false; render(); }
@@ -2750,7 +2840,7 @@ function render() {
   });
   document.querySelector("[data-logout]")?.addEventListener("click", async () => {
     await dataSource.logout(state.csrfToken).catch(() => undefined);
-    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {} });
+    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {}, conversationDraftBody: {}, conversationDraftMentions: {}, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false });
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);
@@ -3415,8 +3505,12 @@ window.addEventListener("hashchange", () => {
   render();
   resetPageScroll();
 });
+window.setInterval(() => {
+  if (document.visibilityState === "visible" && state.authStatus === "authenticated") loadNotifications();
+}, 30000);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && state.actionPrompt) setState({ actionPrompt: null });
+  else if (event.key === "Escape" && state.notificationsOpen) setState({ notificationsOpen: false });
   else if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
   else if (event.key === "Escape" && state.masterDataEdit) closeMasterDataModal();
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });

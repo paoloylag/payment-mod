@@ -19,11 +19,12 @@ from .identity import (
 from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode
 from .requests import (
     PaymentRequest,
-    RequestConversationMessage,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
     PaymentRequestVersion,
     RequestCommand,
+    RequestConversationMessage,
+    RequestMentionNotification,
     RequestSequence,
 )
 from .system_setting import SystemSetting
@@ -53,6 +54,7 @@ __all__ = [
     "DocumentVersion",
     "PaymentRequest",
     "RequestConversationMessage",
+    "RequestMentionNotification",
     "PaymentRequestLine",
     "PaymentRequestStatusHistory",
     "PaymentRequestVersion",

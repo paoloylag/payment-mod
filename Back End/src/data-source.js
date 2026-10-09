@@ -188,12 +188,22 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve({ items: [], can_post: true });
       return apiRequest(`/api/v1/requests/${id}/conversation`);
     },
-    postRequestConversation(id, body, csrfToken, idempotencyKey) {
+    postRequestConversation(id, body, mentionUserIds, csrfToken, idempotencyKey) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/requests/${id}/conversation`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, mention_user_ids: mentionUserIds }),
+      });
+    },
+    getNotifications() {
+      if (mode === "mock") return Promise.resolve({ unread_count: 0, items: [] });
+      return apiRequest("/api/v1/notifications");
+    },
+    markNotificationRead(id, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/notifications/${id}/read`, {
+        method: "POST", headers: { "X-CSRF-Token": csrfToken },
       });
     },
     getWorkflow(id) {

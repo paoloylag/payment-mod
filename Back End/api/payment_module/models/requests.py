@@ -137,3 +137,21 @@ class RequestConversationMessage(Base):
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RequestMentionNotification(Base):
+    __tablename__ = "request_mention_notifications"
+    __table_args__ = (UniqueConstraint("message_id", "recipient_user_id", name="uq_request_mention_recipient"),)
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("payment_requests.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("request_conversation_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

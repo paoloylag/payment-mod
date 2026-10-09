@@ -68,7 +68,7 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
     assert account_count >= 5
     assert tax_count >= 3
     assert workflow_count == 18
-    assert message_count == 54
+    assert message_count == 72
 
     for email in (
         "department.head@payment.local",
@@ -87,6 +87,7 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
         assert queue.status_code == 200
         seeded = [entry for entry in queue.json() if entry["request"]["type_data"].get("development_seed")]
         assert len(seeded) == 3, (email, [entry["request"]["request_number"] for entry in seeded])
+        assert client.get("/api/v1/notifications").json()["unread_count"] == 3
         conversation = client.get(f"/api/v1/requests/{seeded[0]['request_id']}/conversation")
         assert conversation.status_code == 200
         assert len(conversation.json()["items"]) >= 3
@@ -100,5 +101,5 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
     )
     board_id = stable_id("demo-payment-request", "DEMO-BOARD-001")
     entries = client.get(f"/api/v1/requests/{board_id}/conversation").json()["items"]
-    assert len(entries) == 5
+    assert len(entries) == 6
     assert {entry["kind"] for entry in entries} == {"message", "information_requested", "information_provided"}
