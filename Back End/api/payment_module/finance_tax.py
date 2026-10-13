@@ -100,8 +100,8 @@ def build_calculation(db, item, config, request_tax_id=None, line_overrides=None
             raise HTTPException(422, "Selected tax code must be active and effective")
         return tax_details(tax)
 
-    vat_tax = get_tax(default_id)
-    request_tax = get_tax(request_tax_id or default_id)
+    vat_tax = config.get("default_tax_snapshot") or get_tax(default_id)
+    request_tax = get_tax(request_tax_id) if request_tax_id else vat_tax
     lines = list(
         db.scalars(
             select(PaymentRequestLine)

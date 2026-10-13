@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..config import get_settings
 from ..database import get_db
+from ..finance_configuration import apply_payload, apply_submission, save_coding
 from ..finance_readiness import effective, finance_date
 from ..models import (
     ChartAccount,
@@ -683,6 +684,7 @@ def create_payment_request(
 ):
     if "requests.create" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.create")
+    payload, finance_configuration = apply_payload(db, payload)
     total = validate(db, payload)
     values = payload.model_dump(exclude={"lines"})
     values["type_data"] = system_managed_type_data(payload.type_data)
@@ -691,6 +693,7 @@ def create_payment_request(
     db.flush()
     replace_lines(db, item, payload)
     db.flush()
+    save_coding(db, item, finance_configuration)
     result = snapshot(db, item, actor)
     audit(
         db,
@@ -862,6 +865,7 @@ def update_payment_request(
         raise HTTPException(409, "Only the owner can edit a draft or returned request")
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before saving")
+    payload, finance_configuration = apply_payload(db, payload)
     total = validate(db, payload)
     values = payload.model_dump(exclude={"lines", "version"})
     values["type_data"] = system_managed_type_data(payload.type_data)
@@ -871,6 +875,7 @@ def update_payment_request(
     item.version += 1
     replace_lines(db, item, payload)
     db.flush()
+    save_coding(db, item, finance_configuration)
     result = snapshot(db, item, actor)
     db.commit()
     return result
@@ -1179,6 +1184,7 @@ def submit_payment_request(
     if item.version != payload.version:
         raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
     lock_submission_constraints(db, item)
+    finance_configuration = apply_submission(db, item)
     ensure_submittable(db, item)
     assign_reimbursement_batch(db, item)
     record_reimbursement_policy_warnings(db, item)
@@ -1191,6 +1197,7 @@ def submit_payment_request(
     item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     item.version += 1
     db.flush()
+    save_coding(db, item, finance_configuration)
     try:
         start_workflow(db, item, actor.id)
     except PolicyCannotRoute as error:

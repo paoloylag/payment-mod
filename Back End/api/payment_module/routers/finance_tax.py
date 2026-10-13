@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..database import get_db
+from ..finance_configuration import active_configuration, request_coding
 from ..finance_readiness import effective, finance_date
 from ..finance_tax import build_calculation, latest_snapshot, tax_details
 from ..models import FinanceTaxSnapshot, PaymentRequest, TaxCode, User, WorkflowInstance
@@ -20,6 +21,14 @@ from .finance_setup import read_draft
 from .workflow import actor_roles, can_respond_information, can_review
 
 router = APIRouter(prefix="/api/v1/finance-tax", tags=["finance tax"])
+
+
+def calculation_configuration(db, item):
+    coding = request_coding(db, item)
+    if coding:
+        return coding.result["configuration"]
+    active = active_configuration(db)
+    return active.configuration if active else read_draft(db).model_dump(mode="json")
 
 
 class TaxAssignment(BaseModel):
@@ -66,10 +75,11 @@ def get_tax(request_id: UUID, request: Request, db: Session = Depends(get_db), a
     preview, blocker = None, None
     if latest is None or stale:
         try:
-            preview = build_calculation(db, item, read_draft(db).model_dump(mode="json"))
+            preview = build_calculation(db, item, calculation_configuration(db, item))
         except HTTPException as error:
             blocker = error.detail
     return {
+        "coding": request_coding(db, item).result if request_coding(db, item) else None,
         "request_version": item.version,
         "version": latest.version if latest else 0,
         "can_edit": editable(db, request, actor, item, instance),
@@ -126,7 +136,7 @@ def save_tax(
     config = (
         latest.result["configuration"]
         if latest and latest.request_version == item.version
-        else (read_draft(db).model_dump(mode="json"))
+        else calculation_configuration(db, item)
     )
     result = build_calculation(
         db,

@@ -5,7 +5,7 @@ from .documents import (
     DocumentReviewDecision,
     DocumentVersion,
 )
-from .finance import FinanceLineReview, FinanceTaxSnapshot
+from .finance import FinanceCodingSnapshot, FinanceConfiguration, FinanceLineReview, FinanceTaxSnapshot
 from .identity import (
     AuditEvent,
     AuthSession,
@@ -57,6 +57,8 @@ __all__ = [
     "DocumentVersion",
     "FinanceLineReview",
     "FinanceTaxSnapshot",
+    "FinanceConfiguration",
+    "FinanceCodingSnapshot",
     "NotificationOutboxEvent",
     "PaymentRequest",
     "RequestConversationMessage",

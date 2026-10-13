@@ -5,6 +5,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .finance_configuration import active_configuration, request_coding
 from .finance_tax import latest_snapshot
 from .models import (
     Document,
@@ -136,7 +137,8 @@ def validation_summary(db: Session, item: PaymentRequest) -> dict:
         )
     if item.request_type == "general":
         setting = db.scalar(select(SystemSetting).where(SystemSetting.key == "finance.setup.draft"))
-        configured = bool(setting and json.loads(setting.value).get("tax_by_request_type", {}).get("general"))
+        configured = bool(active_configuration(db) or request_coding(db, item)
+                          or setting and json.loads(setting.value).get("tax_by_request_type", {}).get("general"))
         snapshot = latest_snapshot(db, item.id)
         if configured or snapshot:
             current = bool(snapshot and snapshot.request_version == item.version)

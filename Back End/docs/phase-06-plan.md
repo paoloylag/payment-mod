@@ -1,7 +1,7 @@
 # Phase 06 — Finance Validation and Vouchers
 
 Date prepared: 2026-08-28  
-Status: In progress — Finance Associate line/document approval gate started 2026-10-11
+Status: In progress — General configuration activation, automatic account assignment, and EWT snapshots implemented; balanced accounting entries and vouchers remain pending.
 
 Finance Setup Draft was added to Request Settings on 2026-10-13. It saves versioned tax calculation choices, request-type tax/account defaults, voucher controls, and proposed sign-off scope. See [Finance configuration readiness](phase-06-finance-readiness.md). These saved choices await detailed applicability rules and activation; they do not yet enforce readiness or calculate vouchers.
 Depends on: Phase 05 — Workflow and Approvals
@@ -33,6 +33,17 @@ Depends on: Phase 05 — Workflow and Approvals
 The concrete checks, current enforcement, Finance decisions still needed, and implementation order are recorded in [phase-06-finance-readiness.md](phase-06-finance-readiness.md). The tax applicability and account-mapping matrix must be confirmed before a complete creation/submission gate can claim that automatic coding is ready.
 
 ## Objective
+
+### General configuration activation and automatic coding — 2026-10-13
+
+- Finance Manager or System Administrator with request-settings management permission can activate a saved, complete General tax/account configuration. Activation requires a reason, matching draft/previous activation versions, and an idempotency key. Immutable activation history includes the actor, source version, effective date, account references, and default tax rates.
+- Activation validates the General tax bases, rounding/date choices, active effective tax code, and distinct active posting debit/credit accounts. Department-specific activation and VAT-exclusive additions to the approval amount are not supported. Other request types and voucher settings remain draft.
+- Before the first activation, existing behavior remains available. After activation, General creation/editing and submission use the effective active version. Missing/expired tax codes, invalid posting accounts, and missing/expired department cost centers block the affected request. A first activation scheduled for the future blocks General requests until its effective date; a previously active version remains usable while a later version is scheduled.
+- The active debit account and request department's cost center are assigned automatically to each line. The credit account is retained in the immutable coding snapshot. Request forms show these fields as automatic. Every create/edit/submission version records the configuration, account names/codes, currency, and line amounts; new draft configuration edits cannot rewrite an earlier submitted snapshot. Returned requests use the currently effective version when edited/resubmitted.
+- General EWT reads the request's bound configuration and frozen default tax rates. Already-saved EWT snapshots remain intact. Legacy submitted requests that predate account activation retain their historical request data; automatic coding is applied when they are edited or resubmitted.
+- UI: Request Settings → Activate General request setup; request details → Automatic account assignment. No real Finance configuration was activated automatically during development; the feature awaits Finance selecting the accounts and activating its saved setup.
+- Validation: 169 backend tests passed; activation browser workflow passed at 390/768/1280px including error/retry, keyboard activation, immutable coding display, and automatic request fields. Five existing Finance/EWT/approval browser workflows also passed. Migration 0022 rollback/replay, lint, build, and diff check passed. Evidence: `outputs/phase06-activation-mobile.png`.
+- Next: accounting workbench and balanced VAT/EWT/payable entries, controlled per-request coding corrections, and vouchers. No journal posting or voucher generation is implied by account assignment.
 
 ### General request EWT — 2026-10-13
 

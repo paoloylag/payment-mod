@@ -255,6 +255,8 @@ let state = {
   reimbursementBatchSetting: null,
   financePolicySetting: null,
   financeSetup: null,
+  financeActivationReason: "",
+  financeActivationRetry: null,
   financeSetupTaxCodes: [],
   financeSetupAccounts: [],
   requestSettingsLoading: false,
@@ -547,7 +549,8 @@ const uploadInput = (documentName) => `<div class="upload-row"><span>${documentN
 const lineAttachmentNames = (value) => (Array.isArray(value) ? value : value ? [value] : [])
   .filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim());
 const lineCenterLabel = (value) => (state.masterData["cost-centers"] || []).find((center) => center.id === value || center.code === value)?.name || value || "Choose a cost center";
-const lineFieldComplete = (row, column) => column === "Amount"
+const autoGeneralCoding = () => state.draftType === "general" && Boolean(state.financeSetup?.activation?.active);
+const lineFieldComplete = (row, column) => autoGeneralCoding() && ["Expense Account", "Department / Cost Center"].includes(column) ? true : column === "Amount"
   ? Number(row[column]) > 0
   : column === "Attachment" || column === "Receipt" || column === "Proof of Payment"
     ? lineAttachmentNames(row[column]).length > 0
@@ -593,7 +596,7 @@ function validationRequirementComplete(requirement) {
   if (normalized.includes("actual date of liquidation")) return fieldValue("actual date of liquidation");
   if (normalized.includes("p.o. reference") || normalized.includes("approved p.o.")) return Boolean(state.selectedPO);
   if (normalized.includes("complete request breakdown")) {
-    const values = ["Merchant Name", "Particulars", "Expense Account", "Department / Cost Center", "Amount", "Attachment"];
+    const values = ["Merchant Name", "Particulars", ...(autoGeneralCoding() ? [] : ["Expense Account", "Department / Cost Center"]), "Amount", "Attachment"];
     const startedRows = lineItems.filter((item) => values.some((key) => String(item[key] || "").trim()));
     return startedRows.length > 0 && startedRows.every((item) => values.every((key) => key === "Amount" ? Number(item[key]) > 0 : key === "Attachment" ? lineAttachmentNames(item[key]).length > 0 : String(item[key] || "").trim()));
   }
@@ -899,9 +902,10 @@ async function loadRequestReferenceData() {
   state.masterDataLoading = true;
   try {
     const resources = ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"];
-    const [results, purchaseOrders] = await Promise.all([
+    const [results, purchaseOrders, financeSetup] = await Promise.all([
       Promise.all(resources.map((resource) => dataSource.listMasterData(resource))),
       dataSource.listPurchaseOrders(),
+      dataSource.getFinanceSetupDraft(),
     ]);
     const procurementPOs = purchaseOrders.map((item) => ({
       ...item,
@@ -912,7 +916,7 @@ async function loadRequestReferenceData() {
       newSupplier: Boolean(item.newSupplier),
     }));
     const selectedPO = procurementPOs.some((item) => item.id === state.selectedPO) ? state.selectedPO : procurementPOs[0]?.id || state.selectedPO;
-    setState({ masterData: { ...state.masterData, ...Object.fromEntries(resources.map((resource, index) => [resource, results[index]])) }, procurementPOs, selectedPO, masterDataLoading: false });
+    setState({ masterData: { ...state.masterData, ...Object.fromEntries(resources.map((resource, index) => [resource, results[index]])) }, procurementPOs, selectedPO, financeSetup, masterDataLoading: false });
   } catch (error) {
     setState({ masterDataLoading: false, masterDataError: error.message, toast: errorToast(error.message, "Reference data unavailable") });
   }
@@ -1697,7 +1701,7 @@ function financeSetupSection(editable) {
   }).join("");
   return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
     <form data-finance-setup class="identity-form numbering-settings-form">
-      <div class="numbering-settings-summary"><p>General requests use the saved tax defaults for EWT calculation. Finance Associate can override EWT per request or line. Account mappings, other request types, and voucher settings remain draft.</p></div>
+      <div class="numbering-settings-summary"><p>${setup.activation?.active ? "General requests use the active configuration for tax and account defaults. Save changes here, then activate the saved version below." : "General requests use saved tax defaults for EWT. Activate a complete General configuration below to enable automatic account assignment and readiness checks."} Finance Associate can override EWT per request or line. Other request types and vouchers remain draft.</p></div>
       <h4>Tax calculation</h4><div class="field-grid">
         ${financeSetupSelect("vat_basis", "VAT basis", setup.vat_basis, [["inclusive", "Amount includes VAT"], ["exclusive", "Add VAT to amount"]], disabled)}
         ${financeSetupSelect("ewt_basis", "EWT basis", setup.ewt_basis, [["net_of_vat", "Amount excluding VAT"], ["gross", "Gross amount"]], disabled)}
@@ -1715,7 +1719,20 @@ function financeSetupSection(editable) {
       </div><label>Certification wording<textarea name="voucher_certification_text" maxlength="1000" rows="3" ${disabled}>${escapeHtml(setup.voucher?.certification_text || "")}</textarea></label>
       <div class="numbering-settings-summary"><p>${setup.configuration_complete ? "All draft choices are filled in." : `${setup.missing_choices?.length || 0} draft choices remain open.`} ${setup.missing_choices?.length ? escapeHtml(setup.missing_choices.slice(0, 5).join("; ")) + (setup.missing_choices.length > 5 ? "…" : "") : ""}</p></div>
       ${editable ? `<button type="submit" class="primary-button">Save Finance setup draft</button>` : ""}
-    </form>${financeReadinessSection(setup)}</section>`;
+    </form>${financeActivationSection(setup, editable)}${financeReadinessSection(setup)}</section>`;
+}
+
+function financeActivationSection(setup, editable) {
+  const activation = setup.activation;
+  if (!activation) return "";
+  const active = activation.active;
+  return `<section class="finance-readiness" aria-label="General Finance activation"><h4>Activate General request setup</h4>
+    <p>${active ? `Active version ${active.version}, effective ${escapeHtml(active.effective_from)}. Debit: ${escapeHtml(active.debit.code)} — ${escapeHtml(active.debit.name)}. Credit: ${escapeHtml(active.credit.code)} — ${escapeHtml(active.credit.name)}.` : "No active General account configuration."}</p>
+    <p>Activation applies the saved tax and account settings to General requests. New and resubmitted requests use the effective version and their department’s cost center. Previously submitted coding stays recorded. Other request types and vouchers remain draft.</p>
+    ${activation.blockers.length ? `<ul>${activation.blockers.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>` : ""}
+    ${editable ? `<form data-finance-activation class="identity-form"><label>Activation reason<textarea name="reason" rows="2" required maxlength="2000">${escapeHtml(state.financeActivationReason)}</textarea></label><p data-activation-error role="alert"></p><button type="submit" ${activation.blockers.length || activation.draft_already_activated ? "disabled" : ""}>${activation.draft_already_activated ? "Saved version already activated" : "Activate saved General setup"}</button></form>` : ""}
+    ${activation.history.length ? `<details><summary>Activation history</summary>${activation.history.map(item => `<p>Version ${item.version} · Effective ${escapeHtml(item.effective_from)} · ${escapeHtml(item.activated_by)}<br>${escapeHtml(item.reason)}</p>`).join("")}</details>` : ""}
+  </section>`;
 }
 
 function financeReadinessSection(setup) {
@@ -1726,7 +1743,7 @@ function financeReadinessSection(setup) {
   return `<section class="finance-readiness" aria-label="Finance readiness checklist">
     <h4>Finance readiness checklist</h4>
     <p>Checked ${escapeHtml(report.as_of)} · Setup version ${escapeHtml(report.configuration_version)}. ${report.blocked_count} checks need attention.</p>
-    <p>General request EWT uses the saved tax choices. Full accounting activation and the creation/submission readiness gate remain pending.</p>
+    <p>${setup.activation?.active ? "The General request gate and automatic account assignment are active." : "General account assignment and its creation/submission gate begin when Finance activates a saved configuration."} Balanced accounting entries, vouchers, and activation for other request types remain pending.</p>
     <details><summary>View checks and missing settings</summary>
       <ul>${issues.map((check) => `<li><strong>${check.request_type ? `${escapeHtml(typeNames[check.request_type] || check.request_type)} — ` : ""}${escapeHtml(check.label)}</strong>: ${escapeHtml(check.message)}</li>`).join("")}</ul>
       ${report.missing_choices.length ? `<h4>Missing choices</h4><ul>${report.missing_choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ul>` : ""}
@@ -1788,6 +1805,20 @@ function bindRequestSettings() {
       state.financePolicySetting = await dataSource.updateFinanceRequestPolicy(payload, state.csrfToken);
       setState({ toast: successToast("Future submission checks will use the updated rules. Existing submitted records remain unchanged.", "Finance policies saved") });
     } catch (error) { setState({ toast: errorToast(error.message, "Unable to save finance policies") }); }
+  });
+  const activationForm = document.querySelector("[data-finance-activation]");
+  activationForm?.addEventListener("input", () => { state.financeActivationReason = activationForm.elements.reason.value; });
+  activationForm?.addEventListener("submit", async event => {
+    event.preventDefault();
+    const payload = { draft_version: state.financeSetup.version, expected_previous_version: state.financeSetup.activation.latest_version, reason: activationForm.elements.reason.value };
+    const signature = JSON.stringify(payload);
+    if (state.financeActivationRetry?.signature !== signature) state.financeActivationRetry = { signature, key: crypto.randomUUID() };
+    const button = activationForm.querySelector("button"); button.disabled = true;
+    try {
+      state.financeSetup = await dataSource.activateFinanceSetup(payload, state.csrfToken, state.financeActivationRetry.key);
+      state.financeActivationReason = ""; state.financeActivationRetry = null;
+      setState({ toast: successToast("General request configuration activated") });
+    } catch (error) { activationForm.querySelector("[data-activation-error]").textContent = error.message; button.disabled = false; }
   });
   document.querySelector("[data-finance-setup]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2267,7 +2298,7 @@ async function loadFinanceTax(r, force = false) {
 function financeTaxPanel(r) {
   if (!r.backendId || r.type !== "general") return "";
   const key = financeTaxKey(r), tax = state.financeTax[key], error = state.financeTaxErrors[key];
-  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT"><h3>General Request EWT</h3>${body}</section>`;
+  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Posting and balanced accounting entries follow in the accounting workbench.</p></div>` : ""}<h3>General Request EWT</h3>${body}</section>`;
   if (!tax) return wrapper(error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-finance-tax>Retry EWT</button>` : `<p role="status">Loading EWT…</p>`);
   const result = tax.stale ? tax.preview : (tax.saved?.result || tax.preview);
   const draft = state.financeTaxDrafts[key] || { request_ewt_tax_id: result?.request_ewt_tax_id || "", line_ewt_overrides: result?.line_ewt_overrides || {}, reason: "" };
@@ -2665,6 +2696,7 @@ function requestBuilder() {
         const isFile = column === "Receipt" || column === "Attachment" || column === "Proof of Payment";
         const example = lineItemExamples[state.draftType]?.[0]?.[column] ?? column;
         const references = column === "Expense Account" ? (state.masterData["chart-of-accounts"] || []) : column.includes("Department") ? (state.masterData["cost-centers"] || []) : null;
+        if (autoGeneralCoding() && references) return `<label class="line-card-field">${escapeHtml(column)}<input readonly value="${escapeHtml(column === "Expense Account" ? `${state.financeSetup.activation.active.debit.code} — ${state.financeSetup.activation.active.debit.name}` : "Automatically follows the request department")}"><small>Assigned by active Finance setup</small></label>`;
         if (isFile) {
           const fileNames = lineAttachmentNames(item[column]);
           return `<div class="line-card-field line-card-attachments"><span class="line-card-label">${escapeHtml(column.replace("P.O.", "Purchase Order"))}</span><div class="line-card-upload"><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}"><input type="file" multiple data-line-row="${rowIndex}" data-line-column="${column}" aria-label="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}">${uploadIcon}<span>Upload Files</span></label><span class="line-upload-filename" title="${escapeHtml(fileNames.join(", "))}">${fileNames.length ? fileNames.map(escapeHtml).join("<br>") : "No files selected"}</span></div></div>`;

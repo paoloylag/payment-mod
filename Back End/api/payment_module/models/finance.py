@@ -1,9 +1,9 @@
 """Immutable Finance Associate decisions for individual request lines."""
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -46,4 +46,27 @@ class FinanceTaxSnapshot(Base):
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceConfiguration(Base):
+    __tablename__ = "finance_configurations"
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
+    effective_from: Mapped[date] = mapped_column(Date, nullable=False)
+    configuration: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    command_key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceCodingSnapshot(Base):
+    __tablename__ = "finance_coding_snapshots"
+    __table_args__ = (UniqueConstraint("request_id", "request_version"),)
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
+    request_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    configuration_id: Mapped[UUID] = mapped_column(ForeignKey("finance_configurations.id", ondelete="RESTRICT"))
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -1,9 +1,11 @@
 # Phase 06 — Finance configuration readiness checklist
 
 Prepared: 2026-10-13
-Status: Live readiness report implemented; policy activation pending Finance rule confirmation
+Status: General activation and automatic coding implemented; accounting entries, vouchers, and other request-type activation remain pending
 
 ## Saved configuration draft
+
+General configuration activation is now available in Request Settings. It validates the General tax choices and distinct posting accounts, records Finance's reason and effective date, and freezes a version. After activation, General request creation/submission checks the active references and department cost center and assigns the configured accounts automatically. Draft changes require a new activation before they affect account assignments. Previously submitted coding snapshots retain their source configuration. The following broader checklist still applies to the remaining request types, accounting entries, and vouchers.
 
 General request EWT is now supported: the saved General tax default supplies VAT treatment and initial EWT; Finance Associate saves request-level EWT and optional line overrides, including explicit No EWT. These selections affect EWT only. Saved calculations retain their own configuration and rates. Configured General requests require a current saved calculation at Finance Associate approval. The draft status below continues to apply to account/voucher activation and other request types, not to this confirmed General EWT feature.
 
