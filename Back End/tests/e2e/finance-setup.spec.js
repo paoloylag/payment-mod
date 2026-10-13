@@ -25,6 +25,11 @@ test("Finance setup saves partial choices and remains usable across viewport wid
       expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
     }
   }
+  const vatAccount = form.locator('[name="input_vat_general"]');
+  const ewtAccount = form.locator('[name="ewt_payable_general"]');
+  const accountId = await vatAccount.locator("option").nth(1).getAttribute("value");
+  await vatAccount.selectOption(accountId);
+  await ewtAccount.selectOption(accountId);
   await form.locator('[name="vat_basis"]').selectOption("inclusive");
   await form.locator('[name="voucher_prefix"]').fill("PV");
   const saved = page.waitForResponse((res) => res.url().endsWith("/finance-setup") && res.request().method() === "PUT");
@@ -35,6 +40,8 @@ test("Finance setup saves partial choices and remains usable across viewport wid
   await page.reload();
   await expect(form.locator('[name="vat_basis"]')).toHaveValue("inclusive");
   await expect(form.locator('[name="voucher_prefix"]')).toHaveValue("PV");
+  await expect(vatAccount).toHaveValue(accountId);
+  await expect(ewtAccount).toHaveValue(accountId);
   await expect(page.getByRole("heading", { name: "Finance Request Policies" })).toBeVisible();
   await context.close();
 });

@@ -93,3 +93,20 @@ def test_complete_choices_remain_draft(client, empty_setup):
     assert result.json()["configuration_complete"]
     assert result.json()["missing_choices"] == []
     assert result.json()["operational_status"] == "draft"
+
+
+@pytest.mark.parametrize("field", ["input_vat_account_id", "ewt_payable_account_id"])
+def test_tax_ledger_mapping_validation(client, empty_setup, field):
+    headers = login(client, "finance.manager")
+    with SessionLocal() as db:
+        account_id = str(db.scalar(select(ChartAccount.id).where(
+            ChartAccount.is_active.is_(True), ChartAccount.is_posting.is_(True)
+        )))
+    payload = {"accounts_by_request_type": {"general": {field: account_id}}}
+    saved = client.put("/api/v1/request-settings/finance-setup", headers=headers, json=payload)
+    assert saved.status_code == 200
+    loaded = client.get("/api/v1/request-settings/finance-setup").json()
+    assert loaded["accounts_by_request_type"]["general"][field] == account_id
+    payload["version"] = saved.json()["version"]
+    payload["accounts_by_request_type"]["general"][field] = str(uuid4())
+    assert client.put("/api/v1/request-settings/finance-setup", headers=headers, json=payload).status_code == 422

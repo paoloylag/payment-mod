@@ -156,3 +156,7 @@ Persist Finance review, tax/accounting decisions, and auditable voucher generati
 ## Exclusions
 
 Bank/check processing, release, clearing, and settlement attempts are delivered in Phase 07.
+
+### General tax ledger configuration
+
+General request defaults now include optional Input VAT and EWT payable account selectors. Saving validates that each selected account exists and is active and posting. Choices use the existing versioned, audited Finance setup and are retained in configuration snapshots. These are explicitly draft choices for the upcoming accounting workbench; journal balancing, posting, correction permissions and vouchers are still pending.

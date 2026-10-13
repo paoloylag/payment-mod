@@ -26,6 +26,8 @@ REQUEST_TYPES = ("reimbursement", "cashAdvance", "liquidation", "poPayment", "ge
 class AccountMapping(BaseModel):
     debit_account_id: UUID | None = None
     credit_account_id: UUID | None = None
+    input_vat_account_id: UUID | None = None
+    ewt_payable_account_id: UUID | None = None
 
 
 class VoucherOptions(BaseModel):
@@ -144,7 +146,10 @@ def update_finance_setup(
             if tax is None or not tax.is_active:
                 raise HTTPException(422, "Selected tax code must be active")
     for mapping in payload.accounts_by_request_type.values():
-        for account_id in (mapping.debit_account_id, mapping.credit_account_id):
+        for account_id in (
+            mapping.debit_account_id, mapping.credit_account_id,
+            mapping.input_vat_account_id, mapping.ewt_payable_account_id,
+        ):
             if account_id is not None:
                 account = db.get(ChartAccount, account_id)
                 if account is None or not account.is_active or not account.is_posting:

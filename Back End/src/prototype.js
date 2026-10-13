@@ -1697,6 +1697,7 @@ function financeSetupSection(editable) {
       ${financeSetupSelect(`tax_${key}`, "Default tax code", setup.tax_by_request_type?.[key] || "", taxChoices, disabled)}
       ${financeSetupSelect(`debit_${key}`, "Debit account", mapping.debit_account_id || "", accountChoices, disabled)}
       ${financeSetupSelect(`credit_${key}`, "Credit account", mapping.credit_account_id || "", accountChoices, disabled)}
+      ${key === "general" ? `${financeSetupSelect(`input_vat_${key}`, "Input VAT account (draft)", mapping.input_vat_account_id || "", accountChoices, disabled)}${financeSetupSelect(`ewt_payable_${key}`, "EWT payable account (draft)", mapping.ewt_payable_account_id || "", accountChoices, disabled)}` : ""}
     </div></fieldset>`;
   }).join("");
   return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
@@ -1709,7 +1710,7 @@ function financeSetupSection(editable) {
         ${financeSetupSelect("effective_date_basis", "Rule date", setup.effective_date_basis, [["submission", "Submission date"], ["finance_review", "Finance review date"]], disabled)}
         <label>Effective from<input name="effective_from" type="date" value="${escapeHtml(setup.effective_from || "")}" ${disabled}></label>
         ${financeSetupSelect("setup_scope", "Finance sign-off scope", setup.setup_scope, [["system", "Whole system"], ["request_type", "Per request type"], ["department", "Per department"]], disabled)}
-      </div><h4>Request type defaults</h4><p class="finance-setup-help">Select an explicit tax code for each type, including a No EWT code where applicable. More detailed vendor and line rules still need Finance confirmation.</p>${rows}
+      </div><h4>Request type defaults</h4><p class="finance-setup-help">Select an explicit tax code for each type, including a No EWT code where applicable. General input VAT and EWT payable accounts are draft choices for the upcoming accounting workbench; these choices do not create or post entries.</p>${rows}
       <h4>Voucher controls</h4><div class="field-grid">
         <label>Voucher prefix<input name="voucher_prefix" maxlength="12" pattern="[A-Z0-9-]*" value="${escapeHtml(setup.voucher?.prefix || "")}" ${disabled}></label>
         ${financeSetupSelect("voucher_reset_basis", "Numbering period", setup.voucher?.reset_basis, [["academic_year", "Academic year"], ["calendar_year", "Calendar year"], ["continuous", "Continuous"]], disabled)}
@@ -1837,7 +1838,7 @@ function bindRequestSettings() {
     };
     for (const [key] of financeSetupRequestTypes) {
       payload.tax_by_request_type[key] = choice(`tax_${key}`);
-      payload.accounts_by_request_type[key] = { debit_account_id: choice(`debit_${key}`), credit_account_id: choice(`credit_${key}`) };
+      payload.accounts_by_request_type[key] = { debit_account_id: choice(`debit_${key}`), credit_account_id: choice(`credit_${key}`), input_vat_account_id: key === "general" ? choice(`input_vat_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.input_vat_account_id || null), ewt_payable_account_id: key === "general" ? choice(`ewt_payable_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.ewt_payable_account_id || null) };
     }
     try {
       state.financeSetup = await dataSource.updateFinanceSetupDraft(payload, state.csrfToken);
