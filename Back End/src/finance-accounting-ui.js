@@ -2,7 +2,7 @@
 export function accountingBody(r, data, draft, error, escapeHtml, money) {
   const result = data.stale ? data.preview : (data.saved?.result || data.preview);
   const amount = value => money(Number(value), r.currency);
-  const labels = { expense: "Expense", input_vat: "Input VAT", ewt_payable: "EWT payable", vendor_payable: "Vendor payable" };
+  const labels = { expense: "Expense", advance: "Cash advance asset", advance_settlement: "Advance settlement", input_vat: "Input VAT", ewt_payable: "EWT payable", vendor_payable: "Vendor payable" };
   const entries = (rows, editable) => rows.map(entry => {
     const current = draft.account_overrides?.[entry.key] || entry.account?.id || "";
     const choices = [...data.accounts];

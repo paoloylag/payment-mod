@@ -412,7 +412,7 @@ const purchaseOrderRecords = () => state.procurementPOs?.length ? state.procurem
 function routeStateFromHash() {
   const path = (window.location.hash.slice(1) || "/dashboard").replace(/\/$/, "") || "/dashboard";
   const parts = path.split("/").filter(Boolean);
-  if (parts[0] === "requests" && requests.some((r) => r.id === parts[1])) return { tab: "requestDetail", requestDetailId: parts[1], selectedId: parts[1], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
+  if (parts[0] === "requests" && parts[1] && !["new", "drafts"].includes(parts[1])) return { tab: "requestDetail", requestDetailId: parts[1], selectedId: parts[1], dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null };
   if (parts[0] === "requests") return { tab: "request", requestMode: parts[1] === "drafts" ? "drafts" : "new", requestTypeSelection: !parts[1], draftType: paymentTypes[parts[2]] ? parts[2] : state.draftType, dashboardMetric: null, dashboardRequestId: null, trackerRequestId: null, requestDetailId: null };
   if (parts[0] === "approvals") {
     const approvalView = parts[1] === "request" ? "detail" : parts[1] === "review" ? "review" : "list";
@@ -483,7 +483,7 @@ const route = ({ amount, budgeted, type, backendId, currency }) => {
     ? amount > 40000 ? "Exceeds the PHP 40,000 employee cash advance limit." : "Finance Manager approval is required for this cash advance."
     : !budgeted && amount > 1000000 ? "Board Member approval required for unbudgeted payments above PHP 1,000,000." : !budgeted ? "COO approval required for unbudgeted payments up to PHP 1,000,000." : amount <= 100000 ? "Finance Manager can approve and route to voucher creation." : amount <= 300000 ? "COO approval required by amount threshold." : "President approval required for budgeted payments above PHP 300,000.";
 };
-const pillTone = (status) => /Rejected|Disapproved|Declined/i.test(status) ? "rejected" : /Returned/i.test(status) ? "returned" : /Completed|Approved|Release|Notification|Tracker/i.test(status) ? "approved" : /Draft|Uploading/i.test(status) ? "neutral" : "pending";
+const pillTone = (status) => /Rejected|Disapproved|Declined/i.test(status) ? "rejected" : /Returned/i.test(status) ? "returned" : /Completed|Approved|Cleared|Settled|Release|Notification|Tracker/i.test(status) ? "approved" : /Draft|Uploading/i.test(status) ? "neutral" : "pending";
 const finalApprovalRole = (r) => r.type === "cashAdvance" || (r.budgeted && r.amount <= 100000)
   ? "Finance Manager"
   : !r.budgeted && r.amount > 1000000
@@ -1134,7 +1134,7 @@ function apiLineToPrototype(type, line) {
   return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department to Be Charged": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
 }
 
-const paymentStages = { draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
+const paymentStages = { settled_no_payment: [14, "Liquidation Settled — No Additional Payment"], cash_return_pending: [13, "Cash Return Pending"], draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
 
 function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], declined: ["Declined", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
@@ -1143,7 +1143,7 @@ function apiRequestToPrototype(item) {
   const status = (item.type_data?.demo_display_status || defaultStatus).replace("Payment Preparation", "Payment Preparation").replace("Signatory Approval", "Signatory Approval");
   return {
     id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, voucherNumber: item.voucher_number || "", backendId: item.id,
-    backendVersion: item.version, backendStatus: item.status, type: item.request_type,
+    backendVersion: item.version, backendStatus: item.status, approvalState: item.approval_state, paymentSummary: item.payment_summary, type: item.request_type,
     requestor: item.requestor_name, requestorId: item.requestor_id, department: item.department_name,
     vendor: item.payee_name || item.lines?.find((line) => line.vendor_name)?.vendor_name || "To Be Confirmed",
     amount: Number(item.gross_amount) || 0, budgeted: item.type_data?.budgeted !== false,
@@ -1719,17 +1719,18 @@ function financeSetupSection(editable) {
   const taxChoices = state.financeSetupTaxCodes.filter((item) => item.is_active).map((item) => [item.id, `${item.code} — ${item.name}`]);
   const accountChoices = state.financeSetupAccounts.filter((item) => item.is_active && item.is_posting).map((item) => [item.id, `${item.code} — ${item.name}`]);
   const rows = financeSetupRequestTypes.map(([key, label]) => {
+    if (setup.activation?.scope === "all" && ["reimbursement", "poPayment", "liquidation"].includes(key)) return `<fieldset class="finance-setup-type"><legend>${label}</legend><p>${key === "liquidation" ? "Uses General expense coding and settles the original released advance asset and cost center. Only excess expenses create a new payment; unused funds remain pending cash return." : "Inherits the active General tax and account defaults. Finance Associate can override EWT and correct draft expense coding."}</p></fieldset>`;
     const mapping = setup.accounts_by_request_type?.[key] || {};
-    return `<fieldset class="finance-setup-type"><legend>${label}</legend><div class="field-grid">
-      ${financeSetupSelect(`tax_${key}`, "Default tax code", setup.tax_by_request_type?.[key] || "", taxChoices, disabled)}
-      ${financeSetupSelect(`debit_${key}`, "Debit account", mapping.debit_account_id || "", accountChoices, disabled)}
+    return `<fieldset class="finance-setup-type"><legend>${label}</legend>${["reimbursement", "poPayment"].includes(key) ? "<p>When All request types is activated, this flow inherits the General tax and account defaults.</p>" : key === "liquidation" ? "<p>Liquidation uses General expense coding and offsets the original advance asset. Only excess expenses are payable; unused funds remain pending cash return.</p>" : ""}<div class="field-grid">
+      ${key === "cashAdvance" && setup.activation?.scope === "all" ? "<p>Advance transfers use gross amounts without VAT/EWT deductions.</p>" : financeSetupSelect(`tax_${key}`, "Default tax code", setup.tax_by_request_type?.[key] || "", taxChoices, disabled)}
+      ${financeSetupSelect(`debit_${key}`, key === "cashAdvance" ? "Advance asset account" : "Debit account", mapping.debit_account_id || "", key === "cashAdvance" ? state.financeSetupAccounts.filter(item => item.is_active && item.is_posting && item.account_type === "asset").map(item => [item.id, `${item.code} — ${item.name}`]) : accountChoices, disabled)}
       ${financeSetupSelect(`credit_${key}`, "Credit account", mapping.credit_account_id || "", accountChoices, disabled)}
       ${key === "general" ? `${financeSetupSelect(`input_vat_${key}`, "Input VAT account", mapping.input_vat_account_id || "", accountChoices, disabled)}${financeSetupSelect(`ewt_payable_${key}`, "EWT payable account", mapping.ewt_payable_account_id || "", accountChoices, disabled)}` : ""}
     </div></fieldset>`;
   }).join("");
   return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
     <form data-finance-setup class="identity-form numbering-settings-form">
-      <div class="numbering-settings-summary"><p>${setup.activation?.active ? "General requests use the active configuration for tax and account defaults. Save changes here, then activate the saved version below." : "General requests use saved tax defaults for EWT. Activate a complete General configuration below to enable automatic account assignment and readiness checks."} Finance Associate can override EWT per request or line. Other request types and vouchers remain draft.</p></div>
+      <div class="numbering-settings-summary"><p>${setup.activation?.active ? "General requests use the active configuration for tax and account defaults. Save changes here, then activate the saved version below." : "General requests use saved tax defaults for EWT. Activate a complete General configuration below to enable automatic account assignment and readiness checks."} Finance Associate can override EWT per request or line. Select All request types to reuse General defaults for Reimbursement and PO Payment, configure a Cash Advance asset account, and enable advance-offset Liquidation. Each payment line retains one assigned signatory.</p></div>
       <h4>Tax calculation</h4><div class="field-grid">
         ${financeSetupSelect("vat_basis", "VAT basis", setup.vat_basis, [["inclusive", "Amount includes VAT"], ["exclusive", "Add VAT to amount"]], disabled)}
         ${financeSetupSelect("ewt_basis", "EWT basis", setup.ewt_basis, [["net_of_vat", "Amount excluding VAT"], ["gross", "Gross amount"]], disabled)}
@@ -1754,11 +1755,11 @@ function financeActivationSection(setup, editable) {
   const activation = setup.activation;
   if (!activation) return "";
   const active = activation.active;
-  return `<section class="finance-readiness" aria-label="General Finance activation"><h4>Activate General request setup</h4>
+  return `<section class="finance-readiness" aria-label="General Finance activation"><h4>${activation.scope === "all" ? "Activate payment setup for all request types" : "Activate General request setup"}</h4>
     <p>${active ? `Active version ${active.version}, effective ${escapeHtml(active.effective_from)}. Debit: ${escapeHtml(active.debit.code)} — ${escapeHtml(active.debit.name)}. Credit: ${escapeHtml(active.credit.code)} — ${escapeHtml(active.credit.name)}.` : "No active General account configuration."}</p>
-    <p>Activation applies the saved tax and account settings to General requests. New and resubmitted requests use the effective version and their department’s cost center. Previously submitted coding stays recorded. Other request types and vouchers remain draft.</p>
+    <p>Activation applies the saved tax and account settings to General requests. New and resubmitted requests use the effective version and their department’s cost center. Previously submitted coding stays recorded. With All request types activated, Reimbursement and PO Payment inherit General defaults; Cash Advance uses its asset account and Liquidation offsets the original advance.</p>
     ${activation.blockers.length ? `<ul>${activation.blockers.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>` : ""}
-    ${editable ? `<form data-finance-activation class="identity-form"><label>Activation reason<textarea name="reason" rows="2" required maxlength="2000">${escapeHtml(state.financeActivationReason)}</textarea></label><p data-activation-error role="alert"></p><button type="submit" ${activation.blockers.length || activation.draft_already_activated ? "disabled" : ""}>${activation.draft_already_activated ? "Saved version already activated" : "Activate saved General setup"}</button></form>` : ""}
+    ${editable ? `<form data-finance-activation class="identity-form"><label>Payment flow scope<select name="scope"><option value="general">General only</option><option value="all" ${activation.scope === "all" ? "selected" : ""}>All request types</option></select></label><label>Activation reason<textarea name="reason" rows="2" required maxlength="2000">${escapeHtml(state.financeActivationReason)}</textarea></label><p data-activation-error role="alert"></p><button type="submit" ${activation.blockers.length || activation.draft_already_activated ? "disabled" : ""}>${activation.draft_already_activated ? "Saved version already activated" : "Activate saved General setup"}</button></form>` : ""}
     ${activation.history.length ? `<details><summary>Activation history</summary>${activation.history.map(item => `<p>Version ${item.version} · Effective ${escapeHtml(item.effective_from)} · ${escapeHtml(item.activated_by)}<br>${escapeHtml(item.reason)}</p>`).join("")}</details>` : ""}
   </section>`;
 }
@@ -1771,7 +1772,7 @@ function financeReadinessSection(setup) {
   return `<section class="finance-readiness" aria-label="Finance readiness checklist">
     <h4>Finance readiness checklist</h4>
     <p>Checked ${escapeHtml(report.as_of)} · Setup version ${escapeHtml(report.configuration_version)}. ${report.blocked_count} checks need attention.</p>
-    <p>${setup.activation?.active ? "The General request gate and automatic account assignment are active." : "General account assignment and its creation/submission gate begin when Finance activates a saved configuration."} Balanced accounting entries, vouchers, and activation for other request types remain pending.</p>
+    <p>${setup.activation?.active ? "The General request gate and automatic account assignment are active." : "General account assignment and its creation/submission gate begin when Finance activates a saved configuration."} Accounting and voucher workbenches use the activated setup. Other request types require All request types activation.</p>
     <details><summary>View checks and missing settings</summary>
       <ul>${issues.map((check) => `<li><strong>${check.request_type ? `${escapeHtml(typeNames[check.request_type] || check.request_type)} — ` : ""}${escapeHtml(check.label)}</strong>: ${escapeHtml(check.message)}</li>`).join("")}</ul>
       ${report.missing_choices.length ? `<h4>Missing choices</h4><ul>${report.missing_choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ul>` : ""}
@@ -1835,10 +1836,17 @@ function bindRequestSettings() {
     } catch (error) { setState({ toast: errorToast(error.message, "Unable to save finance policies") }); }
   });
   const activationForm = document.querySelector("[data-finance-activation]");
+  activationForm?.elements.scope.addEventListener("change", () => {
+    const blockers = activationForm.elements.scope.value === "all" ? state.financeSetup.activation.all_type_blockers : state.financeSetup.activation.blockers;
+    activationForm.querySelector("[data-activation-error]").textContent = blockers.join("; ");
+    const button = activationForm.querySelector('button[type="submit"]');
+    button.disabled = Boolean(blockers.length || state.financeSetup.activation.draft_already_activated);
+    if (!state.financeSetup.activation.draft_already_activated) button.textContent = activationForm.elements.scope.value === "all" ? "Activate saved setup for all request types" : "Activate saved General setup";
+  });
   activationForm?.addEventListener("input", () => { state.financeActivationReason = activationForm.elements.reason.value; });
   activationForm?.addEventListener("submit", async event => {
     event.preventDefault();
-    const payload = { draft_version: state.financeSetup.version, expected_previous_version: state.financeSetup.activation.latest_version, reason: activationForm.elements.reason.value };
+    const payload = { scope: activationForm.elements.scope.value, draft_version: state.financeSetup.version, expected_previous_version: state.financeSetup.activation.latest_version, reason: activationForm.elements.reason.value };
     const signature = JSON.stringify(payload);
     if (state.financeActivationRetry?.signature !== signature) state.financeActivationRetry = { signature, key: crypto.randomUUID() };
     const button = activationForm.querySelector("button"); button.disabled = true;
@@ -2326,9 +2334,9 @@ async function loadFinanceTax(r, force = false) {
 }
 
 function financeTaxPanel(r) {
-  if (!r.backendId || r.type !== "general") return "";
+  if (!r.backendId) return "";
   const key = financeTaxKey(r), tax = state.financeTax[key], error = state.financeTaxErrors[key];
-  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Finance prepares and reviews balanced entries in the accounting workbench.</p></div>` : ""}<h3>General Request EWT</h3>${body}</section>`;
+  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request EWT" : "Finance calculation"}">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Finance prepares and reviews balanced entries in the accounting workbench.</p></div>` : ""}<h3>${["cashAdvance", "liquidation"].includes(r.type) ? "Advance and liquidation calculation" : `${paymentTypes[r.type].label} EWT`}</h3>${body}</section>`;
   if (!tax) return wrapper(error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-finance-tax>Retry EWT</button>` : `<p role="status">Loading EWT…</p>`);
   const result = tax.stale ? tax.preview : (tax.saved?.result || tax.preview);
   const draft = state.financeTaxDrafts[key] || { request_ewt_tax_id: result?.request_ewt_tax_id || "", line_ewt_overrides: result?.line_ewt_overrides || {}, reason: "" };
@@ -2336,11 +2344,13 @@ function financeTaxPanel(r) {
   const editable = tax.can_edit && state.persona === "financeAssociate";
   const totals = result ? `<dl class="detail-list">${[["Gross", "gross"], ["VAT", "vat"], ["EWT", "ewt"], ["Amount due", "amount_due"]].map(([label, field]) => `<div><dt>${label}</dt><dd data-tax-total="${field}">${money(Number(result.totals[field]), r.currency)}</dd></div>`).join("")}</dl><p>Setup version ${escapeHtml(result.configuration.version)} · ${tax.saved && !tax.stale ? `Saved calculation ${tax.version}` : "Default preview — not saved"}. EWT selection does not change VAT treatment.</p>` : "";
   return wrapper(`${tax.stale ? '<p role="status">The request changed. Save a new calculation for its current lines; earlier calculations remain in history.</p>' : ""}${tax.blocker ? `<p role="alert">${escapeHtml(tax.blocker)} Update Finance Setup in Request Settings.</p>` : ""}${totals}
-    ${editable ? `<form data-finance-tax-form class="identity-form"><label>Request EWT<select name="request_ewt_tax_id">${options(draft.request_ewt_tax_id, "Use General request default")}</select></label><p>Lines inherit the request selection unless an override is selected.</p>
+    ${editable && !["cashAdvance", "liquidation"].includes(r.type) ? `<form data-finance-tax-form class="identity-form"><label>Request EWT<select name="request_ewt_tax_id">${options(draft.request_ewt_tax_id, "Use General request default")}</select></label><p>Lines inherit the request selection unless an override is selected.</p>
       ${(r.lines || []).map((line, index) => `<label>Line ${index + 1}: ${escapeHtml(line.particulars)}<select data-line-ewt="${escapeHtml(line.id)}">${options(draft.line_ewt_overrides[line.id], "Use request EWT")}</select></label>`).join("")}
       <label>Reason for assignment or change<textarea name="reason" maxlength="4000" required rows="2">${escapeHtml(draft.reason)}</textarea></label>
       <p data-tax-error role="alert">${escapeHtml(error || "")}</p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save EWT and recalculate</button>
     </form>` : ""}
+    ${editable && ["cashAdvance", "liquidation"].includes(r.type) ? `<form data-finance-tax-form class="identity-form"><p>${r.type === "cashAdvance" ? "Cash Advance uses the configured advance asset account without VAT/EWT deductions." : "Liquidation offsets the released advance. Only excess expenses create a new payment."}</p><label>Calculation review reason<textarea name="reason" rows="2" maxlength="4000" required>${escapeHtml(draft.reason)}</textarea></label><p data-tax-error role="alert"></p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save Finance calculation</button></form>` : ""}
+    ${result?.advance_source ? `<p>Original advance: ${escapeHtml(result.advance_source.request_number)} · Applied ${money(Number(result.totals.advance_applied), r.currency)} · Cash return pending ${money(Number(result.totals.cash_return_pending), r.currency)}</p>` : ""}
     ${result ? `<details><summary>Calculation by line</summary>${result.lines.map(line => `<p><strong>Line ${line.position}: ${escapeHtml(line.particulars)}</strong><br>${escapeHtml(line.ewt_tax.ewt_classification)} ${escapeHtml(line.ewt_tax.ewt_rate)}% · ${line.source === "line" ? "Line override" : "Request EWT"}<br>Base ${money(Number(line.ewt_base), r.currency)} · EWT ${money(Number(line.ewt), r.currency)} · Due ${money(Number(line.amount_due), r.currency)}</p>`).join("")}</details>` : ""}
     ${tax.history.length ? `<details><summary>EWT history (${tax.history.length})</summary>${tax.history.map(entry => `<p><strong>Calculation ${entry.version}</strong> · ${escapeHtml(entry.result.assigned_by || "Finance Associate")} · ${escapeHtml(entry.created_at)}<br>${escapeHtml(entry.reason)}<br>EWT ${money(Number(entry.result.totals.ewt), r.currency)} · Due ${money(Number(entry.result.totals.amount_due), r.currency)}</p>`).join("")}</details>` : ""}`);
 }
@@ -2354,7 +2364,7 @@ function bindFinanceTax() {
     panel.querySelector("[data-retry-finance-tax]")?.addEventListener("click", () => loadFinanceTax(r, true));
     const form = panel.querySelector("[data-finance-tax-form]");
     if (!form) return;
-    const values = () => ({ request_ewt_tax_id: form.elements.request_ewt_tax_id.value || null,
+    const values = () => ({ request_ewt_tax_id: form.elements.request_ewt_tax_id?.value || null,
       line_ewt_overrides: Object.fromEntries([...form.querySelectorAll("[data-line-ewt]")].filter(el => el.value).map(el => [el.dataset.lineEwt, el.value])), reason: form.elements.reason.value });
     form.addEventListener("input", () => { state.financeTaxDrafts[key] = values(); });
     form.addEventListener("change", () => { state.financeTaxDrafts[key] = values(); });
@@ -2374,7 +2384,7 @@ function bindFinanceTax() {
         await loadFinanceTax(r, true);
         if (["financeAssociate", "financeManager"].includes(state.persona)) await loadFinanceAccounting(r, true);
         if (state.financeValidation[r.backendId]) await loadFinanceValidation(r, true);
-        setState({ toast: successToast("EWT assignment saved") });
+        setState({ toast: successToast(["cashAdvance", "liquidation"].includes(r.type) ? "Finance calculation saved" : "EWT assignment saved") });
       } catch (error) {
         state.financeTaxErrors[key] = error.message;
         form.querySelector("[data-tax-error]").textContent = error.message;
@@ -2395,10 +2405,10 @@ async function loadFinanceAccounting(r, force = false) {
 }
 
 function financeAccountingPanel(r) {
-  if (!r.backendId || r.type !== "general" || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
+  if (!r.backendId || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
   const key = financeTaxKey(r), data = state.financeAccounting[key], error = state.financeAccountingErrors[key];
   const body = data ? accountingBody(r, data, state.financeAccountingDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-accounting>Retry accounting</button>` : '<p role="status">Loading accounting…</p>';
-  return `<section class="finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="General request accounting"><h3>Accounting workbench</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
+  return `<section class="finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request accounting" : "Request accounting"}"><h3>Accounting workbench</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
 }
 
 function bindFinanceAccounting() {
@@ -2456,7 +2466,7 @@ async function loadFinanceVoucher(r, force = false) {
 }
 
 function financeVoucherPanel(r) {
-  if (!r.backendId || r.type !== "general" || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
+  if (!r.backendId || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
   const key = financeVoucherKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
   const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money, state.paymentDrafts[r.backendId] || {}) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
   return `<section class="finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" aria-label="Voucher and payment authorization"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
@@ -2530,8 +2540,8 @@ function bindPaymentExecution(panel, r, voucherKey) {
       const tag = form.querySelector("[data-payment-file-selection]");
       if (tag) { tag.hidden = !fileInput?.files.length; tag.querySelector("[data-payment-file-name]").textContent = fileInput?.files[0]?.name || ""; }
     };
-    fileInput?.addEventListener("change", showFile);
-    form.querySelector("[data-remove-payment-file]")?.addEventListener("click", () => { fileInput.value = ""; showFile(); fileInput.focus(); });
+    fileInput?.addEventListener("change", () => { delete drafts[draftKey].evidence_id; showFile(); });
+    form.querySelector("[data-remove-payment-file]")?.addEventListener("click", () => { fileInput.value = ""; delete drafts[draftKey].evidence_id; showFile(); fileInput.focus(); });
     form.addEventListener("input", read); form.addEventListener("change", read);
     form.addEventListener("submit", async event => {
       event.preventDefault();
@@ -3192,6 +3202,8 @@ function editReturnedApiRequest(request) {
 }
 
 function unifiedRequestDetails() {
+  if (state.requestDeepLinkLoading) return '<section class="panel"><p role="status">Loading request details…</p></section>';
+  if (state.requestDeepLinkError) return `<section class="panel"><p role="alert">${escapeHtml(state.requestDeepLinkError)}</p></section>`;
   const request = requests.find((item) => item.id === state.requestDetailId || item.id === state.selectedId);
   if (!request) return `<section class="panel empty-state"><h3>Request not found</h3><p>Return to the dashboard and select an available request.</p></section>`;
   const ownsRequest = ownsApiRequest(request);
@@ -3263,15 +3275,18 @@ function vendorNotificationModal(request) {
 }
 
 function tracker() {
+  if (state.trackerLoading) return '<section class="panel"><p role="status">Refreshing payment tracker…</p></section>';
+  if (state.trackerError) return `<section class="panel"><p role="alert">${escapeHtml(state.trackerError)}</p></section>`;
   const visibleRequests = personaRequests();
   const selected = visibleRequests.find((r) => r.id === state.trackerRequestId);
   if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Request Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${paymentOperationsPanel(selected)}${detail(selected)}${workflow(selected.currentStep)}${vendorNotificationModal(selected)}</section>`;
   const paymentStatus = (request) => {
+    if (request.backendId) return `<span class="tracker-status-text ${request.paymentSummary?.state === "cleared" ? "complete" : "pending"}">${escapeHtml(({ settled_no_payment: "Settled · No additional payment", cash_return_pending: "Cash return pending", draft: "Voucher Draft", issued: "Awaiting payment preparation", payment_prepared: "Awaiting authorization", authorized: "Authorized · Release pending", partially_released: "Partially released", released: "Released · Clearing pending", cleared: "Cleared", voided: "Voided" })[request.paymentSummary?.state] || "Awaiting approval and voucher")}</span>`;
     const released = request.currentStep > 13;
     const label = released ? "Released" : request.pickupAvailableAt ? "Available for Pickup" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release";
     return `<span class="tracker-status-text ${released || request.pickupAvailableAt ? "complete" : "pending"}">${label}</span>`;
   };
-  return `<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
+  return `<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${r.backendId ? escapeHtml(({ approved: "Approved", active: "Pending", information_requested: "Information requested", declined: "Declined", returned: "Returned", cancelled: "Cancelled" })[r.approvalState] || "Not started") : i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
 
 function documentUploads() {
@@ -4541,8 +4556,21 @@ function render() {
   }
 }
 
-window.addEventListener("hashchange", () => {
+window.addEventListener("hashchange", async () => {
   state = { ...state, ...routeStateFromHash() };
+  if (state.authStatus === "authenticated" && state.tab === "tracker") {
+    state.trackerLoading = true; state.trackerError = ""; render();
+    try { await loadApiPaymentRequests(); }
+    catch (error) { state.trackerError = error.message; }
+    finally { state.trackerLoading = false; }
+  }
+  if (state.authStatus === "authenticated" && state.tab === "requestDetail" && !requests.some(item => item.id === state.requestDetailId)) {
+    state.requestDeepLinkLoading = true; state.requestDeepLinkError = "";
+    render();
+    try { await loadApiPaymentRequests(); }
+    catch (error) { state.requestDeepLinkError = error.message; }
+    finally { state.requestDeepLinkLoading = false; }
+  } else state.requestDeepLinkError = "";
   render();
   resetPageScroll();
 });

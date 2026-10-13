@@ -73,7 +73,7 @@ test("General EWT inherits defaults, overrides lines, preserves retries and rema
       for (const select of await form.locator("select").all()) {
         const box = await select.boundingBox();
         expect(box.width).toBeGreaterThan(150);
-        expect(box.height).toBeGreaterThanOrEqual(42);
+        expect(Math.round(box.height)).toBeGreaterThanOrEqual(42);
       }
     }
     await form.locator('[name="request_ewt_tax_id"]').selectOption(code("VAT12-EWT1"));

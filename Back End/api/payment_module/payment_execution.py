@@ -98,6 +98,12 @@ def balance_summary(voucher, rows, states, latest):
         state = "authorized"
     else:
         state = "issued"
+    if due == 0 and voucher.result.get("advance_source"):
+        state = (
+            "cash_return_pending"
+            if Decimal(voucher.result["totals"].get("cash_return_pending", "0")) > 0
+            else "settled_no_payment"
+        )
     if latest and latest.state == "voided":
         state = "voided"
     return {

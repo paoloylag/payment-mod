@@ -135,16 +135,21 @@ def validation_summary(db: Session, item: PaymentRequest) -> dict:
                 "decision": current_decision,
             }
         )
-    if item.request_type == "general":
+    active = active_configuration(db)
+    if item.request_type == "general" or active and active.configuration.get("scope") == "all":
         setting = db.scalar(select(SystemSetting).where(SystemSetting.key == "finance.setup.draft"))
-        configured = bool(active_configuration(db) or request_coding(db, item)
-                          or setting and json.loads(setting.value).get("tax_by_request_type", {}).get("general"))
+        configured = bool(
+            active_configuration(db)
+            or request_coding(db, item)
+            or setting
+            and json.loads(setting.value).get("tax_by_request_type", {}).get("general")
+        )
         snapshot = latest_snapshot(db, item.id)
         if configured or snapshot:
             current = bool(snapshot and snapshot.request_version == item.version)
-            checks.append({"label": "General request EWT calculation saved", "complete": current, "details": []})
+            checks.append({"label": "Finance calculation saved", "complete": current, "details": []})
             if not current:
-                blockers.append("Save the EWT calculation for the current General request before approval")
+                blockers.append("Save the EWT calculation for the current request before approval")
     return {
         "request_id": str(item.id),
         "request_version": item.version,

@@ -178,6 +178,7 @@ General request defaults now include optional Input VAT and EWT payable account 
 ### Voucher issuance, printing and void/reversal — 2026-10-13
 
 - Delivered on dependent branch `codex/phase06-voucher-lifecycle`, based on the accounting increment `09e63d9` on `codex/phase06-accounting-workbench`.
+
 - Finance Manager issues and certifies a prepared General voucher after final request approval and current Finance validation. Issuance checks the original posted accounting and tax/request versions. It requires saved Finance voucher prefix, numbering period, certification wording, and Finance Associate creation / Finance Manager posting and voiding roles. Settings are checked by version and frozen at issuance; Finance's actual values are selected in Administration → Request Settings, not invented during development.
 - Official voucher numbers are distinct from the earlier reserved request audit reference. A transaction-scoped lock and sequence per prefix/period allocate numbers atomically; a unique issued number prevents reuse. Calendar, configured academic and continuous periods are supported. Failed issuance rolls back its sequence allocation.
 - The print dataset uses the issued voucher's saved entries, tax totals, certification, preparer, approval trail and source versions. It incorporates the current authorization/void status without changing the issued snapshot. The browser offers Print / Save PDF through an A4 print document with repeated reference/footer and page counts. HTML text is escaped; the browser does not calculate authoritative amounts.
@@ -185,3 +186,8 @@ General request defaults now include optional Input VAT and EWT payable account 
 - New voucher/read/issue/void and payment preparation/authorization permissions honor explicit user denials and require the relevant Finance/Signatory roles. System Administrator cannot bypass role, approval or segregation checks merely by holding administration permissions.
 - APIs: `/api/v1/finance-vouchers/{request_id}`; POST `issue`, `void`, `prepare-payment`, `authorize`; GET `print-data` and `/queue`. Every command has a source version, reason, request lock, idempotency signature and audit event.
 - Remaining Phase 06 scope: other request-type tax/account activation, explicit predecessor/replacement links, production voucher format/business acceptance, and broader Finance queue/reporting closeout. Phase 07 release/clearing and settlement are separate work.
+
+
+### All request types — 2026-10-13
+
+Current applicability update: `codex/phase07-all-request-types` extends the accounting/voucher workbench to all request types under explicit All setup activation. Reimbursement/PO inherit General defaults; Cash Advance uses an asset account; Liquidation offsets the released source advance and pays only the excess. The detailed register is `phase-07-all-types-validation.md`. Fund returns remain deferred.

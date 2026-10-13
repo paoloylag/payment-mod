@@ -41,7 +41,7 @@ class TaxAssignment(BaseModel):
 
 
 def editable(db, request, actor, item, instance):
-    if item.request_type != "general" or item.status != "submitted" or not instance:
+    if item.status != "submitted" or not instance:
         return False
     journal = latest_journal(db, item.id)
     if journal and journal.state == "posted":
@@ -71,8 +71,6 @@ def get_tax(request_id: UUID, request: Request, db: Session = Depends(get_db), a
     item = db.get(PaymentRequest, request_id)
     if item is None or not participant(db, request, actor, item):
         raise HTTPException(404, "Payment request not found")
-    if item.request_type != "general":
-        raise HTTPException(422, "EWT assignment is available for General requests")
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     latest = latest_snapshot(db, item.id)
     stale = bool(latest and latest.request_version != item.version)

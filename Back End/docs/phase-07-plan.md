@@ -1,7 +1,7 @@
 # Phase 07 — Payment Execution
 
 Date prepared: 2026-08-28  
-Status: In progress — multiple payment lines, authorization, release, clearing and replacement implemented for issued General vouchers
+Status: Confirmed payment flow implemented for all request types; cash/fund returns remain deferred
 Depends on: Phase 06 — Finance Validation and Vouchers
 
 ## Objective
@@ -122,3 +122,18 @@ The user confirmed one voucher with multiple payment line items, Finance Associa
 - Existing single-instruction vouchers remain supported; migration 0025 backfills their amount, currency and sequence without discarding history. Downgrade refuses to discard newly recorded payment history.
 
 This increment covers issued General vouchers. Other request types, payment reversals/fund returns after release, amount-based multi-signatory policy, scheduled notices and detailed reconciliation reporting remain subsequent work. Validation is recorded in `phase-07-payment-validation.md`.
+
+## All request types and confirmed policy — 2026-10-13
+
+User confirmation supersedes the General-only applicability above:
+
+- General, Reimbursement, PO Payment, Cash Advance and Liquidation use the same Finance preparation, posting, certification and payment controls. Each payment line has one independently assigned signatory; additional signatory thresholds are not part of the current policy.
+- Reimbursement and PO Payment inherit General VAT/EWT and accounting defaults. Finance Associate can override EWT per request/line and correct draft coding. Reimbursement proof of payment and physical-original requirements remain enforced.
+- Cash Advance records gross amounts against a posting advance asset account and configured credit account, without VAT/EWT deductions. Corrections remain restricted to asset accounts, with one advance asset account per request.
+- Liquidation records gross expenses and credits the asset account and cost center from the original released advance. The original advance must belong to the same requestor, use the same currency, match the declared amount, and be fully released. Only expenses exceeding the advance create a new payable amount. Account names and cost-center references come from the original posted snapshot.
+- Equal expenses require no new payment. Unused funds remain an outstanding advance awaiting the deferred cash-return process. Liquidation can be submitted without falsely claiming an offline return, and submitting a liquidation alone does not close the one-outstanding-advance check.
+- Source advance locks and a posted-liquidation check prevent settling an advance twice. Reversed liquidation accounting does not mark an advance settled.
+- Finance Manager or System Administrator selects **All request types** during versioned setup activation. Activation requires General defaults plus active posting Cash Advance asset/credit accounts. Old General-only activations retain their scope; new other-type Finance calculations require All activation.
+- Tracker approval and payment states come from stored workflow/payment records. Tracker navigation refreshes those records. Newly assigned request links refresh accessible requests instead of opening the request creation form.
+
+Fund returns and post-release reversals remain deferred. Scheduled notifications and detailed reconciliation reporting remain Phase 08 work. See `phase-07-all-types-validation.md` for the implementation and validation register.

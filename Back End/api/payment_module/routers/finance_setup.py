@@ -57,7 +57,7 @@ def read_draft(db: Session) -> FinanceSetupDraft:
     return FinanceSetupDraft.model_validate(json.loads(setting.value)) if setting else FinanceSetupDraft()
 
 
-def missing_choices(draft: FinanceSetupDraft) -> list[str]:
+def missing_choices(draft: FinanceSetupDraft, scope="general") -> list[str]:
     missing = []
     for field, label in (
         ("vat_basis", "VAT basis"),
@@ -69,9 +69,10 @@ def missing_choices(draft: FinanceSetupDraft) -> list[str]:
     ):
         if getattr(draft, field) is None:
             missing.append(label)
-    for request_type in REQUEST_TYPES:
-        if draft.tax_by_request_type.get(request_type) is None:
-            missing.append(f"{request_type}: tax code")
+    for request_type in REQUEST_TYPES if scope != "all" else ("general", "cashAdvance"):
+        if request_type != "cashAdvance" or scope != "all":
+            if draft.tax_by_request_type.get(request_type) is None:
+                missing.append(f"{request_type}: tax code")
         mapping = draft.accounts_by_request_type.get(request_type)
         if not mapping or mapping.debit_account_id is None or mapping.credit_account_id is None:
             missing.append(f"{request_type}: debit and credit accounts")
@@ -91,6 +92,8 @@ def missing_choices(draft: FinanceSetupDraft) -> list[str]:
 def view(draft: FinanceSetupDraft, db: Session) -> dict:
     configurations = list(db.scalars(select(FinanceConfiguration).order_by(FinanceConfiguration.version.desc())))
     active = active_configuration(db)
+    scope = active.configuration.get("scope", "general") if active else "general"
+    missing = missing_choices(draft, scope)
 
     def activation_view(item):
         return {
@@ -106,13 +109,14 @@ def view(draft: FinanceSetupDraft, db: Session) -> dict:
 
     return {
         **draft.model_dump(mode="json"),
-        "missing_choices": missing_choices(draft),
-        "configuration_complete": not missing_choices(draft),
-        "operational_status": "general_active" if active else "draft",
+        "missing_choices": missing,
+        "configuration_complete": not missing,
+        "operational_status": ("all_active" if scope == "all" else "general_active") if active else "draft",
         "general_ewt_configured": bool(draft.tax_by_request_type.get("general")),
-        "readiness": readiness_report(db, draft, missing_choices(draft), REQUEST_TYPES),
+        "readiness": readiness_report(db, draft, missing, REQUEST_TYPES, scope),
         "activation": {
-            "scope": "general",
+            "scope": active.configuration.get("scope", "general") if active else "general",
+            "all_type_blockers": activation_errors(db, draft.model_dump(mode="json"), "all"),
             "active": activation_view(active) if active else None,
             "latest_version": configurations[0].version if configurations else 0,
             "history": [activation_view(item) for item in configurations],
@@ -147,8 +151,10 @@ def update_finance_setup(
                 raise HTTPException(422, "Selected tax code must be active")
     for mapping in payload.accounts_by_request_type.values():
         for account_id in (
-            mapping.debit_account_id, mapping.credit_account_id,
-            mapping.input_vat_account_id, mapping.ewt_payable_account_id,
+            mapping.debit_account_id,
+            mapping.credit_account_id,
+            mapping.input_vat_account_id,
+            mapping.ewt_payable_account_id,
         ):
             if account_id is not None:
                 account = db.get(ChartAccount, account_id)
@@ -180,6 +186,7 @@ def update_finance_setup(
 
 
 class ActivationPayload(BaseModel):
+    scope: Literal["general", "all"] = "general"
     draft_version: int = Field(ge=1)
     expected_previous_version: int = Field(ge=0)
     reason: str = Field(min_length=1, max_length=2000)
@@ -209,6 +216,7 @@ def activate_setup(
             or previous.reason != payload.reason.strip()
             or previous.actor_user_id != actor.id
             or previous.configuration["activation_expected_version"] != payload.expected_previous_version
+            or previous.configuration.get("scope", "general") != payload.scope
         ):
             raise HTTPException(409, "Idempotency key already used for another activation")
         return view(draft, db)
@@ -220,7 +228,7 @@ def activate_setup(
     if not payload.reason.strip():
         raise HTTPException(422, "Activation reason is required")
     config = draft.model_dump(mode="json")
-    errors = activation_errors(db, config)
+    errors = activation_errors(db, config, payload.scope)
     if errors:
         raise HTTPException(409, "Finance setup is incomplete: " + "; ".join(errors))
     mapping = config["accounts_by_request_type"]["general"]
@@ -228,7 +236,7 @@ def activate_setup(
         {
             "activated_by": actor.display_name,
             "activation_expected_version": payload.expected_previous_version,
-            "scope": "general",
+            "scope": payload.scope,
             "debit": reference(db.get(ChartAccount, UUID(mapping["debit_account_id"]))),
             "credit": reference(db.get(ChartAccount, UUID(mapping["credit_account_id"]))),
             "default_tax_snapshot": tax_details(db.get(TaxCode, UUID(config["tax_by_request_type"]["general"]))),

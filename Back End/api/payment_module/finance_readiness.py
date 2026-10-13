@@ -22,7 +22,7 @@ def effective(record, on_date):
     )
 
 
-def readiness_report(db, draft, missing, request_types):
+def readiness_report(db, draft, missing, request_types, scope="general"):
     today = finance_date()
     checks = []
 
@@ -67,16 +67,17 @@ def readiness_report(db, draft, missing, request_types):
         else "Configure an active department first.",
     )
     for request_type in request_types:
-        tax_id = draft.tax_by_request_type.get(request_type)
+        inherited = scope == "all" and request_type in {"reimbursement", "poPayment", "liquidation"}
+        tax_id = draft.tax_by_request_type.get("general" if inherited else request_type)
         tax = db.get(TaxCode, tax_id) if tax_id else None
         add(
             f"{request_type}.tax",
             "Tax code",
-            effective(tax, today),
+            (scope == "all" and request_type in {"cashAdvance", "liquidation"}) or effective(tax, today),
             "The selected tax code must exist, be active, and be effective today.",
             request_type,
         )
-        mapping = draft.accounts_by_request_type.get(request_type)
+        mapping = draft.accounts_by_request_type.get("general" if inherited else request_type)
         for side in ("debit", "credit"):
             account_id = getattr(mapping, f"{side}_account_id", None)
             account = db.get(ChartAccount, account_id) if account_id else None
@@ -109,8 +110,10 @@ def readiness_report(db, draft, missing, request_types):
         {
             "code": "activation",
             "label": "Finance policy activation",
-            "status": "pending_confirmation",
-            "message": "General request EWT defaults and Finance Associate line overrides are supported. "
+            "status": "ready" if scope == "all" else "pending_confirmation",
+            "message": "All request types use confirmed payment rules; fund returns remain deferred."
+            if scope == "all"
+            else "General request EWT defaults and Finance Associate line overrides are supported. "
             "Account mapping exceptions, other request types, and sign-off scope remain pending "
             "before full automatic accounting and the request creation gate can be activated.",
             "request_type": None,
@@ -119,11 +122,11 @@ def readiness_report(db, draft, missing, request_types):
     return {
         "as_of": today.isoformat(),
         "configuration_version": draft.version,
-        "ready": False,
-        "enforced": False,
-        "operational_status": "draft",
+        "ready": scope == "all" and not any(check["status"] == "blocked" for check in checks),
+        "enforced": scope == "all",
+        "operational_status": "all_active" if scope == "all" else "draft",
         "checks": checks,
         "missing_choices": missing,
         "blocked_count": sum(check["status"] == "blocked" for check in checks),
-        "pending_confirmation_count": 1,
+        "pending_confirmation_count": 0 if scope == "all" else 1,
     }

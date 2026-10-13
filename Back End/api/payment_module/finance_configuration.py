@@ -37,7 +37,7 @@ def tax_ledger_fields(vat_rate, ewt_rate):
     ]
 
 
-def activation_errors(db, config):
+def activation_errors(db, config, scope="general"):
     errors = []
     for field in ("vat_basis", "ewt_basis", "rounding", "effective_date_basis", "effective_from", "setup_scope"):
         if not config.get(field):
@@ -75,24 +75,41 @@ def activation_errors(db, config):
             errors.append(
                 f"Select an active, effective posting {field.replace('_account_id', '').replace('_', ' ')} account"
             )
+    if scope == "all":
+        advance = config.get("accounts_by_request_type", {}).get("cashAdvance", {})
+        for side in ("debit", "credit"):
+            account_id = advance.get(f"{side}_account_id")
+            account = db.get(ChartAccount, UUID(str(account_id))) if account_id else None
+            if not effective(account, on_date) or not account.is_posting:
+                errors.append(f"Configure an active Cash Advance {side} account")
+            elif side == "debit" and account.account_type != "asset":
+                errors.append("Cash Advance debit must be an advance asset account")
+        if advance.get("debit_account_id") == advance.get("credit_account_id"):
+            errors.append("Cash Advance debit and credit accounts must be different")
     return errors
 
 
-def mapping_for_department(db, configuration, department_id):
+def mapping_for_department(db, configuration, department_id, request_type="general"):
     config = configuration.configuration
     on_date = finance_date()
     tax = db.get(TaxCode, UUID(config["tax_by_request_type"]["general"]))
     if not effective(tax, on_date):
         raise HTTPException(409, "Finance setup is incomplete: General tax code is inactive or expired")
-    mapping = config["accounts_by_request_type"]["general"]
+    mapping = config["accounts_by_request_type"]["cashAdvance" if request_type == "cashAdvance" else "general"]
     accounts = {}
     for side in ("debit", "credit"):
         account = db.get(ChartAccount, UUID(mapping[f"{side}_account_id"]))
         if not effective(account, on_date) or not account.is_posting:
             raise HTTPException(409, f"Finance setup is incomplete: General {side} account is inactive or expired")
+        if request_type == "cashAdvance" and side == "debit" and account.account_type != "asset":
+            raise HTTPException(409, "Cash Advance requires an advance asset account")
         accounts[side] = account
     frozen_tax = config.get("default_tax_snapshot", {})
-    for field in tax_ledger_fields(frozen_tax.get("vat_rate", tax.vat_rate), frozen_tax.get("ewt_rate", tax.ewt_rate)):
+    for field in (
+        []
+        if request_type == "cashAdvance"
+        else tax_ledger_fields(frozen_tax.get("vat_rate", tax.vat_rate), frozen_tax.get("ewt_rate", tax.ewt_rate))
+    ):
         account_id = mapping.get(field)
         account = db.get(ChartAccount, UUID(str(account_id))) if account_id else None
         if not effective(account, on_date) or not account.is_posting:
@@ -104,10 +121,13 @@ def mapping_for_department(db, configuration, department_id):
 
 
 def required_configuration(db, request_type):
-    if request_type != "general":
-        return None
     lock_configuration(db, shared=True)
     configuration = active_configuration(db)
+    if request_type != "general" and (not configuration or configuration.configuration.get("scope") != "all"):
+        latest = db.scalar(select(FinanceConfiguration).order_by(FinanceConfiguration.version.desc()).limit(1))
+        if latest and latest.configuration.get("scope") == "all":
+            raise HTTPException(409, "All-request-type Finance configuration is scheduled but not yet effective")
+        return None
     if not configuration and db.scalar(select(FinanceConfiguration.id).limit(1)):
         raise HTTPException(409, "General Finance configuration is scheduled but not yet effective")
     return configuration
@@ -117,7 +137,7 @@ def apply_payload(db, payload):
     configuration = required_configuration(db, payload.request_type)
     if not configuration:
         return payload, None
-    accounts, center = mapping_for_department(db, configuration, payload.department_id)
+    accounts, center = mapping_for_department(db, configuration, payload.department_id, payload.request_type)
     lines = [
         line.model_copy(update={"chart_account_id": accounts["debit"].id, "cost_center_id": center.id})
         for line in payload.lines
@@ -128,7 +148,7 @@ def apply_payload(db, payload):
 def apply_submission(db, item):
     configuration = required_configuration(db, item.request_type)
     if configuration:
-        accounts, center = mapping_for_department(db, configuration, item.department_id)
+        accounts, center = mapping_for_department(db, configuration, item.department_id, item.request_type)
         for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)):
             line.chart_account_id = accounts["debit"].id
             line.cost_center_id = center.id
@@ -139,7 +159,7 @@ def apply_submission(db, item):
 def save_coding(db, item, configuration):
     if not configuration:
         return
-    accounts, center = mapping_for_department(db, configuration, item.department_id)
+    accounts, center = mapping_for_department(db, configuration, item.department_id, item.request_type)
     lines = list(
         db.scalars(
             select(PaymentRequestLine)

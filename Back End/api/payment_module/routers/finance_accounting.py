@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..advance_settlement import validate_liquidation_posting
 from ..audit import audit
 from ..database import get_db
 from ..finance_accounting import build_entries, latest_journal, validate_saved_entries
@@ -62,8 +63,6 @@ def context(db, request, actor, request_id, lock=False):
         or not roles.intersection({"finance_associate", "finance_manager"})
     ):
         raise HTTPException(404, "Finance request not found")
-    if item.request_type != "general":
-        raise HTTPException(422, "Accounting preparation is available for General requests")
     query = select(WorkflowInstance).where(WorkflowInstance.request_id == item.id)
     instance = db.scalar(query.with_for_update() if lock else query)
     return item, instance, roles
@@ -259,6 +258,7 @@ def post(
     validation = validation_summary(db, item)
     if not validation["ready_to_approve"]:
         raise HTTPException(409, "Finance validation is incomplete: " + "; ".join(validation["blockers"]))
+    validate_liquidation_posting(db, item, tax)
     validate_saved_entries(db, journal.result)
     if Decimal(journal.result["totals"]["debit"]) != item.gross_amount:
         raise HTTPException(409, "Accounting no longer reconciles to the request amount")
@@ -321,6 +321,8 @@ def prepare_voucher(
             "tax_version": tax.version,
             "entries": journal.result["entries"],
             "totals": journal.result["tax_totals"],
+            "request_type": item.request_type,
+            "advance_source": tax.result.get("advance_source"),
             "prepared_by": actor.display_name,
             "certification_text": tax.result["configuration"].get("voucher", {}).get("certification_text", ""),
             "status": "draft",

@@ -90,6 +90,8 @@ def build_calculation(db, item, config, request_tax_id=None, line_overrides=None
     config = {**config, "calculation_reference_date": rule_date.isoformat()}
     if str(config["effective_from"]) > rule_date.isoformat():
         raise HTTPException(409, "Finance setup is not yet effective")
+    if item.request_type != "general" and config.get("scope") != "all":
+        raise HTTPException(409, "Finance must activate payment setup for all request types first")
     default_id = config.get("tax_by_request_type", {}).get("general")
     if not default_id:
         raise HTTPException(409, "Finance must configure the General request default tax code first")
@@ -101,6 +103,19 @@ def build_calculation(db, item, config, request_tax_id=None, line_overrides=None
         return tax_details(tax)
 
     vat_tax = config.get("default_tax_snapshot") or get_tax(default_id)
+    advance_calculation = item.request_type in {"cashAdvance", "liquidation"}
+    if advance_calculation:
+        if request_tax_id or line_overrides:
+            raise HTTPException(422, "Advance and liquidation settlement do not use EWT overrides")
+        vat_tax = {
+            "id": None,
+            "code": "ADVANCE",
+            "name": "Advance settlement",
+            "vat_rate": "0",
+            "vat_classification": "not_applicable",
+            "ewt_rate": "0",
+            "ewt_classification": "not_applicable",
+        }
     request_tax = get_tax(request_tax_id) if request_tax_id else vat_tax
     lines = list(
         db.scalars(
@@ -131,6 +146,10 @@ def build_calculation(db, item, config, request_tax_id=None, line_overrides=None
             "Calculated gross must match the approved request amount. "
             "VAT-exclusive additions require correction of the request before tax assignment.",
         )
+    if item.request_type == "liquidation":
+        from .advance_settlement import advance_source, apply_liquidation
+
+        result = apply_liquidation(result, advance_source(db, item))
     return {
         **result,
         "configuration": config,

@@ -31,7 +31,11 @@ def build_entries(db, item, tax, overrides=None, strict=False):
     if tax is None or tax.request_version != item.version:
         raise HTTPException(409, "Save the EWT calculation for the current request before preparing accounting")
     result = tax.result
-    mapping = result["configuration"].get("accounts_by_request_type", {}).get("general", {})
+    mapping = (
+        result["configuration"]
+        .get("accounts_by_request_type", {})
+        .get("cashAdvance" if item.request_type == "cashAdvance" else "general", {})
+    )
     lines = {
         str(line.id): line
         for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
@@ -46,6 +50,8 @@ def build_entries(db, item, tax, overrides=None, strict=False):
         if not effective(center, finance_date()) or center.department_id != item.department_id:
             blockers.append(f"Line {row['position']}: configure an active cost center for the request department")
         for component, amount_key, account_key, side in COMPONENTS:
+            if item.request_type == "cashAdvance" and component == "expense":
+                component = "advance"
             amount = Decimal(row[amount_key])
             if not amount.is_finite() or amount < 0:
                 raise HTTPException(409, "Tax calculation contains an invalid accounting amount")
@@ -62,6 +68,8 @@ def build_entries(db, item, tax, overrides=None, strict=False):
                     f"Line {row['position']}: select an active posting account "
                     f"effective for {component.replace('_', ' ')}"
                 )
+            if component == "advance" and (not account or account.account_type != "asset"):
+                blockers.append("Cash Advance must use an advance asset account")
             entries.append(
                 {
                     "key": key,
@@ -75,6 +83,33 @@ def build_entries(db, item, tax, overrides=None, strict=False):
                     "credit": str(amount if side == "credit" else Decimal(0)),
                 }
             )
+        if item.request_type == "liquidation" and Decimal(row.get("advance_applied", "0")) > 0:
+            source_account = result["advance_source"]["asset_account"]
+            key = f"{row['line_id']}:advance_settlement"
+            valid_keys.add(key)
+            if key in overrides and str(overrides[key]) != source_account["id"]:
+                raise HTTPException(422, "Liquidation must settle the original advance asset account")
+            account = db.get(ChartAccount, UUID(source_account["id"]))
+            if not effective(account, finance_date()) or not account.is_posting:
+                blockers.append("The original advance asset account is inactive or expired")
+            entries.append(
+                {
+                    "key": key,
+                    "line_id": row["line_id"],
+                    "position": row["position"],
+                    "particulars": row["particulars"],
+                    "component": "advance_settlement",
+                    "account": source_account,
+                    "cost_center": result["advance_source"]["asset_cost_center"],
+                    "debit": "0",
+                    "credit": row["advance_applied"],
+                }
+            )
+    if (
+        item.request_type == "cashAdvance"
+        and len({row["account"]["id"] for row in entries if row["component"] == "advance" and row["account"]}) > 1
+    ):
+        blockers.append("Use one advance asset account across this Cash Advance")
     if set(overrides) - valid_keys:
         raise HTTPException(422, "Account correction references an entry outside the current calculation")
     debit = sum((Decimal(row["debit"]) for row in entries), Decimal(0))
@@ -104,6 +139,8 @@ def validate_saved_entries(db, result):
             raise HTTPException(
                 409, "An assigned account or cost center is no longer active; Finance Associate must correct the draft"
             )
+        if entry["component"] == "advance" and account.account_type != "asset":
+            raise HTTPException(409, "Cash Advance requires an advance asset account")
         entry_debit, entry_credit = Decimal(entry["debit"]), Decimal(entry["credit"])
         if (
             not entry_debit.is_finite()

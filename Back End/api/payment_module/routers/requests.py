@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..config import get_settings
 from ..database import get_db
-from ..finance_configuration import apply_payload, apply_submission, save_coding
+from ..finance_configuration import active_configuration, apply_payload, apply_submission, request_coding, save_coding
 from ..finance_readiness import effective, finance_date
 from ..models import (
     ChartAccount,
@@ -141,6 +141,7 @@ def serialize(
     departments: dict[UUID, Department] | None = None,
     lines_by_request: dict[UUID, list[PaymentRequestLine]] | None = None,
     payment_summaries: dict | None = None,
+    workflow_states: dict | None = None,
 ) -> dict:
     requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
     department = (
@@ -168,6 +169,9 @@ def serialize(
         ).get(item.id),
         "request_type": item.request_type,
         "status": item.status,
+        "approval_state": workflow_states.get(item.id)
+        if workflow_states is not None
+        else db.scalar(select(WorkflowInstance.state).where(WorkflowInstance.request_id == item.id)),
         "requestor_id": str(item.requestor_id),
         "requestor_name": requestor.display_name if requestor else "Unknown requestor",
         "department_id": str(item.department_id),
@@ -203,13 +207,24 @@ def serialize(
     }
 
 
-def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
+def serialize_many(db: Session, items: list[PaymentRequest], workflow_states: dict | None = None) -> list[dict]:
     if not items:
         return []
     payment_summaries = request_payment_summaries(db, [item.id for item in items])
     requestor_ids = {item.requestor_id for item in items}
     department_ids = {item.department_id for item in items}
     request_ids = {item.id for item in items}
+    workflow_states = (
+        workflow_states
+        if workflow_states is not None
+        else dict(
+            db.execute(
+                select(WorkflowInstance.request_id, WorkflowInstance.state).where(
+                    WorkflowInstance.request_id.in_(request_ids)
+                )
+            ).all()
+        )
+    )
     requestors = {item.id: item for item in db.scalars(select(User).where(User.id.in_(requestor_ids)))}
     departments = {item.id: item for item in db.scalars(select(Department).where(Department.id.in_(department_ids)))}
     lines_by_request: dict[UUID, list[PaymentRequestLine]] = {request_id: [] for request_id in request_ids}
@@ -227,6 +242,7 @@ def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
             departments=departments,
             lines_by_request=lines_by_request,
             payment_summaries=payment_summaries,
+            workflow_states=workflow_states,
         )
         for item in items
     ]
@@ -402,6 +418,11 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             )
             if candidate.type_data and candidate.type_data.get("cash_advance_reference")
         }
+        configuration = active_configuration(db)
+        if configuration and configuration.configuration.get("scope") == "all":
+            from ..advance_settlement import settled_advance_references
+
+            liquidated_references = settled_advance_references(db, item.requestor_id)
         outstanding = [
             advance for advance in prior_advances if str(advance.request_number) not in liquidated_references
         ]
@@ -450,10 +471,21 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
             require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
         if decimal_value(data.get("liquidation_advance_amount")) > item.gross_amount:
             expected_return = decimal_value(data.get("liquidation_advance_amount")) - item.gross_amount
+            coding = request_coding(db, item)
+            configuration = active_configuration(db)
+            scope = (
+                coding.result["configuration"].get("scope")
+                if coding
+                else (configuration.configuration.get("scope") if configuration else None)
+            )
             require(
-                decimal_value(data.get("liquidation_return_amount")) == expected_return,
+                (0 <= decimal_value(data.get("liquidation_return_amount")) <= expected_return)
+                if scope == "all"
+                else decimal_value(data.get("liquidation_return_amount")) == expected_return,
                 "type_data.liquidation_return_amount",
-                "Amount returned offline must equal the excess Cash Advance balance",
+                "Recorded offline return cannot exceed the unused advance"
+                if scope == "all"
+                else "Amount returned offline must equal the excess Cash Advance balance",
             )
     elif item.request_type == "poPayment":
         po_reference = str(data.get("po_reference") or "").strip()
@@ -805,10 +837,14 @@ def list_payment_requests(
     response.headers["X-Total-Count"] = str(total)
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
-    items = list(
-        db.scalars(query.order_by(order, PaymentRequest.id.desc()).offset((page - 1) * page_size).limit(page_size))
-    )
-    return serialize_many(db, items)
+    rows = db.execute(
+        query.add_columns(WorkflowInstance.state)
+        .outerjoin(WorkflowInstance, WorkflowInstance.request_id == PaymentRequest.id)
+        .order_by(order, PaymentRequest.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return serialize_many(db, [row[0] for row in rows], {row[0].id: row[1] for row in rows})
 
 
 @router.get("/cash-advance-options")
