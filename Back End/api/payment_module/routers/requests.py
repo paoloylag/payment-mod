@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..config import get_settings
 from ..database import get_db
+from ..finance_readiness import effective, finance_date
 from ..models import (
     ChartAccount,
     CostCenter,
@@ -213,8 +214,9 @@ def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
 
 
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
-    if not db.get(Department, payload.department_id):
-        raise HTTPException(422, "Department does not exist")
+    department = db.get(Department, payload.department_id)
+    if not department or not department.is_active:
+        raise HTTPException(422, "Department does not exist or is inactive")
     currency = db.get(Currency, payload.currency_code)
     if not currency or not currency.is_active:
         raise HTTPException(422, "Currency is not active")
@@ -223,12 +225,12 @@ def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
     for index, line in enumerate(payload.lines, 1):
         if line.chart_account_id:
             account = db.get(ChartAccount, line.chart_account_id)
-            if not account or not account.is_active:
-                raise HTTPException(422, f"Line {index}: expense account is not active")
+            if not effective(account, finance_date()) or not account.is_posting:
+                raise HTTPException(422, f"Line {index}: expense account must be active, posting, and effective")
         if line.cost_center_id:
             center = db.get(CostCenter, line.cost_center_id)
-            if not center or not center.is_active:
-                raise HTTPException(422, f"Line {index}: cost center is not active")
+            if not effective(center, finance_date()) or center.department_id != payload.department_id:
+                raise HTTPException(422, f"Line {index}: cost center must be effective and belong to the department")
     return sum((line.amount for line in payload.lines), Decimal("0"))
 
 
@@ -242,6 +244,26 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
     )
     data = item.type_data or {}
     errors: list[dict[str, str]] = []
+
+    # Recheck current master data: a draft may predate a deactivation or expiry.
+    department = db.get(Department, item.department_id)
+    currency = db.get(Currency, item.currency_code)
+    if not department or not department.is_active:
+        errors.append({"field": "department_id", "message": "The request department is no longer active"})
+    if not currency or not currency.is_active:
+        errors.append({"field": "currency_code", "message": "The request currency is no longer active"})
+    today = finance_date()
+    for position, line in enumerate(lines):
+        if line.chart_account_id:
+            account = db.get(ChartAccount, line.chart_account_id)
+            if not effective(account, today) or not account.is_posting:
+                errors.append({"field": f"lines.{position}.chart_account_id",
+                               "message": "Expense account must be active, posting, and effective"})
+        if line.cost_center_id:
+            center = db.get(CostCenter, line.cost_center_id)
+            if not effective(center, today) or center.department_id != item.department_id:
+                errors.append({"field": f"lines.{position}.cost_center_id",
+                               "message": "Cost center must be effective and belong to the request department"})
 
     def require(condition: object, field: str, message: str) -> None:
         if not condition:

@@ -34,6 +34,14 @@ The concrete checks, current enforcement, Finance decisions still needed, and im
 
 ## Objective
 
+### Readiness implementation — 2026-10-13
+
+- Request Settings now displays a live Finance readiness checklist, including missing choices, current tax/account reference validity, effective dates, distinct debit/credit accounts, department cost centers, and nonblank voucher certification. Saving or reloading recomputes the report from current master data.
+- Draft completeness is distinct from activation. The report explicitly keeps activation pending the vendor/line applicability and mapping rules. No tax rates or accounts are silently activated.
+- Request creation/editing reject inactive departments, non-posting or ineffective accounts, and ineffective or cross-department cost centers. Submission rechecks current master data so older drafts cannot bypass deactivation/expiry.
+- Validation: 52 focused backend tests passed, including seven new readiness cases. Five Chrome workflows passed: Finance setup/readiness at 390/768/1280px with keyboard interaction, all-request-type approval lifecycle, executive information/messages, foreign-rate confirmation, and assignment exceptions. Build and backend lint passed. Existing Finance document, line, and physical-original approval gates remain in force.
+- Next: confirm vendor/line applicability and mapping exceptions, implement versioned activation/sign-off and the complete request readiness gate, then automatic tax/account snapshots and vouchers.
+
 Persist Finance review, tax/accounting decisions, and auditable voucher generation after required approvals.
 
 ## Scope

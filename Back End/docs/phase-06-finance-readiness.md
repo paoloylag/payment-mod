@@ -1,7 +1,7 @@
 # Phase 06 — Finance configuration readiness checklist
 
 Prepared: 2026-10-13
-Status: Draft for Finance rule confirmation
+Status: Live readiness report implemented; policy activation pending Finance rule confirmation
 
 ## Saved configuration draft
 
@@ -10,6 +10,8 @@ Administration → Request Settings → Finance Setup Draft now saves partial Fi
 The draft reports missing choices. Even a fully filled draft is not activated: detailed vendor/line applicability, department-specific mappings, sign-off records, calculation snapshots, and the creation/submission gate still require implementation and Finance confirmation. The scope selector records the intended scope; it does not yet create separate department configurations.
 
 The owner confirmed that Finance must finish the required setup before an affected request can be created or submitted. Tax and account settings should then apply automatically; Finance Associate reviews the resulting classification and coding later. A missing applicable rule must be shown as a configuration blocker, never treated as a zero tax rate or an uncoded line.
+
+The Finance Setup response now includes a live `readiness` report, displayed below its form. It checks current effective tax/account references, distinct debit/credit accounts, effective department cost centers, missing choices, and certification wording. `ready` and `enforced` remain false while policy activation is pending. A completed draft is not represented as an active setup. Request creation/editing and submission enforce active departments, effective posting accounts, and effective cost centers belonging to the request department; the submission check catches master data changed after a draft was saved.
 
 ## Checks that can be enforced from the current data model
 

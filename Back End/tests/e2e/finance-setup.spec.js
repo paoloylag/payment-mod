@@ -10,10 +10,15 @@ test("Finance setup saves partial choices and remains usable across viewport wid
   await page.goto("/#/administration/request-settings");
   const form = page.locator("[data-finance-setup]");
   await expect(form).toBeVisible();
+  const readiness = page.getByRole("region", { name: "Finance readiness checklist" });
+  await readiness.locator("summary").focus();
+  await page.keyboard.press("Enter");
+  await expect(readiness.getByText("Finance policy activation", { exact: true })).toBeVisible();
   for (const width of [390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await form.scrollIntoViewIfNeeded();
     expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
+    expect(await readiness.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
     for (const element of await form.locator("select, input, textarea").all()) {
       const box = await element.boundingBox();
       expect(box.x).toBeGreaterThanOrEqual(0);

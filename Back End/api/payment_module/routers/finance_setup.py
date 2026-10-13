@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..database import get_db
+from ..finance_readiness import readiness_report
 from ..models import ChartAccount, SystemSetting, TaxCode, User
 from ..security import current_user
 
@@ -77,18 +78,19 @@ def missing_choices(draft: FinanceSetupDraft) -> list[str]:
     return missing
 
 
-def view(draft: FinanceSetupDraft) -> dict:
+def view(draft: FinanceSetupDraft, db: Session) -> dict:
     return {
         **draft.model_dump(mode="json"),
         "missing_choices": missing_choices(draft),
         "configuration_complete": not missing_choices(draft),
         "operational_status": "draft",
+        "readiness": readiness_report(db, draft, missing_choices(draft), REQUEST_TYPES),
     }
 
 
 @router.get("/finance-setup")
 def get_finance_setup(db: Session = Depends(get_db), actor: User = Depends(current_user)):
-    return view(read_draft(db))
+    return view(read_draft(db), db)
 
 
 @router.put("/finance-setup")
@@ -129,4 +131,4 @@ def update_finance_setup(
         before=before.model_dump(mode="json"), after=saved.model_dump(mode="json"),
     )
     db.commit()
-    return view(saved)
+    return view(saved, db)

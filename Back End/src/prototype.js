@@ -1710,7 +1710,23 @@ function financeSetupSection(editable) {
       </div><label>Certification wording<textarea name="voucher_certification_text" maxlength="1000" rows="3" ${disabled}>${escapeHtml(setup.voucher?.certification_text || "")}</textarea></label>
       <div class="numbering-settings-summary"><p>${setup.configuration_complete ? "All draft choices are filled in." : `${setup.missing_choices?.length || 0} draft choices remain open.`} ${setup.missing_choices?.length ? escapeHtml(setup.missing_choices.slice(0, 5).join("; ")) + (setup.missing_choices.length > 5 ? "…" : "") : ""}</p></div>
       ${editable ? `<button type="submit" class="primary-button">Save Finance setup draft</button>` : ""}
-    </form></section>`;
+    </form>${financeReadinessSection(setup)}</section>`;
+}
+
+function financeReadinessSection(setup) {
+  const report = setup.readiness;
+  if (!report) return "";
+  const typeNames = Object.fromEntries(financeSetupRequestTypes);
+  const issues = report.checks.filter((check) => check.status !== "ready");
+  return `<section class="finance-readiness" aria-label="Finance readiness checklist">
+    <h4>Finance readiness checklist</h4>
+    <p>Checked ${escapeHtml(report.as_of)} · Setup version ${escapeHtml(report.configuration_version)}. ${report.blocked_count} checks need attention.</p>
+    <p>Draft settings are not active. Existing request processing continues while Finance prepares the required rules.</p>
+    <details><summary>View checks and missing settings</summary>
+      <ul>${issues.map((check) => `<li><strong>${check.request_type ? `${escapeHtml(typeNames[check.request_type] || check.request_type)} — ` : ""}${escapeHtml(check.label)}</strong>: ${escapeHtml(check.message)}</li>`).join("")}</ul>
+      ${report.missing_choices.length ? `<h4>Missing choices</h4><ul>${report.missing_choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ul>` : ""}
+    </details>
+  </section>`;
 }
 
 function requestSettingsPage() {

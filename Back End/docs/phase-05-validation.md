@@ -3,8 +3,8 @@
 Date: 2026-10-13
 Branch: `codex/backend-integration`
 Base commit: `6516b5ac46162a3ff2f5b8a566a5b28ef0d2d130`
-Development changes: uncommitted working tree
-Status: Approved development scope implemented and locally verified; stakeholder acceptance and hosted CI remain pending.
+Development checkpoint: `a22cdf7`, with PDF handling follow-up `071be80`.
+Status: Approved development scope implemented, locally verified, pushed, and hosted CI passed. Owner authorized progression to Phase 06 after checks; this is not a record of a separate Finance acceptance session.
 
 ## Approved scope
 
@@ -44,7 +44,7 @@ Browser evidence is generated in `outputs/playwright-report`; a mobile assignmen
 ## Remaining acceptance items
 
 1. Named business reviewer accepts the approved Phase 05 scope and exception behavior.
-2. Commit/push the reviewed development changes and record the resulting hosted CI run and commit in this record. Local CI-equivalent lint, migration, test, and build gates passed; hosted CI has not run for these uncommitted changes.
+2. Completed: committed and pushed to `codex/backend-integration`. [Hosted CI run 38363853020](https://github.com/paoloylag/payment-mod/actions/runs/38363853020) passed for `071be8058dcc4dfb9b4b8ecae91f0e68e226942f`, including frontend build, backend lint/tests, migration rollback/replay, and Docker delivery packaging. Local recheck: 153 tests passed.
 3. SLA/reminders/escalation remain explicitly deferred. They are not enabled or represented as complete.
 
 Finance setup activation, tax/accounting calculations, vouchers, payment authorization/execution, workflow notification delivery, production providers, and release promotion remain in their respective later phases.
