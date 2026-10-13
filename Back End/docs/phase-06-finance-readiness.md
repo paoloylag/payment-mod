@@ -1,6 +1,6 @@
 # Phase 06 — Finance configuration readiness checklist
 
-Prepared: 2026-10-13  
+Prepared: 2026-10-13
 Status: Draft for Finance rule confirmation
 
 ## Saved configuration draft
