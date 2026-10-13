@@ -222,6 +222,13 @@ export function createDataSource() {
     },
     getFinanceTax(id) { return apiRequest(`/api/v1/finance-tax/${id}`); },
     getFinanceAccounting(id) { return apiRequest(`/api/v1/finance-accounting/${id}`); },
+    getFinanceVoucher(id) { return apiRequest(`/api/v1/finance-vouchers/${id}`); },
+    getVoucherPrint(id) { return apiRequest(`/api/v1/finance-vouchers/${id}/print-data`); },
+    listPaymentAuthorizations() { return mode === "mock" ? Promise.resolve([]) : apiRequest("/api/v1/finance-vouchers/queue"); },
+    saveFinanceVoucher(id, action, payload, csrfToken, key) {
+      return apiRequest(`/api/v1/finance-vouchers/${id}/${action}`, { method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload) });
+    },
     saveFinanceAccounting(id, action, payload, csrfToken, key) {
       return apiRequest(`/api/v1/finance-accounting/${id}/${action}`, {
         method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload),

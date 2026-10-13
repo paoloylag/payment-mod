@@ -22,6 +22,7 @@ from ..models import (
     Document,
     DocumentRequirementRule,
     DocumentType,
+    PaymentInstruction,
     PaymentRequest,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
@@ -74,6 +75,16 @@ def visible_query(db: Session, request: Request, actor: User):
     if "requests.read_all" in codes:
         return query
     visible = [PaymentRequest.requestor_id == actor.id]
+    if "vouchers.read" in codes:
+        signatory_role = db.scalar(
+            select(Role.id).join(UserRole).where(UserRole.user_id == actor.id, Role.code == "authorized_signatory")
+        )
+        if signatory_role:
+            visible.append(
+                PaymentRequest.id.in_(
+                    select(PaymentInstruction.request_id).where(PaymentInstruction.signatory_user_id == actor.id)
+                )
+            )
     if "requests.read_department" in codes and actor.department_id:
         visible.extend(
             (
@@ -258,13 +269,21 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
         if line.chart_account_id:
             account = db.get(ChartAccount, line.chart_account_id)
             if not effective(account, today) or not account.is_posting:
-                errors.append({"field": f"lines.{position}.chart_account_id",
-                               "message": "Expense account must be active, posting, and effective"})
+                errors.append(
+                    {
+                        "field": f"lines.{position}.chart_account_id",
+                        "message": "Expense account must be active, posting, and effective",
+                    }
+                )
         if line.cost_center_id:
             center = db.get(CostCenter, line.cost_center_id)
             if not effective(center, today) or center.department_id != item.department_id:
-                errors.append({"field": f"lines.{position}.cost_center_id",
-                               "message": "Cost center must be effective and belong to the request department"})
+                errors.append(
+                    {
+                        "field": f"lines.{position}.cost_center_id",
+                        "message": "Cost center must be effective and belong to the request department",
+                    }
+                )
 
     def require(condition: object, field: str, message: str) -> None:
         if not condition:
@@ -1345,6 +1364,13 @@ def reopen_payment_request(
     if "requests.manage_lifecycle" not in permissions(request):
         raise HTTPException(403, "Permission required: requests.manage_lifecycle")
     item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    from ..finance_accounting import latest_journal
+
+    journal = latest_journal(db, item.id)
+    if journal and journal.state in {"posted", "reversed"}:
+        raise HTTPException(
+            409, "A request with posted or reversed accounting cannot be reopened; create a new request"
+        )
     if item.status != "cancelled" or item.version != payload.version or not payload.note.strip():
         raise HTTPException(409, "Only a cancelled request can be reopened with the current version and a reason")
     return lifecycle_change(db, item=item, actor=actor, target_status="draft", note=payload.note, request=request)

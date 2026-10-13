@@ -2,7 +2,7 @@ name: Backend CI and delivery package
 
 on:
   push:
-    branches: ["codex/backend-integration", "main"]
+    branches: ["codex/**", "main"]
     paths:
       - "Back End/**"
       - ".github/workflows/backend-ci-cd.yml"

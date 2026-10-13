@@ -1,7 +1,7 @@
 # Phase 07 — Payment Execution
 
 Date prepared: 2026-08-28  
-Status: Not started  
+Status: In progress — full-amount instruction preparation and assigned signatory authorization implemented for issued General vouchers  
 Depends on: Phase 06 — Finance Validation and Vouchers
 
 ## Objective
@@ -99,3 +99,12 @@ Record payment preparation, authorization, release, and settlement attempts with
 ## Exclusions
 
 No banking connection is planned in Phase 07 or any later phase. Cash release will record the selected releasing bank and manual payment evidence only; it will not transmit bank instructions or query settlement status.
+
+
+## Initial payment authorization increment — 2026-10-13
+
+- Finance Associate records one full-amount payment instruction against an issued General voucher, selecting an active Check, Bank Transfer/DigiBanker or Cash method, a transaction/check reference, and one active Authorized Signatory. The amount and currency come from the voucher. Method/reference uniqueness prevents recording the same reference twice for the same method, including references retained after a void.
+- The signatory must be different from the requestor, voucher preparer, payment preparer, voucher certifier and journal poster. Current role, active/suspended state and authorization permission are checked when assigning and authorizing. Explicit permission denial and an inactive payment method block authorization.
+- Only the assigned signatory gains request, voucher, approval-trail, document and conversation access when the instruction is prepared. Other signatories and future approval roles remain excluded. The assigned user's pending payment queue is visible in the Signatory Approval Queue. Reached access is retained for authorization/void history.
+- Authorization appends a decision with the instruction, signatory, reason and time, and marks release pending. It neither releases funds nor marks settlement. Voiding the voucher records invalidation of an authorization; the original decision stays in history.
+- This first increment covers one full instruction and one explicitly selected signatory. Amount-based multi-signatory policy, split/partial attempts, processing/release, pickup/clearing, retries/replacements and settlement reconciliation still require later implementation and confirmed rules. No external bank operation is performed by these endpoints.

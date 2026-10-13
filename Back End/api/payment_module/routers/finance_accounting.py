@@ -93,8 +93,10 @@ def replay(row, digest, actor):
 
 def current_sources(db, item, payload):
     tax, journal = latest_snapshot(db, item.id), latest_journal(db, item.id)
-    if journal and journal.state == "posted":
-        raise HTTPException(409, "Accounting is already posted and cannot be changed")
+    if journal and journal.state in {"posted", "reversed"}:
+        raise HTTPException(
+            409, "Posted or reversed accounting cannot be changed; create a new request for a replacement"
+        )
     if (
         item.version != payload.request_version
         or (journal.version if journal else 0) != payload.version
@@ -162,10 +164,13 @@ def get_accounting(
         "stale": stale,
         "preview": preview,
         "blocker": blocker,
-        "can_prepare": not posted and can_prepare(db, request, actor, item, instance, roles),
+        "can_prepare": not posted
+        and not (journal and journal.state == "reversed")
+        and can_prepare(db, request, actor, item, instance, roles),
         "can_post": bool(
             not posted
             and journal
+            and journal.state == "draft"
             and not stale
             and instance
             and instance.state == "approved"

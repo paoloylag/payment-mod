@@ -1,5 +1,6 @@
 import { closeIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
+import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
 import { printSystemGuide } from "./guide-print.js";
@@ -290,6 +291,12 @@ let state = {
   financeAccountingErrors: {},
   financeAccountingDrafts: {},
   financeAccountingRetries: {},
+  financeVouchers: {},
+  financeVoucherLoading: {},
+  financeVoucherErrors: {},
+  financeVoucherDrafts: {},
+  financeVoucherRetries: {},
+  paymentQueue: [],
   financeValidationLoading: {},
   financeValidationErrors: {},
   conversations: {},
@@ -492,6 +499,7 @@ const approvalCertificationFor = (r) => {
 const prototypeRequests = requests.map((request) => ({ ...request }));
 };
 const voucherFor = (r, allowCreation = false) => {
+  if (r.backendId) return "";
   if (r.currentStep < 9) return "";
   if (r.currentStep === 9 && !state.voucherDetails.created && !allowCreation) return "";
   const voucher = r.currentStep === 9 ? state.voucherDetails : {
@@ -1176,6 +1184,11 @@ async function loadApiPaymentRequests(filters = null) {
   let workflowQueueError = "";
   try { workflowQueue = await dataSource.listWorkflowQueue(); }
   catch (error) { workflowQueueError = error.message || "Approval assignments could not be loaded."; }
+  let paymentQueue = [];
+  if (state.persona === "authorizedSignatory") {
+    try { paymentQueue = await dataSource.listPaymentAuthorizations(); }
+    catch (error) { workflowQueueError = error.message || "Payment assignments could not be loaded."; }
+  }
   const decisions = new Map(await Promise.all(items.filter((item) => ["returned", "declined"].includes(item.status)).map(async (item) => {
     try {
       const history = await dataSource.getPaymentRequestHistory(item.id);
@@ -1187,6 +1200,11 @@ async function loadApiPaymentRequests(filters = null) {
   const stageSteps = { department_head: 3, finance_associate: 4, finance_manager: 5, coo: 7, president: 8, board_member: 8.5 };
   const submitted = allItems.filter((item) => item.status !== "draft").map((item) => {
     const request = { ...apiRequestToPrototype(item), decisionReason: decisions.get(item.id) || "" };
+    const payment = paymentQueue.find(entry => entry.request_id === item.id);
+    if (payment) {
+      request.currentStep = payment.pending ? 11 : payment.state === "authorized" ? 12 : 9;
+      request.status = payment.pending ? "Signatory Approval" : payment.state === "authorized" ? "Payment Authorized — Release Pending" : "Voucher Voided";
+    }
     const workflow = queueById.get(item.id);
     if (workflow && ["active", "information_requested"].includes(workflow.state)) {
       const stage = workflow.route.stages[workflow.current_stage];
@@ -1203,6 +1221,7 @@ async function loadApiPaymentRequests(filters = null) {
     selectedId: submitted.some((item) => item.id === state.selectedId) ? state.selectedId : submitted[0]?.id || null,
     requestsError: "",
     workflowQueue,
+    paymentQueue,
     workflowQueueError,
     workflowDetails: {},
     workflowDetailLoading: {},
@@ -1583,6 +1602,7 @@ function personaRequests(persona = state.persona) {
 }
 
 function approvalRequests(persona = state.persona) {
+  if (state.authStatus === "authenticated" && persona === "authorizedSignatory") return requests.filter(request => state.paymentQueue.some(entry => entry.request_id === request.backendId && entry.pending));
   const assignedIds = state.authStatus === "authenticated" ? new Set(state.workflowQueue.map((entry) => entry.request_id)) : null;
   const activeRequests = requests.filter((request) => !request.backendId || request.backendStatus === "submitted" && assignedIds.has(request.backendId));
   if (persona === "departmentHead") return activeRequests.filter((request) => request.currentStep === 3);
@@ -2184,6 +2204,7 @@ function detail(r, showWorkflowSummary = false) {
   requestControls += workflowExceptionPanel(r);
   requestControls += financeTaxPanel(r);
   requestControls += financeAccountingPanel(r);
+  requestControls += financeVoucherPanel(r);
   const latestReturn = r.backendId ? [...(state.workflowDetails[r.backendId]?.events || [])].reverse().find((event) => event.action === "returned") : null;
   return `<section class="panel request-detail-panel"><details class="request-metadata responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Request Summary</span><strong>${r.requestor} · ${requestMoney(r)}</strong><small>${r.department} · ${r.vendor}</small></span><span class="disclosure-label">Details</span></summary><dl class="detail-list">
       <div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div>
@@ -2406,12 +2427,77 @@ function bindFinanceAccounting() {
           await dataSource.saveFinanceAccounting(r.backendId, action, payload, state.csrfToken, retry.key);
           delete state.financeAccountingDrafts[key]; delete state.financeAccountingRetries[key];
           await loadFinanceAccounting(r, true);
+          await loadFinanceVoucher(r, true);
           setState({ toast: successToast(action === "draft" ? "Accounting draft saved" : action === "post" ? "Accounting posted" : "Voucher draft prepared") });
         } catch (error) {
           state.financeAccountingErrors[key] = error.message;
           form.querySelector("[data-accounting-error]").textContent = error.message;
           button.disabled = false;
         }
+      });
+    });
+  });
+}
+
+async function loadFinanceVoucher(r, force = false) {
+  if (!["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return;
+  const key = financeTaxKey(r);
+  if (state.financeVoucherLoading[key] || (!force && (state.financeVouchers[key] || state.financeVoucherErrors[key]))) return;
+  state.financeVoucherLoading[key] = true; state.financeVoucherErrors[key] = "";
+  try {
+    const data = await dataSource.getFinanceVoucher(r.backendId);
+    const stages = { draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], voided: [9, "Voucher Voided"] };
+    if (stages[data.state]) [r.currentStep, r.status] = stages[data.state];
+    state.financeVouchers[financeTaxKey(r)] = data;
+  } catch (error) { state.financeVoucherErrors[key] = error.message; }
+  finally { state.financeVoucherLoading[key] = false; render(); }
+}
+
+function financeVoucherPanel(r) {
+  if (!r.backendId || r.type !== "general" || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
+  const key = financeTaxKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
+  const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
+  return `<section class="finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" aria-label="Voucher and payment authorization"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
+}
+
+function bindFinanceVouchers() {
+  document.querySelectorAll("[data-finance-voucher]").forEach(panel => {
+    const r = requests.find(item => item.backendId === panel.dataset.financeVoucher);
+    if (!r) return;
+    const key = financeTaxKey(r);
+    if (!state.financeVouchers[key] && !state.financeVoucherLoading[key] && !state.financeVoucherErrors[key]) queueMicrotask(() => loadFinanceVoucher(r));
+    panel.querySelector("[data-refresh-voucher]")?.addEventListener("click", () => loadFinanceVoucher(r, true));
+    panel.querySelector("[data-print-issued-voucher]")?.addEventListener("click", async event => {
+      const button = event.currentTarget; button.disabled = true;
+      try { openVoucherPrint(voucherPrintHtml(await dataSource.getVoucherPrint(r.backendId), escapeHtml, money)); }
+      catch (error) { state.financeVoucherErrors[key] = error.message; render(); }
+      finally { button.disabled = false; }
+    });
+    panel.querySelectorAll("[data-voucher-action]").forEach(form => {
+      const action = form.dataset.voucherAction;
+      const values = () => ({ ...(state.financeVoucherDrafts[key] || {}), [`${action}_reason`]: form.elements.reason.value,
+        ...(action === "prepare-payment" ? { method_id: form.elements.method_id.value, signatory_user_id: form.elements.signatory_user_id.value, reference: form.elements.reference.value } : {}) });
+      form.addEventListener("input", () => { state.financeVoucherDrafts[key] = values(); });
+      form.addEventListener("change", () => { state.financeVoucherDrafts[key] = values(); });
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const data = state.financeVouchers[key], draft = values();
+        const payload = { request_version: data.request_version, version: data.version, reason: draft[`${action}_reason`],
+          ...(action === "issue" ? { setup_version: data.setup_version } : {}),
+          ...(action === "prepare-payment" ? { method_id: draft.method_id, signatory_user_id: draft.signatory_user_id, reference: draft.reference } : {}) };
+        const signature = JSON.stringify({ action, ...payload }), prior = state.financeVoucherRetries[key];
+        const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() };
+        state.financeVoucherRetries[key] = retry; state.financeVoucherDrafts[key] = draft;
+        const button = form.querySelector('[type="submit"]'); button.disabled = true;
+        try {
+          await dataSource.saveFinanceVoucher(r.backendId, action, payload, state.csrfToken, retry.key);
+          delete state.financeVoucherDrafts[key]; delete state.financeVoucherRetries[key];
+          await loadApiPaymentRequests();
+          const current = requests.find(item => item.backendId === r.backendId) || r;
+          await loadFinanceVoucher(current, true);
+          if (["financeAssociate", "financeManager"].includes(state.persona)) await loadFinanceAccounting(current, true);
+          setState({ toast: successToast({ issue: "Voucher issued", "prepare-payment": "Payment instruction prepared", authorize: "Payment authorized", void: "Voucher voided and accounting reversed" }[action]) });
+        } catch (error) { state.financeVoucherErrors[key] = error.message; form.querySelector("[data-voucher-error]").textContent = error.message; button.disabled = false; }
       });
     });
   });
@@ -2676,7 +2762,7 @@ function dashboard() {
     return `<section class="metric-detail-view dashboard-request-detail"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Full Request Details</span><h3>${dashboardRequest.id}</h3><p>${paymentTypes[dashboardRequest.type].label} · ${dashboardRequest.department} · ${requestMoney(dashboardRequest)}</p></div></div>${allRolesActionPanel(dashboardRequest)}${detail(dashboardRequest, true)}</section>`;
   }
   const pendingRequests = state.authStatus === "authenticated" && !["requestor", "all"].includes(state.persona)
-    ? visibleRequests.filter((r) => state.workflowQueue.some((entry) => entry.request_id === r.backendId))
+    ? visibleRequests.filter((r) => state.workflowQueue.some((entry) => entry.request_id === r.backendId) || state.persona === "authorizedSignatory" && state.paymentQueue.some(entry => entry.request_id === r.backendId && entry.pending))
     : state.persona === "requestor"
     ? visibleRequests.filter((r) => ![1, 2, 15].includes(r.currentStep))
     : visibleRequests.filter((r) => [3, 4, 5, 7, 8, 8.5].includes(r.currentStep));
@@ -2942,6 +3028,7 @@ function approvalQueuePreview(request) {
 }
 
 function unifiedRoleAction(request, lifecycleButtons = "") {
+  if (request.backendId && state.persona === "authorizedSignatory") return "";
   const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   if (request.backendId && request.backendStatus !== "submitted") return "";
   const informationAssignment = request.backendId && state.workflowQueue.find((entry) => entry.request_id === request.backendId && entry.state === "information_requested");
@@ -3509,6 +3596,7 @@ function render() {
   bindMasterData();
   bindFinanceTax();
   bindFinanceAccounting();
+  bindFinanceVouchers();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "financeManager", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {

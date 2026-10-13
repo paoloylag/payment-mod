@@ -90,9 +90,15 @@ class FinanceJournalSnapshot(Base):
     __table_args__ = (
         UniqueConstraint("request_id", "version"),
         UniqueConstraint("request_id", "command_key"),
-        CheckConstraint("state IN ('draft', 'posted')", name="ck_finance_journal_state"),
+        CheckConstraint("state IN ('draft', 'posted', 'reversed')", name="ck_finance_journal_state"),
         Index(
             "uq_finance_journal_posted_request", "request_id", unique=True, postgresql_where=text("state = 'posted'")
+        ),
+        Index(
+            "uq_finance_journal_reversed_request",
+            "request_id",
+            unique=True,
+            postgresql_where=text("state = 'reversed'"),
         ),
     )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -121,4 +127,47 @@ class FinanceVoucherDraft(Base):
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceVoucherEvent(Base):
+    __tablename__ = "finance_voucher_events"
+    __table_args__ = (
+        UniqueConstraint("voucher_id", "version"),
+        UniqueConstraint("voucher_id", "command_key"),
+        CheckConstraint(
+            "state IN ('issued', 'payment_prepared', 'authorized', 'voided')", name="ck_finance_voucher_event_state"
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), index=True)
+    request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(25), nullable=False)
+    voucher_number: Mapped[str | None] = mapped_column(String(40), unique=True)
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceVoucherSequence(Base):
+    __tablename__ = "finance_voucher_sequences"
+    period_key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PaymentInstruction(Base):
+    __tablename__ = "payment_instructions"
+    __table_args__ = (UniqueConstraint("method_id", "reference"),)
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), unique=True)
+    request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
+    signatory_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    preparer_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    method_id: Mapped[UUID] = mapped_column(ForeignKey("payment_methods.id", ondelete="RESTRICT"), nullable=False)
+    reference: Mapped[str] = mapped_column(String(100), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

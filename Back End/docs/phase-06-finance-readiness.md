@@ -1,7 +1,7 @@
 # Phase 06 — Finance configuration readiness checklist
 
 Prepared: 2026-10-13
-Status: General activation, coding, accounting preparation/posting and voucher draft preparation implemented; formal vouchers and other request types remain pending
+Status: General configuration, accounting, voucher issuance/printing and void/reversal implemented; other request types and replacement links remain pending
 
 ## Saved configuration draft
 
@@ -48,3 +48,8 @@ Until the applicability and mapping matrix is approved, a generic “at least on
 ## General accounting readiness update — 2026-10-13
 
 General activation now requires input VAT and EWT payable posting accounts when the default tax code applies those taxes. Active request creation/submission checks their current validity. Finance Associate may correct individual draft entry accounts with a reason; Finance Manager posts only after final request approval and current Finance validation. Unbalanced or stale entries cannot post. Posted accounting and document decisions are frozen. Voucher preparation uses the posted accounting snapshot and preserves its source versions. Other request-type tax/account applicability, formal voucher numbering/printing/certification, reversals, void/replacement and payment authorization are still open.
+
+
+## Voucher controls now enforced — 2026-10-13
+
+Formal General voucher issuance requires saved prefix, numbering period, certification wording and the supported creator/poster/void roles. Missing choices block issuance with a Request Settings message. Finance Manager certifies the issued version; later draft settings cannot rewrite its print output. Finance Associate then prepares a full payment instruction and selects an eligible independent signatory. Authorized Signatory authorization is recorded separately from payment release. Void/reversal preserves the financial history. Remaining rules cover other request types, partial/multiple payments, signatory thresholds, replacements and settlement.

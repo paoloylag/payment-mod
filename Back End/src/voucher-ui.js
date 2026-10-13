@@ -1,0 +1,48 @@
+export function voucherBody(data, draft, error, escapeHtml, money) {
+  const labels = { not_prepared: "Voucher draft not prepared", draft: "Voucher draft awaiting certification",
+    issued: "Voucher issued", payment_prepared: "Awaiting assigned signatory", authorized: "Payment authorized · Release pending", voided: "Voucher voided · Accounting reversed" };
+  const instruction = data.payment_instruction;
+  const summary = instruction ? `<dl class="detail-list">${[["Payment method", instruction.method], ["Reference", instruction.reference], ["Signatory", instruction.signatory], ["Prepared by", instruction.prepared_by], ["Payment amount", money(Number(instruction.amount), instruction.currency)]].map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>` : "";
+  const form = (action, label, fields = "") => `<form data-voucher-action="${action}" class="identity-form">${fields}<label>Reason<textarea name="reason" maxlength="4000" rows="2" required>${escapeHtml(draft[`${action}_reason`] || "")}</textarea></label><p role="alert" data-voucher-error>${escapeHtml(error || "")}</p><button type="submit" ${action === "issue" && data.blockers.length ? "disabled" : ""} class="${action === "void" ? "danger" : "primary-button"}">${label}</button></form>`;
+  const fields = `<label>Payment method<select name="method_id" required><option value="">Choose method</option>${data.methods.map(row => `<option value="${row.id}" ${draft.method_id === row.id ? "selected" : ""}>${escapeHtml(row.name)}</option>`).join("")}</select></label><label>Transaction or check reference<input name="reference" maxlength="100" pattern="[A-Za-z0-9][A-Za-z0-9._/-]*" required value="${escapeHtml(draft.reference || "")}"></label><label>Assigned Authorized Signatory<select name="signatory_user_id" required><option value="">Choose signatory</option>${data.signatories.map(row => `<option value="${row.id}" ${draft.signatory_user_id === row.id ? "selected" : ""}>${escapeHtml(row.name)} — Authorized Signatory</option>`).join("")}</select></label>`;
+  return `<p role="status" data-voucher-state>${labels[data.state]}</p>${error ? `<p role="alert">${escapeHtml(error)}</p>` : ""}${data.latest?.result.voucher_number ? `<p><strong>${escapeHtml(data.latest.result.voucher_number)}</strong></p>` : ""}
+    ${data.state === "not_prepared" ? '<p>Finance Associate prepares the voucher draft from posted accounting first.</p>' : ""}
+    ${data.voucher ? `<dl class="detail-list"><div><dt>Payee</dt><dd>${escapeHtml(data.voucher.payee)}</dd></div><div><dt>Amount due</dt><dd>${money(Number(data.voucher.totals.amount_due), data.voucher.currency)}</dd></div></dl>` : ""}
+    ${data.blockers.length ? `<ul>${data.blockers.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul>` : ""}
+    ${data.can_issue ? form("issue", "Issue and certify voucher") : ""}${summary}
+    ${data.can_prepare_payment ? `<p>Record the full payment instruction and assign one eligible signatory.</p>${form("prepare-payment", "Prepare payment instruction", fields)}` : ""}
+    ${data.can_authorize ? `<p>Review the voucher and payment instruction. Authorization records your approval for payment preparation; payment release remains a separate step.</p>${form("authorize", "Authorize payment")}` : ""}
+    ${data.can_print ? '<button type="button" data-print-issued-voucher>Print / Save PDF</button>' : ""}
+    ${data.can_void ? `<details><summary>Void voucher and reverse accounting</summary><p>This preserves the original voucher and posted entries, adds balancing reversal entries, and invalidates any recorded payment authorization.</p>${form("void", "Void voucher and reverse accounting")}</details>` : ""}
+    ${data.history.length ? `<details><summary>Voucher and authorization history (${data.history.length})</summary>${data.history.map(row => `<p><strong>${labels[row.state]}</strong> · ${escapeHtml(row.result.actor_name)}<br>${escapeHtml(row.created_at)}<br>${escapeHtml(row.reason)}</p>`).join("")}</details>` : ""}`;
+}
+
+export function voucherPrintHtml(data, escapeHtml, money) {
+  const amount = value => escapeHtml(money(Number(value), data.currency));
+  const text = escapeHtml;
+  const footerReference = `${data.voucher_number} / ${data.request_number || ""}`.replace(/[^A-Z0-9 /-]/g, "");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${text(data.voucher_number)}</title><style>
+    @page { size: A4 portrait; margin: 12mm 12mm 18mm; @bottom-left { content: "${footerReference}"; font: 8pt Arial,sans-serif; color: #555; } @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt Arial,sans-serif; color: #555; } } * { box-sizing: border-box; } body { margin: 0; color: #202124; background: white; font: 10pt/1.4 Arial,sans-serif; overflow-wrap: anywhere; }
+    header { border-bottom: 2px solid #9e1d20; margin-bottom: 14pt; } h1 { font-size: 18pt; margin: 0; } h2 { font-size: 12pt; margin-top: 18pt; } p { margin: 6pt 0; } dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10pt; } dt { color: #555; } dd { margin: 0; font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; line-height: 1.3; } th,td { border: 1px solid #bbb; padding: 4pt; vertical-align: top; overflow-wrap: anywhere; } th { background: #f4f4f4; text-align: left; } td.money { text-align: right; } thead { display: table-header-group; } tr { break-inside: avoid; }
+    .totals { width: 55%; margin-left: auto; } .certification { border-top: 1px solid #aaa; margin-top: 16pt; padding-top: 10pt; break-inside: avoid; } .void { font-size: 18pt; color: #9e1d20; font-weight: bold; } @media (max-width: 600px) { dl { grid-template-columns: minmax(0,1fr); } .totals { width: 100%; } }
+  </style></head><body><header><h1>Payment Voucher</h1><p>${text(data.voucher_number)} · ${text(data.issued_on)}</p>${data.current_state === "voided" ? '<p class="void">VOIDED - ACCOUNTING REVERSED</p>' : ""}</header>
+    <dl><div><dt>Request reference</dt><dd>${text(data.request_number)}</dd></div><div><dt>Payee</dt><dd>${text(data.payee)}</dd></div><div><dt>Currency</dt><dd>${text(data.currency)}</dd></div><div><dt>Purpose</dt><dd>${text(data.purpose)}</dd></div></dl>
+    <h2>Accounting entries</h2><table><thead><tr><th>Line / Entry</th><th>Account / Cost center</th><th>Debit</th><th>Credit</th></tr></thead><tbody>${data.entries.map(row => `<tr><td>${row.position} · ${text(row.component.replaceAll("_", " "))}<br>${text(row.particulars)}</td><td>${text(row.account.code)} - ${text(row.account.name)}<br>${text(row.cost_center.code)} - ${text(row.cost_center.name)}</td><td class="money">${amount(row.debit)}</td><td class="money">${amount(row.credit)}</td></tr>`).join("")}</tbody></table>
+    <h2>Payment totals</h2><table class="totals"><tbody>${[["Gross", "gross"], ["Input VAT", "vat"], ["EWT", "ewt"], ["Amount due", "amount_due"]].map(([label, field]) => `<tr><th>${label}</th><td class="money">${amount(data.totals[field])}</td></tr>`).join("")}</tbody></table>
+    <section class="certification"><h2>Finance certification</h2><p>${text(data.certification_text)}</p><p>Prepared by: ${text(data.prepared_by)}<br>Certified by: ${text(data.certified_by)}</p><p>Accounting version ${data.journal_version} · EWT calculation ${data.tax_version} · Request version ${data.request_version}</p></section>
+    <h2>Request approval trail</h2>${data.approval_history.map(row => `<p>${text(row.actor)} · ${text(row.occurred_at)}${row.note ? `<br>${text(row.note)}` : ""}</p>`).join("")}
+    <h2>Payment authorization</h2>${data.payment_instruction ? `<p>${text(data.payment_instruction.method)} · ${text(data.payment_instruction.reference)}<br>Assigned signatory: ${text(data.payment_instruction.signatory)}<br>Payment amount: ${amount(data.payment_instruction.amount)}</p>` : ""}
+    <p>${data.current_state === "authorized" ? "Authorized · Payment release pending" : data.current_state === "voided" ? "Payment authorization invalidated by voucher voiding" : "Payment authorization pending"}</p>
+    ${data.history.map(row => `<p>${text(row.state.replaceAll("_", " "))} · ${text(row.result.actor_name)} · ${text(row.created_at)}<br>${text(row.reason)}</p>`).join("")}
+  </body></html>`;
+}
+
+export function openVoucherPrint(html) {
+  document.querySelector("[data-voucher-print-frame]")?.remove();
+  const frame = document.createElement("iframe"); frame.dataset.voucherPrintFrame = "true";
+  frame.title = "Issued payment voucher print document";
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0";
+  frame.addEventListener("load", () => { frame.contentWindow.focus(); frame.contentWindow.print(); }, { once: true });
+  frame.srcdoc = html; document.body.appendChild(frame);
+}

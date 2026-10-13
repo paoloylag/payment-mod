@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..audit import audit
 from ..database import get_db
 from ..models import (
+    PaymentInstruction,
     PaymentRequest,
     RequestConversationMessage,
     RequestMentionNotification,
@@ -21,6 +22,7 @@ from ..models import (
     WorkflowInstance,
 )
 from ..security import current_user, effective_permissions
+from ..voucher_service import assigned_instruction
 from ..workflow_visibility import reached_stages
 from .workflow import actor_roles
 
@@ -54,6 +56,29 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
         if "workflow.review" not in effective_permissions(db, user.id):
             continue
         found.setdefault(user.id, {"id": str(user.id), "display_name": user.display_name, "role": role_code})
+    instruction = db.scalar(select(PaymentInstruction).where(PaymentInstruction.request_id == item.id))
+    if instruction:
+        signatory = db.get(User, instruction.signatory_user_id)
+        has_role = (
+            db.scalar(
+                select(UserRole.id)
+                .join(Role)
+                .where(UserRole.user_id == signatory.id, Role.code == "authorized_signatory")
+            )
+            if signatory
+            else None
+        )
+        if (
+            signatory
+            and has_role
+            and signatory.is_active
+            and not signatory.is_suspended
+            and "vouchers.read" in effective_permissions(db, signatory.id)
+        ):
+            found.setdefault(
+                signatory.id,
+                {"id": str(signatory.id), "display_name": signatory.display_name, "role": "authorized_signatory"},
+            )
     return sorted(found.values(), key=lambda person: (person["display_name"].casefold(), person["id"]))
 
 
@@ -67,6 +92,12 @@ def current_posting_role(item: PaymentRequest, instance: WorkflowInstance | None
 
 def participant(db: Session, request: Request, actor: User, item: PaymentRequest) -> bool:
     if actor.id == item.requestor_id:
+        return True
+    if (
+        "vouchers.read" in getattr(request.state, "permissions", set())
+        and "authorized_signatory" in actor_roles(db, actor)
+        and assigned_instruction(db, item.id, actor.id)
+    ):
         return True
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     if instance is None or "workflow.review" not in getattr(request.state, "permissions", set()):

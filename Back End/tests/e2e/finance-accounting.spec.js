@@ -1,4 +1,5 @@
 import { expect, request as apiRequest, test } from "@playwright/test";
+import { checkVoucherLifecycle } from "./voucher-lifecycle-flow.js";
 
 test("Finance prepares, corrects and posts balanced accounting before preparing a voucher", async ({ browser }) => {
   test.setTimeout(120_000);
@@ -36,7 +37,8 @@ test("Finance prepares, corrects and posts balanced accounting before preparing 
       tax_by_request_type: { ...original.tax_by_request_type, general: taxCodes.find(row => row.code === "VAT12-EWT2").id },
       accounts_by_request_type: { ...original.accounts_by_request_type, general: {
         debit_account_id: ids[0], input_vat_account_id: ids[1], ewt_payable_account_id: ids[2], credit_account_id: ids[3],
-      } }, voucher: { ...original.voucher, certification_text: "Finance reviewed this voucher draft." },
+    } }, voucher: { prefix: "PV", reset_basis: "calendar_year", certification_text: "Finance reviewed this voucher draft.",
+      create_role: "finance_associate", post_role: "finance_manager", void_role: "finance_manager" },
     } });
     expect(setup.ok(), await setup.text()).toBeTruthy();
     const departments = await (await admin.context.get("/api/v1/departments")).json();
@@ -158,6 +160,7 @@ test("Finance prepares, corrects and posts balanced accounting before preparing 
       expect(await value.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
     }
     await panel.screenshot({ path: "outputs/phase06-accounting-mobile.png" }); expect(errors).toEqual([]);
+    await checkVoucherLifecycle({ page, managerPage, item, admin, ui, errors });
   } finally {
     const current = await (await admin.context.get("/api/v1/request-settings/finance-setup")).json();
     await admin.context.put("/api/v1/request-settings/finance-setup", { headers: admin.headers, data: { ...original, version: current.version } });

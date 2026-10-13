@@ -14,12 +14,12 @@ Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, 
 | 03 — Requests | Validated for local development | Activate live Procurement/vendor providers only through the Phase 09 production gate. |
 | 04 — Documents | Validated for local development | Production storage, scanning, retention, accessibility, and hosted-browser assurance remain Phase 09 work. |
 | 05 | Approved exception scope implemented — named delegation, reassignment, material correction, and recovery | Complete local validation/reviewer acceptance and hosted CI. SLA/escalation deferred by owner on 2026-10-13. |
-| 06 | In progress — Finance line/document gate and correction targets | Confirm configuration-readiness checklist, tax/account rules, and voucher authority. |
-| 07 | Not started | Confirm payment methods, signatory matrix, and partial-payment rules before transitions. |
+| 06 | General configuration, EWT, accounting and voucher issuance/printing/void implemented | Business acceptance, other request types and replacement links. |
+| 07 | Full instruction preparation and assigned authorization implemented for General vouchers | Confirm partial/multiple attempts and signatory thresholds; implement release/settlement. |
 | 08 | Foundation started — transactional workflow outbox | Confirm recipients/templates and reporting definitions before delivery or dashboards. |
 | 09 | Not started | Approve providers, identity contracts, owners, and production controls before activation. |
 
-The status above reflects development through 2026-10-11 and accepted local limitations. A release cannot inherit an
+The status above reflects development through 2026-10-13 and accepted local limitations. A release cannot inherit an
 unresolved external or production rule silently. Keep the existing frontend-only GitHub Pages preview explicitly in
 mock mode; the backend integration build must continue to require the API.
 
