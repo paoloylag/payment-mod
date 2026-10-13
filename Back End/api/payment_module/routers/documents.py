@@ -99,14 +99,14 @@ def _serialize(db: Session, request: Request, actor: User, document: Document) -
                 DocumentVersion.sha256 == current.sha256,
                 DocumentVersion.is_current.is_(True),
                 DocumentVersion.document_id != document.id,
-                Document.request_id.in_(visible_query(request, actor).with_only_columns(PaymentRequest.id)),
+                Document.request_id.in_(visible_query(db, request, actor).with_only_columns(PaymentRequest.id)),
             )
         )
     )
     request_numbers = {
         item.id: item.request_number
         for item in db.scalars(
-            visible_query(request, actor).where(PaymentRequest.id.in_([row[0] for row in duplicates]))
+            visible_query(db, request, actor).where(PaymentRequest.id.in_([row[0] for row in duplicates]))
         )
     }
     versions = list(
@@ -322,9 +322,32 @@ def upload_document(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    _require(request, "documents.manage_own")
     request_item = get_visible(db, request, actor, request_id, lock_for_update=True)
-    _ensure_mutable(request_item, actor)
+    if request_item.status == "submitted":
+        from ..models import WorkflowInstance
+        from .workflow import actor_roles, can_respond_information, can_review
+
+        _require(request, "documents.review")
+        instance = db.scalar(
+            select(WorkflowInstance).where(WorkflowInstance.request_id == request_id).with_for_update()
+        )
+        roles = actor_roles(db, actor)
+        if not line_id or "finance_associate" not in roles or not instance or instance.current_stage is None:
+            raise HTTPException(403, "Line uploads require an assigned Finance Associate")
+        stage = instance.route_snapshot["stages"][instance.current_stage]
+        assigned = (
+            instance.state == "active"
+            and stage["role"] == "finance_associate"
+            and can_review(request, actor, request_item, stage, roles)
+        )
+        correcting = instance.state == "information_requested" and can_respond_information(
+            request, actor, request_item, roles
+        )
+        if not (assigned or correcting):
+            raise HTTPException(403, "Finance validation is not assigned to this user")
+    else:
+        _require(request, "documents.manage_own")
+        _ensure_mutable(request_item, actor)
     _validate_context(db, request_item, line_id)
     _validate_document_type(db, request_item, document_type_id)
     document = Document(

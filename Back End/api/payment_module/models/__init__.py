@@ -5,6 +5,7 @@ from .documents import (
     DocumentReviewDecision,
     DocumentVersion,
 )
+from .finance import FinanceLineReview
 from .identity import (
     AuditEvent,
     AuthSession,
@@ -16,7 +17,8 @@ from .identity import (
     UserPermissionOverride,
     UserRole,
 )
-from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode
+from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode, VendorRecord
+from .outbox import NotificationOutboxEvent
 from .requests import (
     PaymentRequest,
     PaymentRequestLine,
@@ -28,7 +30,7 @@ from .requests import (
     RequestSequence,
 )
 from .system_setting import SystemSetting
-from .workflow import WorkflowCommand, WorkflowEvent, WorkflowInstance
+from .workflow import WorkflowAssignment, WorkflowCommand, WorkflowEvent, WorkflowInstance
 
 __all__ = [
     "AuditEvent",
@@ -47,11 +49,14 @@ __all__ = [
     "DocumentType",
     "PaymentMethod",
     "TaxCode",
+    "VendorRecord",
     "Document",
     "DocumentHardCopyEvent",
     "DocumentRequirementRule",
     "DocumentReviewDecision",
     "DocumentVersion",
+    "FinanceLineReview",
+    "NotificationOutboxEvent",
     "PaymentRequest",
     "RequestConversationMessage",
     "RequestMentionNotification",
@@ -61,6 +66,7 @@ __all__ = [
     "RequestCommand",
     "RequestSequence",
     "WorkflowCommand",
+    "WorkflowAssignment",
     "WorkflowEvent",
     "WorkflowInstance",
 ]

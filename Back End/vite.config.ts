@@ -16,6 +16,7 @@ export default defineConfig(({ command, mode }) => {
       "import.meta.env.VITE_ENABLE_MOCK_DATA": JSON.stringify("true"),
     } : undefined,
     server: {
+      watch: { ignored: ["**/outputs/**", "**/tmp/**", "**/test-results/**", "**/playwright-report/**"] },
       proxy: {
         "/api": apiTarget,
         "/healthz": apiTarget,

@@ -1,8 +1,36 @@
 # Phase 06 — Finance Validation and Vouchers
 
 Date prepared: 2026-08-28  
-Status: Not started  
+Status: In progress — Finance Associate line/document approval gate started 2026-10-11
+
+Finance Setup Draft was added to Request Settings on 2026-10-13. It saves versioned tax calculation choices, request-type tax/account defaults, voucher controls, and proposed sign-off scope. See [Finance configuration readiness](phase-06-finance-readiness.md). These saved choices await detailed applicability rules and activation; they do not yet enforce readiness or calculate vouchers.
 Depends on: Phase 05 — Workflow and Approvals
+
+## Finance Associate validation decisions — 2026-10-10
+
+- Finance Associate must accept every required document before approving the validation stage. An uploaded file alone is insufficient; pending, rejected, or replacement-required decisions block approval.
+- Each request line receives its own review result. Finance Associate can flag an individual line with a required reason; all lines must be accepted before the request advances.
+- For Reimbursements, Finance Associate records whether the physical original for each line has been received. Missing physical originals block validation approval even when the electronic proof of payment is present. A persistent per-line checkbox and approval gate are now implemented in the backend-backed Finance validation view.
+- Finance Associate may Return to Requestor for correction or Fully Decline with a required reason, consistent with the owner's rule through Finance Manager. After the requestor corrects and resubmits, the approval resumes at Finance Associate; prior Department Head approval remains recorded and is not repeated. The system must preserve the flagged line/document targets and the before/after history.
+- Finance must finish initial required configuration before users can create or submit a request of the affected type. The readiness check must identify missing settings and prevent an incomplete configuration from silently producing a route or validation result. The exact required-setting checklist is to be finalized with Finance.
+- Finance's initial VAT/EWT and account-mapping setup applies automatically to each eligible request. Finance Associate does not manually choose tax rates or account codes as a condition of passing the document/line validation stage. The calculated classifications, mappings, and configuration versions remain visible for later Finance review and correction through controlled, audited actions. A missing applicable tax rule or account mapping is a configuration-readiness failure, not an implicit zero rate or uncoded line. Confirmed by owner on 2026-10-10.
+
+## Development update — 2026-10-11
+
+- Added immutable per-line Finance review records with an accepted/flagged decision, required reason for a flag, request version, reviewer, and per-line physical-original receipt for Reimbursements.
+- Added a Finance validation summary API and a backend gate on Finance Associate approval. Every line must be accepted, every uploaded document must have an accepted review of its current version, active required-document rules must be met, and Reimbursement physical originals and line-level proof of payment must be received. Attachment references without reviewable uploaded documents block advancement.
+- Connected a mobile-first Finance Associate review card to the saved backend assignment. It shows blockers, document decisions, line decisions, physical-original checkboxes, and an approval action that becomes available only when the server reports readiness.
+- Migration `20261011_0016` was applied to the local development and dedicated test databases. Focused Finance tests cover the approval gate, flagged-line reasons, physical originals, reviewer permission, and invalidation of an accepted review after document replacement. The frontend build passed; a local Chrome check found no page overflow at 390px, 768px, or 1280px.
+- Finance Associate Return/Fully Decline and requestor resubmission to Finance Associate are implemented. Finance Manager may also return to Finance Associate; a response resumes Finance Manager without repeating earlier approvals. The configuration-readiness checklist, automatic tax/account mapping, accounting workbench, and vouchers remain pending. The prototype's manual tax/accounting controls remain mock-only.
+
+## Correction-target update — 2026-10-11
+
+- Finance returns now snapshot the outstanding line decisions, document decisions, and validation blockers in the immutable workflow event before the request version changes. The requestor sees these targets beside the return reason and in approval history. Finance Associate sees them when Finance Manager sends a request back for correction.
+- The correction target snapshot preserves the reason and exact line/document IDs across requestor edits and resubmission. Current review decisions still use the current request version. Finance configuration readiness, tax/account automation, accounting, and vouchers remain pending Finance's rule details.
+
+## Configuration readiness checklist — 2026-10-13
+
+The concrete checks, current enforcement, Finance decisions still needed, and implementation order are recorded in [phase-06-finance-readiness.md](phase-06-finance-readiness.md). The tax applicability and account-mapping matrix must be confirmed before a complete creation/submission gate can claim that automatic coding is ready.
 
 ## Objective
 

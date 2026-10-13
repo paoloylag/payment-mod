@@ -90,11 +90,22 @@ def safe_vendor(payload: dict) -> dict:
 
 
 class MockVendorAdapter:
+    def __init__(self, db=None):
+        self.db = db
+
     def list(self, search: str = "", active_only: bool = True) -> list[dict]:
         needle = search.casefold().strip()
         items = [safe_vendor(payload) for payload in SAMPLE_VENDOR_PAYLOADS]
+        if self.db is not None:
+            from sqlalchemy import select
+
+            from .models import VendorRecord
+
+            items.extend(safe_vendor(record.payload) for record in self.db.scalars(select(VendorRecord)))
+        items = list({item["id"]: item for item in items}.values())
         return [
-            item for item in items
+            item
+            for item in items
             if (not active_only or item["status"] == "active")
             and (not needle or needle in f"{item['code']} {item['name']} {item['email']}".casefold())
         ]
@@ -103,5 +114,5 @@ class MockVendorAdapter:
         return next((item for item in self.list(active_only=False) if item["id"] == vendor_id), None)
 
 
-def get_vendor_adapter() -> MockVendorAdapter:
-    return MockVendorAdapter()
+def get_vendor_adapter(db=None) -> MockVendorAdapter:
+    return MockVendorAdapter(db)

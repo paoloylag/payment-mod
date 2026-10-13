@@ -31,6 +31,14 @@ from .models import (
 from .security import hash_password
 from .workflow_service import start_workflow
 
+DEMO_REQUEST_PREFIXES = {
+    "reimbursement": "RMB",
+    "cashAdvance": "CA",
+    "liquidation": "LIQ",
+    "poPayment": "PO",
+    "general": "GEN",
+}
+
 SEED_SETTINGS = {
     "application.name": "Automated Payment System",
     "application.timezone": "Asia/Manila",
@@ -67,6 +75,7 @@ ROLES = {
     "requestor": "Requestor",
     "department_head": "Department Head",
     "finance_associate": "Finance Associate",
+    "request_settings_editor": "Request Settings Editor",
     "finance_manager": "Finance Manager",
     "coo": "COO",
     "president": "President",
@@ -86,6 +95,7 @@ PERMISSIONS = {
     "master_data.read": "Read active master data",
     "master_data.manage": "Create and maintain master data",
     "vendors.read": "Search external vendor reference data",
+    "vendors.manage": "Create and edit vendor records",
     "procurement.read": "Read eligible purchase orders from Procurement",
     "accounts.read": "Read the chart of accounts",
     "accounts.manage": "Create and maintain the chart of accounts",
@@ -101,6 +111,7 @@ PERMISSIONS = {
     "documents.rules.manage": "Configure required-document rules",
     "documents.cleanup": "Retry protected document object cleanup",
     "workflow.review": "Review an assigned approval stage",
+    "workflow.exceptions.manage": "Manage eligible assignments and controlled workflow recovery",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 for role_code in ROLES:
@@ -108,7 +119,9 @@ for role_code in ROLES:
 for role_code in ("department_head", "finance_associate", "finance_manager", "coo", "president", "board_member"):
     ROLE_PERMISSIONS[role_code].add("workflow.review")
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
+ROLE_PERMISSIONS["finance_associate"].add("vendors.manage")
 ROLE_PERMISSIONS["finance_manager"] |= {
+    "workflow.exceptions.manage",
     "master_data.read",
     "master_data.manage",
     "vendors.read",
@@ -121,6 +134,7 @@ ROLE_PERMISSIONS["finance_manager"] |= {
     "documents.review",
     "documents.rules.manage",
 }
+ROLE_PERMISSIONS["request_settings_editor"] = {"requests.numbering.manage"}
 ROLE_PERMISSIONS["finance_associate"] |= {
     "master_data.read",
     "vendors.read",
@@ -530,8 +544,47 @@ def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
 
 
+def seed_completed_demo_approval(session, item, seed_code, user_ids):
+    """Reconstruct missing history for post-approval development fixtures only."""
+    if not (item.type_data or {}).get("development_seed"):
+        return False
+    if session.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id)):
+        return False
+    instance = start_workflow(session, item, item.requestor_id)
+    stages = instance.route_snapshot["stages"]
+    if instance.route_snapshot.get("rate_status") == "awaiting_finance_manager":
+        raise ValueError("Cannot infer completed foreign-currency demo approvals")
+    instance.state = "approved"
+    instance.current_stage = None
+    instance.version = len(stages) + 1
+    instance.created_at = item.submitted_at or item.created_at
+    event = session.scalar(
+        select(WorkflowEvent).where(WorkflowEvent.workflow_id == instance.id, WorkflowEvent.action == "route_started")
+    )
+    event.occurred_at = instance.created_at
+    for index, stage in enumerate(stages):
+        session.add(
+            WorkflowEvent(
+                id=stable_id("demo-workflow-approval", f"{seed_code}:{index}"),
+                request_id=item.id,
+                workflow_id=instance.id,
+                actor_user_id=user_ids[stage["role"]],
+                action="stage_approved",
+                stage_index=index,
+                note="Reconstructed approval history for development fixture.",
+                details={"stage": stage["code"], "development_fixture": True},
+                occurred_at=instance.created_at + timedelta(hours=index + 1),
+            )
+        )
+    session.flush()
+    return True
+
+
 def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None:
     """Give local samples real, stable assignments and visible discussion history."""
+    if current_step >= 9:
+        seed_completed_demo_approval(session, item, seed_code, user_ids)
+        return
     stage_index = DEMO_APPROVAL_STAGES.get(current_step)
     if stage_index is None or item.status != "submitted":
         return
@@ -589,8 +642,7 @@ def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None
     mention_message_id = stable_id("demo-conversation-message", f"{seed_code}:3")
     reviewer = session.get(User, reviewer_id)
     mention_body = (
-        f"@{reviewer.display_name} Thank you for reviewing this request. "
-        "Please let me know if anything else is needed."
+        f"@{reviewer.display_name} Thank you for reviewing this request. Please let me know if anything else is needed."
     )
     mention_message = session.get(RequestConversationMessage, mention_message_id)
     if mention_message is None:
@@ -868,7 +920,11 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 ) in enumerate(DEMO_REQUESTS, 1):
                     request_id = stable_id("demo-payment-request", seed_code)
                     item = session.get(PaymentRequest, request_id)
-                    request_number = None if status == "draft" else f"PR-2026-{900000 + index:06d}"
+                    request_number = (
+                        None
+                        if status == "draft"
+                        else f"{DEMO_REQUEST_PREFIXES[request_type]}-2026-{900000 + index:06d}"
+                    )
                     voucher_number = None if status == "draft" else f"VCH-2026-{900000 + index:06d}"
                     type_data = {
                         "development_seed": seed_code,

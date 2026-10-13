@@ -21,7 +21,8 @@ from ..models import (
     WorkflowInstance,
 )
 from ..security import current_user, effective_permissions
-from .workflow import actor_roles, can_respond_information, can_review
+from ..workflow_visibility import reached_stages
+from .workflow import actor_roles
 
 router = APIRouter(prefix="/api/v1/requests", tags=["request conversation"])
 
@@ -39,7 +40,7 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     if instance is None:
         return list(found.values())
-    route_roles = {stage["role"] for stage in instance.route_snapshot.get("stages", [])}
+    route_roles = {stage["role"] for stage in reached_stages(db, instance)}
     if not route_roles:
         return list(found.values())
     for user, role_code in db.execute(
@@ -56,6 +57,14 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
     return sorted(found.values(), key=lambda person: (person["display_name"].casefold(), person["id"]))
 
 
+def current_posters(db: Session, item: PaymentRequest, instance: WorkflowInstance | None) -> list[dict]:
+    return participant_users(db, item) if item.status in {"submitted", "returned"} else []
+
+
+def current_posting_role(item: PaymentRequest, instance: WorkflowInstance | None) -> str | None:
+    return None
+
+
 def participant(db: Session, request: Request, actor: User, item: PaymentRequest) -> bool:
     if actor.id == item.requestor_id:
         return True
@@ -66,7 +75,7 @@ def participant(db: Session, request: Request, actor: User, item: PaymentRequest
     return any(
         stage.get("role") in roles
         and (stage.get("role") != "department_head" or actor.department_id == item.department_id)
-        for stage in instance.route_snapshot.get("stages", [])
+        for stage in reached_stages(db, instance)
     )
 
 
@@ -80,21 +89,7 @@ def visible_participant(db: Session, request: Request, actor: User, request_id: 
 def can_post_conversation(
     db: Session, request: Request, actor: User, item: PaymentRequest, instance: WorkflowInstance | None = None
 ) -> bool:
-    if item.status == "returned":
-        return actor.id == item.requestor_id
-    if item.status != "submitted":
-        return False
-    if instance is None:
-        instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
-    if instance is None:
-        return False
-    roles = actor_roles(db, actor)
-    if instance.state == "information_requested":
-        return can_respond_information(request, actor, item, roles)
-    stages = instance.route_snapshot.get("stages", [])
-    if instance.state != "active" or instance.current_stage is None or instance.current_stage >= len(stages):
-        return False
-    return can_review(request, actor, item, stages[instance.current_stage], roles)
+    return item.status in {"submitted", "returned"} and participant(db, request, actor, item)
 
 
 def mention_ids(db: Session, message_id: UUID) -> list[str]:
@@ -125,6 +120,7 @@ def get_conversation(
     request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
 ):
     item = visible_participant(db, request, actor, request_id)
+    instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     messages = list(
         db.scalars(select(RequestConversationMessage).where(RequestConversationMessage.request_id == item.id))
     )
@@ -167,7 +163,9 @@ def get_conversation(
         "request_id": str(item.id),
         "items": entries,
         "participants": participant_users(db, item),
-        "can_post": can_post_conversation(db, request, actor, item),
+        "current_posters": current_posters(db, item, instance),
+        "current_posting_role": current_posting_role(item, instance),
+        "can_post": can_post_conversation(db, request, actor, item, instance),
     }
 
 
@@ -207,7 +205,7 @@ def post_conversation(
     if item.status not in {"submitted", "returned"}:
         raise HTTPException(409, "Conversation is read-only for this request")
     if not can_post_conversation(db, request, actor, item, instance):
-        raise HTTPException(403, "Only the person responsible for the current step can post a message")
+        raise HTTPException(403, "Only request participants can post a message")
     candidates = {UUID(person["id"]): person for person in participant_users(db, item)}
     if not mentioned.issubset(candidates):
         raise HTTPException(422, "Mentions must be active participants in this request")

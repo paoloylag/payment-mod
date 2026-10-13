@@ -1224,6 +1224,8 @@ main {
   display: grid;
   gap: 18px;
   width: min(520px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   border-radius: 10px;
   padding: 24px;
   background: #fff;

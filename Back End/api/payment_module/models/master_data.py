@@ -102,3 +102,9 @@ class DocumentType(ReferenceRecordMixin, Base):
 
     allowed_request_types: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     copy_requirement: Mapped[str] = mapped_column(String(20), nullable=False, default="soft", server_default="soft")
+
+
+class VendorRecord(Base):
+    __tablename__ = "vendor_records"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)

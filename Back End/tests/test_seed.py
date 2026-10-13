@@ -59,6 +59,17 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
             )
         )
         steps = {float(item.type_data["demo_current_step"]) for item in demo_requests}
+        expected_prefixes = {
+            "reimbursement": "RMB",
+            "cashAdvance": "CA",
+            "liquidation": "LIQ",
+            "poPayment": "PO",
+            "general": "GEN",
+        }
+        for item in demo_requests:
+            if item.request_number:
+                assert item.request_number.startswith(expected_prefixes[item.request_type] + "-")
+                assert item.voucher_number.startswith("VCH-")
         account_count = session.scalar(select(func.count()).select_from(ChartAccount))
         tax_count = session.scalar(select(func.count()).select_from(TaxCode))
         workflow_count = session.scalar(
@@ -76,7 +87,7 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
     assert steps == {1, 2, 3, 4, 5, 7, 8, 8.5, 9, 10, 11, 12, 13, 14, 15}
     assert account_count >= 5
     assert tax_count >= 3
-    assert workflow_count == 18
+    assert workflow_count == sum(1 for row in DEMO_REQUESTS if row[3] >= 3)
     assert message_count == 72
 
     for email in (

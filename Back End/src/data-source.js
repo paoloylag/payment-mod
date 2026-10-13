@@ -8,11 +8,14 @@ export function createDataSource() {
   const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || window.location.origin).replace(/\/$/, "");
 
   async function apiRequest(path, options = {}) {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    let response;
+    try { response = await fetch(`${apiBaseUrl}${path}`, {
       credentials: "include",
       ...options,
       headers: { Accept: "application/json", ...(options.headers || {}) },
-    });
+    }); } catch (cause) {
+      throw new Error("Unable to reach the payment server. Check that this page is open at http://127.0.0.1:5175, then retry.", { cause });
+    }
     const payload = response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) {
       const detail = payload?.detail;
@@ -121,13 +124,13 @@ export function createDataSource() {
     createPermission(payload, csrfToken) { return apiRequest("/api/v1/permissions", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) }); },
     updatePermission(permissionId, payload, csrfToken) { return apiRequest(`/api/v1/permissions/${permissionId}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) }); },
     deletePermission(permissionId, csrfToken) { return apiRequest(`/api/v1/permissions/${permissionId}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } }); },
-    async listMasterData(resource) {
+    async listMasterData(resource, includeInactive = false) {
       if (mode === "mock") return mockMasterData[resource] || [];
       try {
         const items = [];
         let priorFirstId = null;
         for (let page = 1; ; page += 1) {
-          const batch = await apiRequest(`/api/v1/${resource}?page=${page}&page_size=100`);
+          const batch = await apiRequest(`/api/v1/${resource}?page=${page}&page_size=100${resource === "vendors" && includeInactive ? "&active_only=false" : ""}`);
           const firstId = batch[0]?.id || batch[0]?.code || null;
           if (page > 1 && firstId && firstId === priorFirstId) throw new Error("Master-data pagination did not advance");
           priorFirstId = firstId;
@@ -210,13 +213,27 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}`);
     },
+    manageWorkflowException(id, payload, csrfToken, idempotencyKey) {
+      return apiRequest(`/api/v1/workflow/${id}/exceptions`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify(payload) });
+    },
+    getFinanceValidation(id) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/finance-validation/${id}`);
+    },
+    reviewFinanceLine(requestId, lineId, requestVersion, decision, reason, physicalOriginalReceived, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/finance-validation/${requestId}/lines/${lineId}/reviews`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+        body: JSON.stringify({ request_version: requestVersion, decision, reason, physical_original_received: physicalOriginalReceived }),
+      });
+    },
     listWorkflowQueue() {
       if (mode === "mock") return Promise.resolve([]);
       return apiRequest("/api/v1/workflow/queue");
     },
-    approveWorkflow(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+    approveWorkflow(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID(), phpPerUnit = null) {
       if (mode === "mock") return Promise.resolve(null);
-      return apiRequest(`/api/v1/workflow/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
+      return apiRequest(`/api/v1/workflow/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note, php_per_unit: phpPerUnit }) });
     },
     requestWorkflowInformation(id, version, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
       if (mode === "mock") return Promise.resolve(null);
@@ -226,9 +243,9 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/workflow/${id}/respond-information`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, note }) });
     },
-    rejectFirstStage(id, version, decision, note, csrfToken, idempotencyKey = crypto.randomUUID()) {
+    rejectFirstStage(id, version, decision, note, csrfToken, idempotencyKey = crypto.randomUUID(), returnToRole = null) {
       if (mode === "mock") return Promise.resolve(null);
-      return apiRequest(`/api/v1/workflow/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, decision, note }) });
+      return apiRequest(`/api/v1/workflow/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ version, decision, note, return_to_role: returnToRole }) });
     },
     updatePaymentRequest(id, payload, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);
@@ -281,6 +298,14 @@ export function createDataSource() {
     updateFinanceRequestPolicy(payload, csrfToken) {
       if (mode === "mock") return Promise.resolve(payload);
       return apiRequest("/api/v1/request-settings/finance-policies", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
+    getFinanceSetupDraft() {
+      if (mode === "mock") return Promise.resolve({ version: 0, vat_basis: null, ewt_basis: null, rounding: null, effective_date_basis: null, effective_from: null, tax_by_request_type: {}, accounts_by_request_type: {}, voucher: { prefix: "", reset_basis: null, certification_text: "", create_role: null, post_role: null, void_role: null }, setup_scope: null, missing_choices: [], configuration_complete: false, operational_status: "draft" });
+      return apiRequest("/api/v1/request-settings/finance-setup");
+    },
+    updateFinanceSetupDraft(payload, csrfToken) {
+      if (mode === "mock") return Promise.resolve({ ...payload, version: payload.version + 1, missing_choices: [], configuration_complete: false, operational_status: "draft" });
+      return apiRequest("/api/v1/request-settings/finance-setup", { method: "PUT", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
     listDocuments(requestId) {
       if (mode === "mock") return Promise.resolve([]);

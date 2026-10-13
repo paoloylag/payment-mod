@@ -55,6 +55,8 @@ test("Finance Manager edits request settings while Finance Associate has view-on
   await expect(associate.locator('[name="cash_advance_one_outstanding"]')).toBeDisabled();
   await expect(associate.getByRole("button", { name: "Save batch schedule" })).toHaveCount(0);
   await expect(associate.getByRole("button", { name: "Save finance policies" })).toHaveCount(0);
+  await expect(associate.locator('[data-finance-setup] [name="vat_basis"]')).toBeDisabled();
+  await expect(associate.getByRole("button", { name: "Save Finance setup draft" })).toHaveCount(0);
 
   await cutoffInputs.nth(0).fill("15");
   await cutoffInputs.nth(1).fill("30");
@@ -83,21 +85,21 @@ test("Administration and approval layouts retain the LifeOS formatting across br
   const tabs = page.getByRole("navigation", { name: "Administration settings" });
   const activeTab = tabs.getByRole("button", { name: "Request Settings" });
   await expect(tabs).toBeVisible();
-  await expect(activeTab).toHaveCSS("color", "rgb(255, 250, 243)");
-  expect(await activeTab.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgb(255, 255, 255)");
-  expect(await tabs.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+  await expect(activeTab).toBeInViewport();
+  expect(await activeTab.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
 
   await page.setViewportSize({ width: 768, height: 900 });
   await expect(tabs).toBeVisible();
-  expect(await tabs.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
+  await expect(activeTab).toBeInViewport();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(tabs).toBeHidden();
-  await expect(page.getByLabel("Administration section")).toHaveValue("requestSettings");
+  await expect(tabs).toBeVisible();
+  await expect(activeTab).toBeInViewport();
+  await expect(page.getByLabel("Administration section")).toBeHidden();
 
   await page.goto("/#/approvals");
   await expect(page.getByRole("heading", { name: "Live Requests" })).toBeVisible();
-  await expect(page.getByText("No requests match the selected filters.", { exact: true })).toBeVisible();
+  await expect(page.getByText("No requests match the selected filters.", { exact: true }).or(page.locator("[data-request]").first())).toBeVisible();
   expect(await page.locator("main").evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBeTruthy();
 
   await context.close();

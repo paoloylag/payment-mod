@@ -6,7 +6,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import String, delete, func, or_, select, text
+from sqlalchemy import String, and_, delete, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..audit import audit
@@ -45,6 +45,7 @@ from ..security import current_user
 from ..vendor_adapter import get_vendor_adapter
 from ..workflow_policy import PolicyCannotRoute
 from ..workflow_service import close_workflow, start_workflow
+from ..workflow_visibility import reached_stages
 
 router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
 settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
@@ -65,26 +66,51 @@ def permissions(request: Request) -> set[str]:
     return getattr(request.state, "permissions", set())
 
 
-def visible_query(request: Request, actor: User):
+def visible_query(db: Session, request: Request, actor: User):
     codes = permissions(request)
     query = select(PaymentRequest)
     if "requests.read_all" in codes:
         return query
+    visible = [PaymentRequest.requestor_id == actor.id]
     if "requests.read_department" in codes and actor.department_id:
-        return query.where(
-            or_(
-                PaymentRequest.requestor_id == actor.id,
+        visible.extend(
+            (
                 PaymentRequest.department_id == actor.department_id,
                 PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
             )
         )
-    return query.where(PaymentRequest.requestor_id == actor.id)
+    if "workflow.review" in codes:
+        role_codes = db.scalars(
+            select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == actor.id)
+        )
+        for role_code in role_codes:
+            candidate_routes = db.scalars(
+                select(WorkflowInstance).where(
+                    WorkflowInstance.route_snapshot.contains({"stages": [{"role": role_code}]})
+                )
+            )
+            reached_request_ids = [
+                instance.request_id
+                for instance in candidate_routes
+                if any(stage["role"] == role_code for stage in reached_stages(db, instance))
+            ]
+            if not reached_request_ids:
+                continue
+            if role_code == "department_head":
+                visible.append(
+                    and_(
+                        PaymentRequest.department_id == actor.department_id, PaymentRequest.id.in_(reached_request_ids)
+                    )
+                )
+            else:
+                visible.append(PaymentRequest.id.in_(reached_request_ids))
+    return query.where(or_(*visible))
 
 
 def get_visible(
     db: Session, request: Request, actor: User, request_id: UUID, *, lock_for_update: bool = False
 ) -> PaymentRequest:
-    query = visible_query(request, actor).where(PaymentRequest.id == request_id)
+    query = visible_query(db, request, actor).where(PaymentRequest.id == request_id)
     if lock_for_update:
         query = query.with_for_update()
     item = db.scalar(query)
@@ -676,7 +702,7 @@ def list_payment_requests(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    query = visible_query(request, actor)
+    query = visible_query(db, request, actor)
     if search.strip():
         needle = f"%{search.strip()}%"
         query = query.where(

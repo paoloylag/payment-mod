@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -49,3 +49,30 @@ class WorkflowCommand(Base):
     actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class WorkflowAssignment(Base):
+    __tablename__ = "workflow_assignments"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "stage_index", "kind", name="uq_workflow_assignment_stage"),
+        CheckConstraint("kind IN ('approval', 'response')", name="ck_workflow_assignment_kind"),
+        CheckConstraint("stage_index >= 0", name="ck_workflow_assignment_stage"),
+        CheckConstraint(
+            "delegate_user_id IS NULL OR (delegate_user_id <> assigned_user_id "
+            "AND delegation_starts_at IS NOT NULL AND delegation_ends_at > delegation_starts_at)",
+            name="ck_workflow_assignment_delegate",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workflow_instances.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    assigned_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    delegate_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    delegation_starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delegation_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

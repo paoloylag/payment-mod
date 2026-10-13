@@ -11,6 +11,8 @@ from .middleware import RequestContextMiddleware
 from .routers.auth import router as auth_router
 from .routers.conversation import router as conversation_router
 from .routers.documents import router as documents_router
+from .routers.finance_setup import router as finance_setup_router
+from .routers.finance_validation import router as finance_validation_router
 from .routers.identity import router as identity_router
 from .routers.master_data import router as master_data_router
 from .routers.notifications import router as notifications_router
@@ -18,6 +20,7 @@ from .routers.requests import router as requests_router
 from .routers.requests import settings_router as request_settings_router
 from .routers.system import router as system_router
 from .routers.workflow import router as workflow_router
+from .routers.workflow_exceptions import router as workflow_exceptions_router
 
 settings = get_settings()
 
@@ -52,11 +55,14 @@ def create_app() -> FastAPI:
     application.include_router(identity_router)
     application.include_router(master_data_router)
     application.include_router(documents_router)
+    application.include_router(finance_validation_router)
+    application.include_router(finance_setup_router)
     application.include_router(requests_router)
     application.include_router(conversation_router)
     application.include_router(notifications_router)
     application.include_router(request_settings_router)
     application.include_router(workflow_router)
+    application.include_router(workflow_exceptions_router)
     return application
 
 

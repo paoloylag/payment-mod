@@ -51,8 +51,16 @@ def test_shared_conversation_is_immutable_and_does_not_advance_approval(client):
     request_id = submitted_request()
     url = f"/api/v1/requests/{request_id}/conversation"
     owner = login(client, "requestor@payment.local")
-    assert client.get(url).json()["can_post"] is False
-    assert client.post(url, json={"body": "Please check the receipt."}, headers={**owner, "Idempotency-Key": "owner-1"}).status_code == 403
+    conversation = client.get(url).json()
+    assert conversation["can_post"] is True
+    assert {person["role"] for person in conversation["current_posters"]} == {"requestor", "department_head"}
+    assert conversation["current_posting_role"] is None
+    assert (
+        client.post(
+            url, json={"body": "Here is the receipt."}, headers={**owner, "Idempotency-Key": "owner-1"}
+        ).status_code
+        == 201
+    )
     head = login(client, "department.head@payment.local")
     assert client.get(url).json()["can_post"] is True
     posted = client.post(
@@ -68,7 +76,10 @@ def test_shared_conversation_is_immutable_and_does_not_advance_approval(client):
     )
     assert client.post(url, json={"body": "Changed"}, headers={**head, "Idempotency-Key": "note-1"}).status_code == 409
     assert client.post(url, json={"body": "   "}, headers={**head, "Idempotency-Key": "note-2"}).status_code == 422
-    assert client.get(url).json()["items"][0]["body"] == "Please check the receipt."
+    assert [item["body"] for item in client.get(url).json()["items"]] == [
+        "Here is the receipt.",
+        "Please check the receipt.",
+    ]
     assert client.get("/api/v1/notifications").json()["unread_count"] == 0
     with SessionLocal() as db:
         assert (
@@ -79,7 +90,7 @@ def test_shared_conversation_is_immutable_and_does_not_advance_approval(client):
                     )
                 )
             )
-            == 1
+            == 2
         )
         assert not list(
             db.scalars(
@@ -94,7 +105,7 @@ def test_shared_conversation_is_immutable_and_does_not_advance_approval(client):
         client.post(url, json={"body": "I will review it."}, headers={**head, "Idempotency-Key": "head-1"}).status_code
         == 201
     )
-    assert len(client.get(url).json()["items"]) == 2
+    assert len(client.get(url).json()["items"]) == 3
     login(client, "signatory@payment.local")
     assert client.get(url).status_code == 404
 
@@ -127,6 +138,8 @@ def test_information_request_appears_in_conversation_and_declined_is_read_only(c
         db.get(PaymentRequest, request_id).status = "declined"
     headers = login(client, "requestor@payment.local")
     assert client.get(url).json()["can_post"] is False
+    assert client.get(url).json()["current_posters"] == []
+    assert client.get(url).json()["current_posting_role"] is None
     assert (
         client.post(url, json={"body": "Too late"}, headers={**headers, "Idempotency-Key": "late"}).status_code == 409
     )
@@ -137,6 +150,8 @@ def test_mentions_notify_only_eligible_participants_without_advancing_workflow(c
     request_id = submitted_request()
     url = f"/api/v1/requests/{request_id}/conversation"
     head_headers = login(client, "department.head@payment.local")
+    with SessionLocal.begin() as db:
+        db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id)).current_stage = 3
     participants = client.get(url).json()["participants"]
     coo = next(person for person in participants if person["role"] == "coo")
     with SessionLocal() as db:
@@ -144,7 +159,7 @@ def test_mentions_notify_only_eligible_participants_without_advancing_workflow(c
         before = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id))
         before_version = before.version
         before_stage = before.current_stage
-    payload = {"body": "@Adrian Lim Can you review the timing?", "mention_user_ids": [coo["id"]]}
+    payload = {"body": f"@{coo['display_name']} Can you review the timing?", "mention_user_ids": [coo["id"]]}
     headers = {**head_headers, "Idempotency-Key": "mention-coo-1"}
     posted = client.post(url, json=payload, headers=headers)
     assert posted.status_code == 201
@@ -196,7 +211,7 @@ def test_mentions_notify_only_eligible_participants_without_advancing_workflow(c
     assert client.post(f"/api/v1/notifications/{notification['id']}/read", headers=outsider_headers).status_code == 404
 
 
-def test_posting_follows_current_workflow_owner(client):
+def test_all_route_participants_can_post_after_stage_moves(client):
     seed()
     request_id = submitted_request()
     url = f"/api/v1/requests/{request_id}/conversation"
@@ -210,15 +225,55 @@ def test_posting_follows_current_workflow_owner(client):
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["route"]["stages"][approved.json()["current_stage"]]["role"] == "finance_associate"
-    assert client.get(url).json()["can_post"] is False
-    assert client.post(url, json={"body": "Late note"}, headers={**head_headers, "Idempotency-Key": "late-head"}).status_code == 403
+    assert client.get(url).json()["can_post"] is True
+    assert (
+        client.post(
+            url, json={"body": "Follow-up note"}, headers={**head_headers, "Idempotency-Key": "late-head"}
+        ).status_code
+        == 201
+    )
 
     associate_headers = login(client, "finance.associate@payment.local")
     assert client.get(url).json()["can_post"] is True
-    assert client.post(url, json={"body": "I have the next step"}, headers={**associate_headers, "Idempotency-Key": "associate-stage"}).status_code == 201
+    assert (
+        client.post(
+            url,
+            json={"body": "I have the next step"},
+            headers={**associate_headers, "Idempotency-Key": "associate-stage"},
+        ).status_code
+        == 201
+    )
 
 
-def test_information_response_and_return_change_conversation_owner(client):
+def test_future_route_participants_gain_access_only_when_their_stage_is_reached(client):
+    seed()
+    request_id = submitted_request()
+    coo_headers = login(client, "coo@payment.local")
+    assert client.get(f"/api/v1/requests/{request_id}").status_code == 404
+    assert str(request_id) not in {item["id"] for item in client.get("/api/v1/requests").json()}
+    assert client.get(f"/api/v1/requests/{request_id}/conversation").status_code == 404
+    assert (
+        client.post(
+            f"/api/v1/requests/{request_id}/conversation",
+            json={"body": "Too early"},
+            headers={**coo_headers, "Idempotency-Key": "early-coo"},
+        ).status_code
+        == 404
+    )
+    with SessionLocal.begin() as db:
+        db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id)).current_stage = 3
+    assert client.get(f"/api/v1/requests/{request_id}").status_code == 200
+    assert str(request_id) in {item["id"] for item in client.get("/api/v1/requests").json()}
+    assert client.get(f"/api/v1/requests/{request_id}/conversation").json()["can_post"] is True
+    login(client, "board.member@payment.local")
+    assert client.get(f"/api/v1/requests/{request_id}").status_code == 404
+    assert client.get(f"/api/v1/requests/{request_id}/conversation").status_code == 404
+    login(client, "signatory@payment.local")
+    assert client.get(f"/api/v1/requests/{request_id}").status_code == 404
+    assert str(request_id) not in {item["id"] for item in client.get("/api/v1/requests").json()}
+
+
+def test_information_response_and_return_allow_all_participants(client):
     seed()
     request_id = submitted_request()
     url = f"/api/v1/requests/{request_id}/conversation"
@@ -227,19 +282,63 @@ def test_information_response_and_return_change_conversation_owner(client):
         instance.state = "information_requested"
         instance.current_stage = 3
     coo_headers = login(client, "coo@payment.local")
-    assert client.get(url).json()["can_post"] is False
-    assert client.post(url, json={"body": "Waiting"}, headers={**coo_headers, "Idempotency-Key": "coo-waiting"}).status_code == 403
+    assert client.get(url).json()["can_post"] is True
+    assert {person["role"] for person in client.get(url).json()["current_posters"]} >= {
+        "requestor",
+        "finance_associate",
+        "coo",
+    }
+    assert client.get(url).json()["current_posting_role"] is None
+    assert (
+        client.post(
+            url, json={"body": "Waiting"}, headers={**coo_headers, "Idempotency-Key": "coo-waiting"}
+        ).status_code
+        == 201
+    )
     associate_headers = login(client, "finance.associate@payment.local")
     assert client.get(url).json()["can_post"] is True
-    assert client.post(url, json={"body": "Clarification attached"}, headers={**associate_headers, "Idempotency-Key": "associate-answer"}).status_code == 201
+    assert (
+        client.post(
+            url,
+            json={"body": "Clarification attached"},
+            headers={**associate_headers, "Idempotency-Key": "associate-answer"},
+        ).status_code
+        == 201
+    )
 
     with SessionLocal.begin() as db:
         db.get(PaymentRequest, request_id).status = "returned"
         instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id))
         instance.state = "returned"
         instance.current_stage = None
-    assert client.get(url).json()["can_post"] is False
-    assert client.post(url, json={"body": "After return"}, headers={**associate_headers, "Idempotency-Key": "associate-return"}).status_code == 403
+        db.add(
+            WorkflowEvent(
+                request_id=request_id,
+                workflow_id=instance.id,
+                actor_user_id=None,
+                action="returned",
+                stage_index=3,
+                note="Correction needed",
+                details={},
+            )
+        )
+    assert client.get(url).json()["can_post"] is True
+    assert (
+        client.post(
+            url, json={"body": "After return"}, headers={**associate_headers, "Idempotency-Key": "associate-return"}
+        ).status_code
+        == 201
+    )
     owner_headers = login(client, "requestor@payment.local")
     assert client.get(url).json()["can_post"] is True
-    assert client.post(url, json={"body": "I will revise this"}, headers={**owner_headers, "Idempotency-Key": "owner-return"}).status_code == 201
+    assert {person["role"] for person in client.get(url).json()["current_posters"]} >= {
+        "requestor",
+        "finance_associate",
+    }
+    assert client.get(url).json()["current_posting_role"] is None
+    assert (
+        client.post(
+            url, json={"body": "I will revise this"}, headers={**owner_headers, "Idempotency-Key": "owner-return"}
+        ).status_code
+        == 201
+    )

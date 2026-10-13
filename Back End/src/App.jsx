@@ -88,7 +88,7 @@ const emailTemplates = {
   11: { recipient: "Authorized Signatories", subject: "Signatory approval required", trigger: "Payment instruction prepared", intro: "A payment instruction is awaiting signatory approval.", message: "Review the voucher, approval trail, payee details, and payment instruction before authorizing.", action: "Authorize Payment" },
   12: { recipient: "Vendor", subject: "Payment ready for processing: {{request_id}}", trigger: "Signatory approval completed", intro: "Your payment is ready for processing.", message: "The payment instruction has completed signatory approval. Review the payment details and reference below.", action: "View Payment Details" },
   13: { recipient: "Department Requestor and Vendor", subject: "Payment available for pick-up: {{request_id}}", trigger: "Payment marked available for pick-up", intro: "The payment is now available for pick-up.", message: "The update date, time, and Finance personnel who recorded the status are included for reference.", action: "View Release Details" },
-  14: { recipient: "Finance Associate", subject: "Payment tracker updated", trigger: "Payment released", intro: "The payment tracker has been updated automatically.", message: "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", action: "View Tracker" },
+  14: { recipient: "Finance Associate", subject: "Request tracker updated", trigger: "Payment released", intro: "The request tracker has been updated automatically.", message: "Review the recorded turnaround dates and resolve any remaining tracker exceptions.", action: "View Tracker" },
   15: { recipient: "Department Requestor and Vendor", subject: "Payment completed: {{request_id}}", trigger: "Transaction completed", intro: "Your payment transaction has been completed.", message: "Payment has been completed. The payment date, amount, method, and reference are included for your records.", action: "View Payment Record" },
 };
 
@@ -189,7 +189,7 @@ const seedRequests = [
   ["PO-2026-0120", "poPayment", "Bea Tan", "Procurement", "Multiple Vendors (3)", 287500, true, "Vendor Notification", 12, "2026-08-20", "", "", 6, 0, "Three Purchase Order line-item groups are ready for separate vendor notifications: Atlas Office Systems, Northstar Supplies, and TechSource Solutions."],
   ["GEN-2026-0044", "general", "Carlo Uy", "IT", "CloudWorks", 88400, true, "Vendor Notification", 12, "2026-06-14", "", "", 3, 0, "Check is available and vendor notification is ready."],
   ["RMB-2026-0154", "reimbursement", "Sam Lee", "Legal", "Travel Desk", 30750, true, "Payment Release", 13, "2026-06-13", "", "", 4, 0, "Finance Associate is recording check release to the payee."],
-  ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Payment Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0, "System is updating turnaround dates and tracker reporting."],
+  ["CA-2026-0061", "cashAdvance", "Iya Cruz", "Events", "Internal", 39000, true, "Request Tracker", 14, "2026-06-12", "2026-06-13", "2026-06-14", 2, 0, "System is updating turnaround dates and tracker reporting."],
   ["GEN-2026-0049", "general", "Paolo Reyes", "Finance", "Completed Payment", 101250, true, "Completed", 15, "2026-06-11", "", "", 4, 0, "The payment request workflow is complete."],
 ].map(([id, type, requestor, department, vendor, amount, budgeted, status, currentStep, submitted, returned, resubmitted, documents, missing, note]) => ({
   id,
@@ -350,14 +350,13 @@ function App() {
           <div className="brand-mark">AP</div>
           <div>
             <h1>Automated Payment System</h1>
-            <p>Finance Operations</p>
           </div>
         </div>
         <nav className="nav-list" aria-label="Primary">
           {[
             ["Overview", [["dashboard", "Dashboard", "▦"]]],
             ["Requests", [["request", "New Request", "+"], ["uploads", "Document Uploads", "↑"], ["documents", "Document Rules", "□"]]],
-            ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Payment Tracker", "↗"]]],
+            ["Processing", [["approvals", "Approval Queue", "✓"], ["tracker", "Request Tracker", "↗"]]],
             ["Records", [["emails", "Email Samples", "@"]]],
             ["Administration", [["admin", "Users & Permissions", "⚙"]]],
           ].map(([group, links]) => (
@@ -673,7 +672,7 @@ function WorkflowSummary({ request, onView }) {
   const previous = currentIndex > 0 ? steps[currentIndex - 1] : null;
   const next = currentIndex < steps.length - 1 ? steps[currentIndex + 1] : null;
   const progress = Math.round(((currentIndex + 1) / steps.length) * 100);
-  return <section className="workflow-summary"><div className="workflow-summary-heading"><div><span className="eyebrow">Workflow Progress</span><strong>{current.name}</strong><small>{current.owner} · {currentIndex + 1} of {steps.length} stages</small></div><button type="button" onClick={onView}>View Full Workflow</button></div><div className="workflow-progress-bar" aria-label={`${progress}% complete`}><span style={{ width: `${progress}%` }} /></div><div className="workflow-summary-stages"><div><span>Previous</span><strong>{previous?.name || "None"}</strong></div><div className="current"><span>Current</span><strong>{current.name}</strong></div><div><span>Next</span><strong>{next?.name || "Complete"}</strong></div></div></section>;
+  return <section className="workflow-summary"><div className="workflow-summary-heading"><div><span className="eyebrow">Approval Progress</span><strong>{current.name}</strong><small>{current.owner} · {currentIndex + 1} of {steps.length} stages</small></div><button type="button" onClick={onView}>View Full Workflow</button></div><div className="workflow-progress-bar" aria-label={`${progress}% complete`}><span style={{ width: `${progress}%` }} /></div><div className="workflow-summary-stages"><div><span>Previous</span><strong>{previous?.name || "None"}</strong></div><div className="current"><span>Current</span><strong>{current.name}</strong></div><div><span>Next</span><strong>{next?.name || "Complete"}</strong></div></div></section>;
 }
 
 function VoucherCard({ voucher, request }) {
@@ -855,7 +854,7 @@ function Tracker({ selectedId, onSelect }) {
   const selected = seedRequests.find((request) => request.id === selectedId);
   if (selected) return (
     <section className="metric-detail-view">
-      <div className="metric-detail-actions"><button type="button" className="back-button" onClick={() => onSelect(null)}>← Back to Payment Tracker</button></div>
+      <div className="metric-detail-actions"><button type="button" className="back-button" onClick={() => onSelect(null)}>← Back to Request Tracker</button></div>
       <div className="metric-detail-header"><div><span className="eyebrow">Tracker Detail</span><h3>{selected.id}</h3><p>Review request information and its current payment progress.</p></div><StatusPill status={selected.status} /></div>
       <RequestDetail request={selected} />
       <WorkflowMap currentStep={selected.currentStep} />
@@ -864,7 +863,7 @@ function Tracker({ selectedId, onSelect }) {
   return (
     <section className="panel">
       <div className="panel-header">
-        <h3>Payment Tracker</h3>
+        <h3>Request Tracker</h3>
         <button className="icon-button" title="Export Report">↧</button>
       </div>
       <div className="table-wrap">

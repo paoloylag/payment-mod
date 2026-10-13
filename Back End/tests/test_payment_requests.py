@@ -18,15 +18,26 @@ from payment_module.models import (
     PaymentRequest,
     PaymentRequestLine,
     Permission,
+    SystemSetting,
     User,
     UserPermissionOverride,
     WorkflowInstance,
 )
 from payment_module.routers.requests import academic_year_start, reimbursement_batch_date
-from payment_module.seed import seed
+from payment_module.seed import SEED_SETTINGS
+from payment_module.seed import seed as seed_base
 from sqlalchemy import event, func, select
 
 PASSWORD = "Phase01-Test-Only!"
+
+
+def seed():
+    """Keep Phase 03 lifecycle tests independent of Phase 04 upload requirements."""
+    seed_base(include_document_requirement_rules=False)
+    with SessionLocal.begin() as db:
+        for key, value in SEED_SETTINGS.items():
+            if key.startswith("requests."):
+                db.scalar(select(SystemSetting).where(SystemSetting.key == key)).value = value
 
 
 def login(client, email="requestor@payment.local"):
@@ -267,7 +278,7 @@ def test_foreign_currency_amount_is_logged_without_conversion(client):
     assert all("currency_code" in check["differing_fields"] for check in checks)
 
 
-def test_configured_currency_rate_is_used_when_submitting(client):
+def test_configured_currency_rate_is_only_suggested_when_submitting(client):
     seed()
     with SessionLocal.begin() as db:
         currency = db.get(Currency, "USD")
@@ -289,8 +300,9 @@ def test_configured_currency_rate_is_used_when_submitting(client):
         with SessionLocal() as db:
             workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == created.json()["id"]))
             assert workflow.state == "active"
-            assert Decimal(workflow.route_snapshot["php_amount"]) == Decimal("1000000.005")
-            assert workflow.route_snapshot["stages"][-1]["role"] == "board_member"
+            assert workflow.route_snapshot["php_amount"] is None
+            assert Decimal(workflow.route_snapshot["suggested_php_per_unit"]) == Decimal("50")
+            assert workflow.route_snapshot["stages"][-1]["role"] == "finance_manager"
     finally:
         with SessionLocal.begin() as db:
             db.get(Currency, "USD").php_per_unit = previous_rate
@@ -397,7 +409,9 @@ def test_request_lifecycle_return_resubmit_cancel_and_reopen(client):
     seed()
     requestor_headers = login(client)
     created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
-    assert created["requestor_name"] == "Mara Reyes"
+    with SessionLocal() as db:
+        expected_requestor = db.scalar(select(User.display_name).where(User.email == "requestor@payment.local"))
+    assert created["requestor_name"] == expected_requestor
     assert created["department_name"] == "Marketing"
     submitted = client.post(
         f"/api/v1/requests/{created['id']}/submit",
@@ -481,7 +495,7 @@ def test_academic_year_numbering_boundary_and_finance_setting(client):
     finance_headers = login(client, "finance.manager@payment.local")
     changed = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=finance_headers)
     assert changed.status_code == 200 and changed.json()["reset_month"] == 8
-    seed()
+    seed_base(include_document_requirement_rules=False)
     assert client.get("/api/v1/request-settings/numbering").json()["reset_month"] == 8
     restored = client.put("/api/v1/request-settings/numbering", json={"reset_month": 7}, headers=finance_headers)
     assert restored.status_code == 200
@@ -1157,3 +1171,32 @@ def test_manager_scope_explicit_deny_privileged_audit_and_unauthorized_lifecycle
         requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
         requestor.department_id, requestor.manager_id = original_department, original_manager
         db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == admin.id).delete()
+
+
+def test_request_settings_editor_can_be_assigned_and_revoked(client):
+    from payment_module.models import UserRole
+    from payment_module.seed import stable_id
+
+    seed()
+    headers = login(client, "finance.associate@payment.local")
+    url = "/api/v1/request-settings/numbering"
+    original = client.get(url).json()["reset_month"]
+    payload = {"reset_month": original}
+    assert client.put(url, json=payload, headers=headers).status_code == 403
+    assignment_id = uuid4()
+    try:
+        with SessionLocal.begin() as db:
+            db.add(
+                UserRole(
+                    id=assignment_id,
+                    user_id=stable_id("user", "finance.associate@payment.local"),
+                    role_id=stable_id("role", "request_settings_editor"),
+                )
+            )
+        assert client.put(url, json=payload, headers=headers).status_code == 200
+    finally:
+        with SessionLocal.begin() as db:
+            assignment = db.get(UserRole, assignment_id)
+            if assignment:
+                db.delete(assignment)
+    assert client.put(url, json=payload, headers=headers).status_code == 403

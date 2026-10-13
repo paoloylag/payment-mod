@@ -13,7 +13,7 @@ from payment_module.models import (
     UserRole,
 )
 from payment_module.security import hash_password, verify_password
-from payment_module.seed import DEPARTMENTS, PERMISSIONS, ROLES, seed
+from payment_module.seed import DEMO_USERS, DEPARTMENTS, PERMISSIONS, seed
 from sqlalchemy import func, select
 
 PASSWORD = "Phase01-Test-Only!"
@@ -36,7 +36,9 @@ def test_phase_01_seed_is_deterministic() -> None:
     seed()
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Department)) >= len(DEPARTMENTS)
-        assert db.scalar(select(func.count()).select_from(User)) == len(ROLES)
+        assert db.scalar(
+            select(func.count()).select_from(User).where(User.email.in_([row[1] for row in DEMO_USERS]))
+        ) == len(DEMO_USERS)
         assert db.scalar(select(func.count()).select_from(Permission)) == len(PERMISSIONS)
 
 

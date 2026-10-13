@@ -149,7 +149,10 @@ def test_route_preview_is_visible_only_to_authorized_request_users(client):
     board_route = client.get(f"/api/v1/workflow/preview/{pending_ids[0]}")
     assert board_route.status_code == 200
     assert [stage["role"] for stage in board_route.json()["stages"][-3:]] == ["coo", "president", "board_member"]
-    assert client.get(f"/api/v1/workflow/preview/{pending_ids[1]}").status_code == 422
+    foreign_preview = client.get(f"/api/v1/workflow/preview/{pending_ids[1]}")
+    assert foreign_preview.status_code == 200
+    assert foreign_preview.json()["rate_status"] == "awaiting_finance_manager"
+    assert foreign_preview.json()["php_amount"] is None
     client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": login.json()["csrf_token"]})
     outsider = client.post(
         "/api/v1/auth/login",

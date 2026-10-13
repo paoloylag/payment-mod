@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from ..models import (
     PaymentMethod,
     TaxCode,
     User,
+    VendorRecord,
 )
 from ..procurement_adapter import get_procurement_adapter
 from ..schemas import (
@@ -32,7 +34,7 @@ from ..schemas import (
 )
 from ..security import require_permission
 from ..services.master_data import ensure_account_parent, ensure_unique, normalized
-from ..vendor_adapter import get_vendor_adapter
+from ..vendor_adapter import get_vendor_adapter, safe_vendor
 
 router = APIRouter(prefix="/api/v1", tags=["master data"])
 
@@ -429,8 +431,9 @@ def vendors(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=100),
     _: User = Depends(require_permission("vendors.read")),
+    db: Session = Depends(get_db),
 ):
-    items = get_vendor_adapter().list(search, active_only)
+    items = get_vendor_adapter(db).list(search, active_only)
     response.headers["X-Total-Count"] = str(len(items))
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
@@ -438,8 +441,8 @@ def vendors(
 
 
 @router.get("/vendors/{vendor_id}")
-def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read"))):
-    item = get_vendor_adapter().get(vendor_id)
+def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read")), db: Session = Depends(get_db)):
+    item = get_vendor_adapter(db).get(vendor_id)
     if not item:
         raise HTTPException(404, "Vendor not found")
     return item
@@ -467,3 +470,95 @@ def purchase_order(po_number: str, _: User = Depends(require_permission("procure
     if not item:
         raise HTTPException(404, "Purchase order not found")
     return item
+
+
+class VendorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=160)
+    vendorType: str = Field(default="Company", max_length=40)
+    email: str = Field(default="", max_length=254)
+    contactPerson: str = Field(default="", max_length=160)
+    phone: str = Field(default="", max_length=80)
+    street: str = Field(default="", max_length=250)
+    street2: str = Field(default="", max_length=250)
+    city: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=100)
+    zip: str = Field(default="", max_length=30)
+    country: str = Field(default="Philippines", max_length=100)
+    taxId: str = Field(default="", max_length=80)
+    branchCode: str = Field(default="", max_length=80)
+    businessRegistration: str = Field(default="", max_length=100)
+    website: str = Field(default="", max_length=250)
+    terms: str = Field(default="", max_length=100)
+    lead: str = Field(default="", max_length=100)
+    rating: str = Field(default="", max_length=100)
+    tags: str = Field(default="", max_length=250)
+    notes: str = Field(default="", max_length=4000)
+    informationStatus: str = Field(
+        default="Information complete", pattern="^(Information complete|Information requested)$"
+    )
+    informationRequestedAt: datetime | None = None
+    businessDocuments: list[dict] = Field(default_factory=list, max_length=30)
+
+
+@router.post("/vendors", status_code=201)
+def create_vendor(
+    payload: VendorCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    values = payload.model_dump(mode="json")
+    if any(
+        item["name"].casefold() == values["name"].casefold() for item in get_vendor_adapter(db).list(active_only=False)
+    ):
+        raise HTTPException(409, "A vendor with this name already exists")
+    values["id"] = "VEND-" + str(uuid4())
+    db.add(VendorRecord(id=values["id"], payload=values))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.created",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        after={"vendor_id": values["id"], "name": values["name"]},
+    )
+    db.commit()
+    return safe_vendor(values)
+
+
+@router.patch("/vendors/{vendor_id}")
+def update_vendor(
+    vendor_id: str,
+    payload: VendorCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    existing = get_vendor_adapter(db).get(vendor_id)
+    if existing is None:
+        raise HTTPException(404, "Vendor not found")
+    values = payload.model_dump(mode="json")
+    if any(
+        item["id"] != vendor_id and item["name"].casefold() == values["name"].casefold()
+        for item in get_vendor_adapter(db).list(active_only=False)
+    ):
+        raise HTTPException(409, "A vendor with this name already exists")
+    values["id"] = vendor_id
+    record = db.get(VendorRecord, vendor_id)
+    if record:
+        record.payload = values
+    else:
+        db.add(VendorRecord(id=vendor_id, payload=values))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.updated",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        after={"vendor_id": vendor_id, "name": values["name"]},
+    )
+    db.commit()
+    return safe_vendor(values)

@@ -1,8 +1,12 @@
 # Phase 08 — Notifications, Dashboards, and Reports
 
 Date prepared: 2026-08-28  
-Status: Not started  
+Status: Foundation started — transactional workflow outbox added 2026-10-11
 Depends on: Phases 03–07 transactional data
+
+## Outbox foundation — 2026-10-11
+
+Workflow events now create a pending `notification_outbox_events` record in the same database transaction. The source workflow event is unique, and the outbox payload contains only routing references needed for later processing. A retry with the same idempotency key does not create a second event; a stale decision creates none. Migration `20261011_0017` adds the table and pending-work index. Recipient rules, templates, delivery jobs, workers, and live email remain to be developed after the notification matrix is approved.
 
 ## Objective
 
