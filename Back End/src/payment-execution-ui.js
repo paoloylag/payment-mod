@@ -1,3 +1,4 @@
+import { closeIcon, uploadIcon } from "./icons.js";
 export function paymentExecutionBody(data, drafts, text, money) {
   const execution = data.execution;
   if (!execution) return "";
@@ -28,7 +29,7 @@ export function paymentExecutionBody(data, drafts, text, money) {
     return `<details><summary>${title}</summary><form class="identity-form" data-payment-action="${action}" data-payment-line="${text(line.id)}">
       ${needsEvidence ? `${input("recorded_on", action === "release" ? "Release date" : "Clearing date", draft.recorded_on, 'type="date" required')}
         ${action === "release" ? `${input("bank_name", line.details.method_category === "cash" ? "Releasing cash office" : "Releasing bank", draft.bank_name, 'required maxlength="160"')}${input("recipient_name", "Recipient", draft.recipient_name, 'required maxlength="200"')}` : ""}
-        ${draft.evidence_id ? '<p role="status">Supporting evidence uploaded.</p>' : '<label>Supporting evidence<input name="evidence" type="file" accept=".pdf,.png,.jpg,.jpeg" required></label>'}` : ""}
+        ${draft.evidence_id ? '<p role="status">Supporting evidence uploaded.</p>' : `<div class="payment-evidence-control"><span>Supporting evidence</span><div class="file-upload-selection"><div class="selected-upload-file" data-payment-file-selection hidden><span data-payment-file-name></span><button type="button" class="close-icon-button" data-remove-payment-file aria-label="Remove supporting evidence">${closeIcon}</button></div><label class="line-upload-control document-upload-button"><input name="evidence" type="file" aria-label="Supporting evidence" accept=".pdf,.png,.jpg,.jpeg" required>${uploadIcon}<span>Upload Files</span></label></div></div>`}` : ""}
       ${reason(draft)}<p role="alert" data-payment-error></p><button type="submit" class="${["fail", "void"].includes(action) ? "danger" : "primary-button"}">${title}</button></form></details>`;
   };
   return `<section data-payment-execution aria-label="Payment line items"><h4>Payment line items</h4>

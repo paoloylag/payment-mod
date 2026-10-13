@@ -1,4 +1,4 @@
-import { closeIcon } from "./icons.js";
+import { closeIcon, uploadIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
 import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
@@ -560,7 +560,6 @@ const fieldInput = (field) => {
     ? `<label class="full">${field.label}<textarea data-request-field="${fieldKey}" placeholder="${field.value}"></textarea></label>`
     : `<label>${field.label}<input data-request-field="${fieldKey}" type="${field.kind === "date" ? "date" : "text"}" ${field.label === "Last Day of the Event" ? "data-event-end-date" : ""} ${field.kind === "date" ? `value="${field.label === "Last Day of the Event" && state.draftType === "cashAdvance" ? state.cashAdvanceEventEnd : field.value}"` : `placeholder="${field.value}"`}></label>`;
 };
-const uploadIcon = `<span class="line-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>`;
 const uploadInput = (documentName) => `<div class="upload-row"><span>${documentName}</span><div class="upload-row-selection"><span class="line-upload-filename" data-request-document-filename>No files selected</span><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(documentName)}"><input type="file" data-request-document="${documentFieldKey(documentName)}" ${documentName.includes("Billing / Quotation / SOA") ? "multiple" : ""} aria-label="Upload ${escapeHtml(documentName)}">${uploadIcon}<span>Upload Files</span></label></div></div>`;
 const lineAttachmentNames = (value) => (Array.isArray(value) ? value : value ? [value] : [])
   .filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim());
@@ -2526,6 +2525,13 @@ function bindPaymentExecution(panel, r, voucherKey) {
       if (action === "prepare") values.lines = [...form.querySelectorAll("[data-payment-draft-line]")].map(fieldset => Object.fromEntries([...fieldset.querySelectorAll("input,select")].map(input => [input.name, input.value])));
       drafts[draftKey] = { ...(drafts[draftKey] || {}), ...values }; return drafts[draftKey];
     };
+    const fileInput = form.elements.evidence;
+    const showFile = () => {
+      const tag = form.querySelector("[data-payment-file-selection]");
+      if (tag) { tag.hidden = !fileInput?.files.length; tag.querySelector("[data-payment-file-name]").textContent = fileInput?.files[0]?.name || ""; }
+    };
+    fileInput?.addEventListener("change", showFile);
+    form.querySelector("[data-remove-payment-file]")?.addEventListener("click", () => { fileInput.value = ""; showFile(); fileInput.focus(); });
     form.addEventListener("input", read); form.addEventListener("change", read);
     form.addEventListener("submit", async event => {
       event.preventDefault();

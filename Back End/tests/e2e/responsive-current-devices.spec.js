@@ -21,8 +21,8 @@ const deviceViewports = [
 
 const routes = [
   { path: "dashboard", heading: "Payment Requests" },
-  { path: "tracker", heading: "Payment Tracker" },
-  { path: "approvals", heading: "Approval Queue" },
+  { path: "tracker", heading: "Tracker and Reports" },
+  { path: "approvals", heading: "Review and Approve" },
   { path: "administration/request-settings", heading: "Administration" },
 ];
 
