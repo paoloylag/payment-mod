@@ -1,7 +1,7 @@
 # Phase 07 — Payment Execution
 
 Date prepared: 2026-08-28  
-Status: In progress — full-amount instruction preparation and assigned signatory authorization implemented for issued General vouchers  
+Status: In progress — full-amount instruction preparation and assigned signatory authorization implemented for issued General vouchers
 Depends on: Phase 06 — Finance Validation and Vouchers
 
 ## Objective
