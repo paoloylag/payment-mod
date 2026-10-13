@@ -56,8 +56,7 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
         if "workflow.review" not in effective_permissions(db, user.id):
             continue
         found.setdefault(user.id, {"id": str(user.id), "display_name": user.display_name, "role": role_code})
-    instruction = db.scalar(select(PaymentInstruction).where(PaymentInstruction.request_id == item.id))
-    if instruction:
+    for instruction in db.scalars(select(PaymentInstruction).where(PaymentInstruction.request_id == item.id)):
         signatory = db.get(User, instruction.signatory_user_id)
         has_role = (
             db.scalar(

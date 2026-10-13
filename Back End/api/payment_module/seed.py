@@ -117,6 +117,9 @@ PERMISSIONS = {
     "vouchers.void": "Void vouchers and reverse their posted accounting",
     "payments.prepare": "Prepare a recorded payment instruction and assign its signatory",
     "payments.authorize": "Authorize an assigned payment instruction",
+    "payments.release": "Record authorized payment release and supporting evidence",
+    "payments.clear": "Confirm payment clearing with supporting evidence",
+    "payments.exceptions": "Record failed or voided unreleased payment lines",
 }
 ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
 for role_code in ROLES:
@@ -143,6 +146,8 @@ ROLE_PERMISSIONS["request_settings_editor"] = {"requests.numbering.manage"}
 ROLE_PERMISSIONS["finance_manager"] |= {"vouchers.read", "vouchers.issue", "vouchers.void"}
 ROLE_PERMISSIONS["finance_associate"] |= {"vouchers.read", "payments.prepare"}
 ROLE_PERMISSIONS["authorized_signatory"] |= {"vouchers.read", "payments.authorize"}
+ROLE_PERMISSIONS["finance_associate"].add("payments.release")
+ROLE_PERMISSIONS["finance_manager"] |= {"payments.clear", "payments.exceptions"}
 ROLE_PERMISSIONS["finance_associate"] |= {
     "master_data.read",
     "vendors.read",

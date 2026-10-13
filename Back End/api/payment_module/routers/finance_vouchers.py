@@ -30,6 +30,7 @@ from ..models import (
     WorkflowEvent,
     WorkflowInstance,
 )
+from ..payment_execution import execution_view, latest_line_event, line_state, payment_summary
 from ..security import current_user
 from ..voucher_service import assigned_instruction, latest_voucher_event, signatory_users
 from .conversation import participant
@@ -128,8 +129,12 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
         if issuer:
             excluded.add(issuer.actor_user_id)
     state = latest.state if latest else "draft" if voucher else "not_prepared"
+    execution = execution_view(db, voucher, actor, roles, codes) if voucher else None
+    if latest and state != "voided":
+        state = execution["summary"]["state"]
     mutation_allowed = item.status == "submitted" and actor.id != item.requestor_id
     return {
+        "execution": execution,
         "request_id": str(item.id),
         "request_version": item.version,
         "version": latest.version if latest else 0,
@@ -148,6 +153,7 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
             and journal.state == "posted"
             and state != "voided"
             and "finance_manager" in roles
+            and Decimal(execution["summary"]["released"]) == 0
             and "vouchers.void" in codes
         ),
         "can_prepare_payment": bool(
@@ -191,22 +197,22 @@ def authorization_queue(request: Request, db: Session = Depends(get_db), actor: 
     roles = actor_roles(db, actor)
     if "authorized_signatory" not in roles or "payments.authorize" not in getattr(request.state, "permissions", set()):
         return []
-    result = []
+    result = {}
     for instruction in db.scalars(select(PaymentInstruction).where(PaymentInstruction.signatory_user_id == actor.id)):
         latest = latest_voucher_event(db, instruction.voucher_id)
         item = db.get(PaymentRequest, instruction.request_id)
         if latest:
-            result.append(
-                {
-                    "request_id": str(item.id),
-                    "request_number": item.request_number,
-                    "state": latest.state,
-                    "pending": latest.state == "payment_prepared" and item.status == "submitted",
-                    "version": latest.version,
-                    "instruction": instruction.result,
-                }
-            )
-    return result
+            pending = line_state(db, instruction)[0] == "prepared" and item.status == "submitted"
+            previous = result.get(str(item.id))
+            result[str(item.id)] = {
+                "request_id": str(item.id),
+                "request_number": item.request_number,
+                "state": payment_summary(db, db.get(FinanceVoucherDraft, instruction.voucher_id))["state"],
+                "pending": pending or bool(previous and previous["pending"]),
+                "version": latest.version,
+                "instruction": instruction.result,
+            }
+    return list(result.values())
 
 
 @router.get("/{request_id}")
@@ -240,7 +246,8 @@ def print_data(request_id: UUID, request: Request, db: Session = Depends(get_db)
     db.commit()
     return {
         **issue.result,
-        "current_state": latest.state,
+        "current_state": payment_summary(db, voucher)["state"],
+        "execution": execution_view(db, voucher, actor, roles, codes),
         "payment_instruction": instruction.result if instruction else None,
         "history": [
             event_view(row)
@@ -412,6 +419,8 @@ def prepare_payment(
         return event_view(latest)
     if not latest or latest.state != "issued":
         raise HTTPException(409, "Issue a voucher before preparing a payment instruction")
+    if db.scalar(select(PaymentInstruction.id).where(PaymentInstruction.voucher_id == voucher.id)):
+        raise HTTPException(409, "Use payment line items for additional payments")
     method = db.get(PaymentMethod, payload.method_id)
     if not effective(method, finance_date()) or method.category not in {"check", "bank_transfer", "cash"}:
         raise HTTPException(422, "Select an active, effective payment method")
@@ -494,6 +503,8 @@ def authorize(
     instruction = assigned_instruction(db, item.id, actor.id)
     if not latest or latest.state != "payment_prepared" or not instruction:
         raise HTTPException(409, "Only the assigned pending payment instruction can be authorized")
+    if latest_line_event(db, instruction.id):
+        raise HTTPException(409, "Authorize each payment line individually")
     if actor.id in {item.requestor_id, voucher.actor_user_id, instruction.preparer_user_id}:
         raise HTTPException(403, "The requestor or preparer cannot authorize this payment")
     if not effective(db.get(PaymentMethod, instruction.method_id), finance_date()):
@@ -531,6 +542,8 @@ def void_voucher(
     )
     if repeated:
         return event_view(latest)
+    if Decimal(payment_summary(db, voucher)["released"]) > 0:
+        raise HTTPException(409, "A voucher with released payments cannot be voided")
     journal = latest_journal(db, item.id)
     entries = [{**entry, "debit": entry["credit"], "credit": entry["debit"]} for entry in journal.result["entries"]]
     totals = {

@@ -295,6 +295,8 @@ let state = {
   financeVoucherLoading: {},
   financeVoucherErrors: {},
   financeVoucherDrafts: {},
+  paymentDrafts: {},
+  paymentRetries: {},
   financeVoucherRetries: {},
   paymentQueue: [],
   financeValidationLoading: {},
@@ -1133,6 +1135,8 @@ function apiLineToPrototype(type, line) {
   return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department to Be Charged": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
 }
 
+const paymentStages = { draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
+
 function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], declined: ["Declined", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
   const [defaultStatus, defaultStep] = statusMap[item.status] || [item.status, 2];
@@ -1201,10 +1205,8 @@ async function loadApiPaymentRequests(filters = null) {
   const submitted = allItems.filter((item) => item.status !== "draft").map((item) => {
     const request = { ...apiRequestToPrototype(item), decisionReason: decisions.get(item.id) || "" };
     const payment = paymentQueue.find(entry => entry.request_id === item.id);
-    if (payment) {
-      request.currentStep = payment.pending ? 11 : payment.state === "authorized" ? 12 : 9;
-      request.status = payment.pending ? "Signatory Approval" : payment.state === "authorized" ? "Payment Authorized — Release Pending" : "Voucher Voided";
-    }
+    const paymentState = payment?.pending ? "payment_prepared" : item.payment_summary?.state || payment?.state;
+    if (item.status === "submitted" && paymentStages[paymentState]) [request.currentStep, request.status] = paymentStages[paymentState];
     const workflow = queueById.get(item.id);
     if (workflow && ["active", "information_requested"].includes(workflow.state)) {
       const stage = workflow.route.stages[workflow.current_stage];
@@ -2439,24 +2441,25 @@ function bindFinanceAccounting() {
   });
 }
 
+function financeVoucherKey(r) { return `${state.authUser?.id}:${r.backendId}:${r.backendVersion}:${r.backendStatus}`; }
+
 async function loadFinanceVoucher(r, force = false) {
   if (!["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return;
-  const key = financeTaxKey(r);
+  const key = financeVoucherKey(r);
   if (state.financeVoucherLoading[key] || (!force && (state.financeVouchers[key] || state.financeVoucherErrors[key]))) return;
   state.financeVoucherLoading[key] = true; state.financeVoucherErrors[key] = "";
   try {
     const data = await dataSource.getFinanceVoucher(r.backendId);
-    const stages = { draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], voided: [9, "Voucher Voided"] };
-    if (stages[data.state]) [r.currentStep, r.status] = stages[data.state];
-    state.financeVouchers[financeTaxKey(r)] = data;
+    if (paymentStages[data.state]) [r.currentStep, r.status] = paymentStages[data.state];
+    state.financeVouchers[financeVoucherKey(r)] = data;
   } catch (error) { state.financeVoucherErrors[key] = error.message; }
   finally { state.financeVoucherLoading[key] = false; render(); }
 }
 
 function financeVoucherPanel(r) {
   if (!r.backendId || r.type !== "general" || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
-  const key = financeTaxKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
-  const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
+  const key = financeVoucherKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
+  const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money, state.paymentDrafts[r.backendId] || {}) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
   return `<section class="finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" aria-label="Voucher and payment authorization"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
 }
 
@@ -2464,7 +2467,7 @@ function bindFinanceVouchers() {
   document.querySelectorAll("[data-finance-voucher]").forEach(panel => {
     const r = requests.find(item => item.backendId === panel.dataset.financeVoucher);
     if (!r) return;
-    const key = financeTaxKey(r);
+    const key = financeVoucherKey(r);
     if (!state.financeVouchers[key] && !state.financeVoucherLoading[key] && !state.financeVoucherErrors[key]) queueMicrotask(() => loadFinanceVoucher(r));
     panel.querySelector("[data-refresh-voucher]")?.addEventListener("click", () => loadFinanceVoucher(r, true));
     panel.querySelector("[data-print-issued-voucher]")?.addEventListener("click", async event => {
@@ -2473,6 +2476,7 @@ function bindFinanceVouchers() {
       catch (error) { state.financeVoucherErrors[key] = error.message; render(); }
       finally { button.disabled = false; }
     });
+    bindPaymentExecution(panel, r, key);
     panel.querySelectorAll("[data-voucher-action]").forEach(form => {
       const action = form.dataset.voucherAction;
       const values = () => ({ ...(state.financeVoucherDrafts[key] || {}), [`${action}_reason`]: form.elements.reason.value,
@@ -2499,6 +2503,59 @@ function bindFinanceVouchers() {
           setState({ toast: successToast({ issue: "Voucher issued", "prepare-payment": "Payment instruction prepared", authorize: "Payment authorized", void: "Voucher voided and accounting reversed" }[action]) });
         } catch (error) { state.financeVoucherErrors[key] = error.message; form.querySelector("[data-voucher-error]").textContent = error.message; button.disabled = false; }
       });
+    });
+  });
+}
+
+function bindPaymentExecution(panel, r, voucherKey) {
+  const drafts = state.paymentDrafts[r.backendId] ||= {};
+  drafts.schedule ||= { lines: [{}] };
+  panel.querySelector("[data-payment-schedule]")?.addEventListener("toggle", event => { drafts.schedule.open = event.currentTarget.open; });
+  panel.querySelector("[data-add-payment-line]")?.addEventListener("click", () => { drafts.schedule.lines.push({}); drafts.schedule.open = true; render(); });
+  panel.querySelectorAll("[data-remove-payment-line]").forEach(button => button.addEventListener("click", () => { drafts.schedule.lines.splice(Number(button.dataset.removePaymentLine), 1); drafts.schedule.open = true; render(); }));
+  panel.querySelectorAll("[data-replace-payment]").forEach(button => button.addEventListener("click", () => {
+    const line = state.financeVouchers[voucherKey].execution.lines.find(row => row.id === button.dataset.replacePayment);
+    drafts.schedule = { open: true, lines: [{ label: `Replacement: ${line.details.label || line.details.method}`, amount: line.amount, method_id: line.details.method_id, signatory_user_id: line.details.signatory_user_id, predecessor_id: line.id }] };
+    render(); document.querySelector("[data-payment-schedule]")?.scrollIntoView({ block: "center" });
+  }));
+  panel.querySelectorAll("[data-payment-action]").forEach(form => {
+    const action = form.dataset.paymentAction, lineId = form.dataset.paymentLine;
+    const draftKey = lineId ? `${lineId}:${action}` : "schedule";
+    const read = () => {
+      const values = Object.fromEntries([...new FormData(form).entries()].filter(([name]) => name !== "evidence"));
+      if (action === "prepare") values.lines = [...form.querySelectorAll("[data-payment-draft-line]")].map(fieldset => Object.fromEntries([...fieldset.querySelectorAll("input,select")].map(input => [input.name, input.value])));
+      drafts[draftKey] = { ...(drafts[draftKey] || {}), ...values }; return drafts[draftKey];
+    };
+    form.addEventListener("input", read); form.addEventListener("change", read);
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const data = state.financeVouchers[voucherKey], draft = read();
+      const line = data.execution.lines.find(row => row.id === lineId);
+      const button = form.querySelector('[type="submit"]'), errorBox = form.querySelector("[data-payment-error]");
+      button.disabled = true; errorBox.textContent = "";
+      try {
+        if (["release", "clear"].includes(action) && !draft.evidence_id) {
+          const file = form.elements.evidence.files[0];
+          if (!file) throw new Error("Choose supporting evidence first.");
+          const evidenceKey = `${r.backendId}:${draftKey}:evidence`, signature = `${file.name}:${file.size}:${file.lastModified}`;
+          const prior = state.paymentRetries[evidenceKey];
+          const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() };
+          state.paymentRetries[evidenceKey] = retry;
+          const evidence = await dataSource.uploadPaymentEvidence(r.backendId, lineId, action === "release" ? "release" : "clearing", file, state.csrfToken, retry.key);
+          draft.evidence_id = evidence.id;
+        }
+        const payload = { request_version: data.request_version, version: line ? line.version : data.version, reason: draft.reason,
+          ...(action === "prepare" ? { lines: draft.lines.map(row => ({ ...row, amount: row.amount })) } : {}),
+          ...(["release", "clear"].includes(action) ? { evidence_id: draft.evidence_id, recorded_on: draft.recorded_on,
+            ...(action === "release" ? { bank_name: draft.bank_name, recipient_name: draft.recipient_name } : {}) } : {}) };
+        const retryKey = `${r.backendId}:${draftKey}`, signature = JSON.stringify(payload), prior = state.paymentRetries[retryKey];
+        const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() }; state.paymentRetries[retryKey] = retry;
+        await dataSource.savePayment(r.backendId, lineId, action, payload, state.csrfToken, retry.key);
+        delete drafts[draftKey]; delete state.paymentRetries[retryKey]; delete state.paymentRetries[`${retryKey}:evidence`];
+        await loadApiPaymentRequests();
+        await loadFinanceVoucher(requests.find(item => item.backendId === r.backendId) || r, true);
+        setState({ toast: successToast(action === "prepare" ? "Payment line items prepared" : "Payment record updated") });
+      } catch (error) { errorBox.textContent = error.message; button.disabled = false; }
     });
   });
 }

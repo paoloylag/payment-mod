@@ -260,7 +260,7 @@ def _aggregate_size(db: Session, request_id: UUID) -> int:
     )
 
 
-def _store_version(db, request, actor, document, version, file, replaced_size=0):
+def _store_version(db, request, actor, document, version, file, replaced_size=0, commit=True):
     filename, media_type, byte_size, checksum, spool = _prepare(file)
     if (
         _aggregate_size(db, document.request_id) - replaced_size + byte_size
@@ -301,7 +301,7 @@ def _store_version(db, request, actor, document, version, file, replaced_size=0)
             request_id=getattr(request.state, "request_id", None),
             after={"version": version, "sha256": checksum, "byte_size": byte_size},
         )
-        db.commit()
+        db.commit() if commit else db.flush()
     except Exception:
         db.rollback()
         try:

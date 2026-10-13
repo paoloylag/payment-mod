@@ -35,6 +35,7 @@ from ..models import (
     UserRole,
     WorkflowInstance,
 )
+from ..payment_execution import request_payment_summaries
 from ..procurement_adapter import get_procurement_adapter
 from ..schemas import (
     FinanceRequestPolicyUpdate,
@@ -139,6 +140,7 @@ def serialize(
     requestors: dict[UUID, User] | None = None,
     departments: dict[UUID, Department] | None = None,
     lines_by_request: dict[UUID, list[PaymentRequestLine]] | None = None,
+    payment_summaries: dict | None = None,
 ) -> dict:
     requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
     department = (
@@ -161,6 +163,9 @@ def serialize(
         "id": str(item.id),
         "request_number": item.request_number,
         "voucher_number": item.voucher_number,
+        "payment_summary": (
+            payment_summaries if payment_summaries is not None else request_payment_summaries(db, [item.id])
+        ).get(item.id),
         "request_type": item.request_type,
         "status": item.status,
         "requestor_id": str(item.requestor_id),
@@ -201,6 +206,7 @@ def serialize(
 def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
     if not items:
         return []
+    payment_summaries = request_payment_summaries(db, [item.id for item in items])
     requestor_ids = {item.requestor_id for item in items}
     department_ids = {item.department_id for item in items}
     request_ids = {item.id for item in items}
@@ -220,6 +226,7 @@ def serialize_many(db: Session, items: list[PaymentRequest]) -> list[dict]:
             requestors=requestors,
             departments=departments,
             lines_by_request=lines_by_request,
+            payment_summaries=payment_summaries,
         )
         for item in items
     ]

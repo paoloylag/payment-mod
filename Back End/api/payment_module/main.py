@@ -19,6 +19,7 @@ from .routers.finance_vouchers import router as finance_vouchers_router
 from .routers.identity import router as identity_router
 from .routers.master_data import router as master_data_router
 from .routers.notifications import router as notifications_router
+from .routers.payment_execution import router as payment_execution_router
 from .routers.requests import router as requests_router
 from .routers.requests import settings_router as request_settings_router
 from .routers.system import router as system_router
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     application.include_router(finance_tax_router)
     application.include_router(finance_accounting_router)
     application.include_router(finance_vouchers_router)
+    application.include_router(payment_execution_router)
     application.include_router(requests_router)
     application.include_router(conversation_router)
     application.include_router(notifications_router)

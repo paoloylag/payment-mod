@@ -14,7 +14,9 @@ from .finance import (
     FinanceVoucherDraft,
     FinanceVoucherEvent,
     FinanceVoucherSequence,
+    PaymentEvidence,
     PaymentInstruction,
+    PaymentLineEvent,
 )
 from .identity import (
     AuditEvent,
@@ -74,6 +76,8 @@ __all__ = [
     "FinanceVoucherEvent",
     "FinanceVoucherSequence",
     "PaymentInstruction",
+    "PaymentLineEvent",
+    "PaymentEvidence",
     "NotificationOutboxEvent",
     "PaymentRequest",
     "RequestConversationMessage",

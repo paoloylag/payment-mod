@@ -229,6 +229,14 @@ export function createDataSource() {
       return apiRequest(`/api/v1/finance-vouchers/${id}/${action}`, { method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload) });
     },
+    savePayment(id, lineId, action, payload, csrfToken, key) {
+      const path = lineId ? `/api/v1/payments/${id}/lines/${lineId}/${action}` : `/api/v1/payments/${id}/lines`;
+      return apiRequest(path, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload) });
+    },
+    uploadPaymentEvidence(id, lineId, kind, file, csrfToken, key) {
+      const body = new FormData(); body.append("kind", kind); body.append("file", file);
+      return apiRequest(`/api/v1/payments/${id}/lines/${lineId}/evidence/upload`, { method: "POST", headers: { "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body });
+    },
     saveFinanceAccounting(id, action, payload, csrfToken, key) {
       return apiRequest(`/api/v1/finance-accounting/${id}/${action}`, {
         method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload),

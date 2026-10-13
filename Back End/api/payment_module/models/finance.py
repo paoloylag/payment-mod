@@ -1,6 +1,7 @@
 """Immutable Finance Associate decisions for individual request lines."""
 
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -11,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -161,13 +163,65 @@ class FinanceVoucherSequence(Base):
 
 class PaymentInstruction(Base):
     __tablename__ = "payment_instructions"
-    __table_args__ = (UniqueConstraint("method_id", "reference"),)
+    __table_args__ = (
+        UniqueConstraint("method_id", "reference"),
+        UniqueConstraint("voucher_id", "sequence"),
+        UniqueConstraint("predecessor_id"),
+        CheckConstraint("amount > 0", name="ck_payment_instruction_amount"),
+    )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
-    voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), unique=True)
+    voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), index=True)
     request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
     signatory_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     preparer_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     method_id: Mapped[UUID] = mapped_column(ForeignKey("payment_methods.id", ondelete="RESTRICT"), nullable=False)
     reference: Mapped[str] = mapped_column(String(100), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(19, 4), nullable=False, default=lambda ctx: Decimal(ctx.get_current_parameters()["result"]["amount"])
+    )
+    currency_code: Mapped[str] = mapped_column(
+        ForeignKey("currencies.code", ondelete="RESTRICT"),
+        nullable=False,
+        default=lambda ctx: ctx.get_current_parameters()["result"]["currency"],
+    )
+    predecessor_id: Mapped[UUID | None] = mapped_column(ForeignKey("payment_instructions.id", ondelete="CASCADE"))
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PaymentLineEvent(Base):
+    __tablename__ = "payment_line_events"
+    __table_args__ = (
+        UniqueConstraint("instruction_id", "version"),
+        UniqueConstraint("instruction_id", "command_key"),
+        CheckConstraint(
+            "state IN ('prepared','authorized','ready_for_pickup','released','cleared','failed','voided')",
+            name="ck_payment_line_state",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    instruction_id: Mapped[UUID] = mapped_column(ForeignKey("payment_instructions.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(25), nullable=False)
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class PaymentEvidence(Base):
+    __tablename__ = "payment_evidence"
+    __table_args__ = (UniqueConstraint("instruction_id", "command_key"),)
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    instruction_id: Mapped[UUID] = mapped_column(ForeignKey("payment_instructions.id", ondelete="CASCADE"), index=True)
+    document_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

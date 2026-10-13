@@ -2177,3 +2177,8 @@ button, input, select, textarea, dialog { font-family: var(--font-body); }
 @media (min-width: 640px) {
   .finance-tax-panel .detail-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+.payment-line-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-block: 16px; min-width: 0; overflow-wrap: anywhere; }
+[data-payment-execution] fieldset { min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); }
+[data-payment-execution] input, [data-payment-execution] select { width: 100%; min-width: 0; box-sizing: border-box; }
+[data-payment-execution] details { margin-block: 12px; }
