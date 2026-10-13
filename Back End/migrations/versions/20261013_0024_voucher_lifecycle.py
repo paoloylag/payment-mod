@@ -107,16 +107,23 @@ def upgrade():
         permission_id = uuid5(NAMESPACE_URL, f"payment-module:permission:{code}")
         bind.execute(
             sa.text(
-                "INSERT INTO permissions (id, code, description) VALUES (:id, :code, :description) ON CONFLICT (code) DO NOTHING"
+                "INSERT INTO permissions (id, code, description) VALUES (:id, :code, :description) "
+                "ON CONFLICT (code) DO NOTHING"
             ),
             {"id": permission_id, "code": code, "description": code},
         )
         for role in roles:
             bind.execute(
                 sa.text(
-                    "INSERT INTO role_permissions (id, role_id, permission_id) SELECT :id, r.id, p.id FROM roles r, permissions p WHERE r.code=:role AND p.code=:code ON CONFLICT (role_id, permission_id) DO NOTHING"
+                    "INSERT INTO role_permissions (id, role_id, permission_id) "
+                    "SELECT :id, r.id, p.id FROM roles r, permissions p WHERE r.code=:role AND p.code=:code "
+                    "ON CONFLICT (role_id, permission_id) DO NOTHING"
                 ),
-                {"id": uuid5(NAMESPACE_URL, f"payment-module:role-permission:{role}:{code}"), "role": role, "code": code},
+                {
+                    "id": uuid5(NAMESPACE_URL, f"payment-module:role-permission:{role}:{code}"),
+                    "role": role,
+                    "code": code,
+                },
             )
 
 
