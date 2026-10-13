@@ -220,6 +220,12 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/finance-validation/${id}`);
     },
+    getFinanceTax(id) { return apiRequest(`/api/v1/finance-tax/${id}`); },
+    saveFinanceTax(id, payload, csrfToken, key) {
+      return apiRequest(`/api/v1/finance-tax/${id}`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload),
+      });
+    },
     reviewFinanceLine(requestId, lineId, requestVersion, decision, reason, physicalOriginalReceived, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/finance-validation/${requestId}/lines/${lineId}/reviews`, {

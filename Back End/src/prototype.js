@@ -277,6 +277,11 @@ let state = {
   workflowExceptionRetries: {},
   workflowExceptionOpen: {},
   financeValidation: {},
+  financeTax: {},
+  financeTaxLoading: {},
+  financeTaxErrors: {},
+  financeTaxDrafts: {},
+  financeTaxRetries: {},
   financeValidationLoading: {},
   financeValidationErrors: {},
   conversations: {},
@@ -942,7 +947,7 @@ function vendorsPage() {
   const canCreate = state.authUser?.permissions?.includes("vendors.manage");
   const labels = {name: "Vendor name", vendorType: "Vendor type", contactPerson: "Contact person", street2: "Address line 2", taxId: "Tax ID", branchCode: "Branch code", businessRegistration: "Business registration", terms: "Payment terms", lead: "Lead time", informationStatus: "Information status"};
   const label = key => labels[key] || key[0].toUpperCase() + key.slice(1);
-  return `<section class="panel vendor-directory"><div class="panel-header"><div><h3>Vendor Directory</h3><p>Create and view vendor information.</p></div>${canCreate ? '<button type="button" data-new-vendor class="primary-button">Add vendor</button>' : ""}</div>${state.masterDataLoading ? '<p>Loading vendors…</p>' : ""}${state.masterDataError ? `<p role="alert">${escapeHtml(state.masterDataError)}</p>` : ""}<div class="identity-list">${items.map(item => `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.email)}</small></div><span>${escapeHtml(item.code)}</span><span class="status-pill ${item.status === "active" ? "success" : "danger"}">${escapeHtml(item.status)}</span><div class="vendor-row-actions"><button type="button" data-view-vendor="${escapeHtml(item.id)}">View</button>${canCreate ? `<button type="button" data-edit-vendor="${escapeHtml(item.id)}">Edit</button>` : ""}</div></article>`).join("")}</div></section>${creating || selected ? `<div class="identity-modal-backdrop"><section class="identity-modal" role="dialog" aria-modal="true" aria-label="${creating ? "Create vendor" : "Vendor details"}"><div class="identity-modal-header"><h3>${creating ? editingVendor ? "Edit vendor" : "Create vendor" : escapeHtml(selected.name)}</h3><button type="button" class="close-icon-button" data-close-vendor aria-label="Close vendor">${closeIcon}</button></div>${creating ? `<form data-vendor-create><div class="vendor-field-grid">${vendorFields.map(key => `<label>${label(key)}${key === "informationStatus" ? '<select name="informationStatus"><option>Information complete</option><option>Information requested</option></select>' : key === "notes" ? '<textarea name="notes" rows="2"></textarea>' : `<input name="${key}" ${key === "name" ? "required" : ""} type="${key === "email" ? "email" : "text"}" value="${key === "country" ? "Philippines" : key === "vendorType" ? "Company" : ""}">`}</label>`).join("")}</div><p role="alert" data-vendor-error></p><div class="identity-form-actions"><button type="button" data-close-vendor>Cancel</button><button type="submit" class="primary-button">${editingVendor ? "Save changes" : "Create vendor"}</button></div></form>` : `<dl class="vendor-field-grid">${vendorFields.map(key => `<div><dt>${label(key)}</dt><dd>${escapeHtml(selected[key] || "—")}</dd></div>`).join("")}</dl><h4>Business documents</h4>${(selected.businessDocuments || []).map(doc => `<p>${escapeHtml(doc.name)} · ${escapeHtml(doc.kind)}</p>`).join("") || "<p>No business documents.</p>"}${canViewVendorJson ? `<details><summary>Vendor JSON</summary><pre class="vendor-json">${escapeHtml(JSON.stringify(selected, null, 2))}</pre></details>` : ""}`}</section></div>` : ""}`;
+  return `<section class="panel vendor-directory"><div class="panel-header"><div><h3>Vendor Directory</h3><p>Create and view vendor information.</p></div>${canCreate ? '<button type="button" data-new-vendor class="primary-button">Add vendor</button>' : ""}</div>${state.masterDataLoading ? '<p>Loading vendors…</p>' : ""}${state.masterDataError ? `<p role="alert">${escapeHtml(state.masterDataError)}</p>` : ""}<div class="identity-list">${items.map(item => `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.email)}</small></div><div class="vendor-branch-code"><small>Branch Code</small><span>${escapeHtml(item.branchCode || item.code || "—")}</span></div><span class="status-pill ${item.status === "active" ? "success" : "danger"}">${escapeHtml(item.status)}</span><div class="vendor-row-actions"><button type="button" class="vendor-action-button" data-view-vendor="${escapeHtml(item.id)}">View</button>${canCreate ? `<button type="button" class="vendor-action-button" data-edit-vendor="${escapeHtml(item.id)}">Edit</button>` : ""}</div></article>`).join("")}</div></section>${creating || selected ? `<div class="identity-modal-backdrop"><section class="identity-modal" role="dialog" aria-modal="true" aria-label="${creating ? "Create vendor" : "Vendor details"}"><div class="identity-modal-header"><h3>${creating ? editingVendor ? "Edit vendor" : "Create vendor" : escapeHtml(selected.name)}</h3><button type="button" class="close-icon-button" data-close-vendor aria-label="Close vendor">${closeIcon}</button></div>${creating ? `<form data-vendor-create><div class="vendor-field-grid">${vendorFields.map(key => `<label>${label(key)}${key === "informationStatus" ? '<select name="informationStatus"><option>Information complete</option><option>Information requested</option></select>' : key === "notes" ? '<textarea name="notes" rows="2"></textarea>' : `<input name="${key}" ${key === "name" ? "required" : ""} type="${key === "email" ? "email" : "text"}" value="${key === "country" ? "Philippines" : key === "vendorType" ? "Company" : ""}">`}</label>`).join("")}</div><p role="alert" data-vendor-error></p><div class="identity-form-actions"><button type="button" data-close-vendor>Cancel</button><button type="submit" class="primary-button">${editingVendor ? "Save changes" : "Create vendor"}</button></div></form>` : `<dl class="vendor-field-grid">${vendorFields.map(key => `<div><dt>${label(key)}</dt><dd>${escapeHtml(selected[key] || "—")}</dd></div>`).join("")}</dl><h4>Business documents</h4>${(selected.businessDocuments || []).map(doc => `<p>${escapeHtml(doc.name)} · ${escapeHtml(doc.kind)}</p>`).join("") || "<p>No business documents.</p>"}${canViewVendorJson ? `<details><summary>Vendor JSON</summary><pre class="vendor-json">${escapeHtml(JSON.stringify(selected, null, 2))}</pre></details>` : ""}`}</section></div>` : ""}`;
 }
 
 function masterDataPage(tab) {
@@ -1692,7 +1697,7 @@ function financeSetupSection(editable) {
   }).join("");
   return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
     <form data-finance-setup class="identity-form numbering-settings-form">
-      <div class="numbering-settings-summary"><p>Draft only. These choices do not yet change request calculations, approval routing, or vouchers. Finance must confirm the applicability matrix before activation.</p></div>
+      <div class="numbering-settings-summary"><p>General requests use the saved tax defaults for EWT calculation. Finance Associate can override EWT per request or line. Account mappings, other request types, and voucher settings remain draft.</p></div>
       <h4>Tax calculation</h4><div class="field-grid">
         ${financeSetupSelect("vat_basis", "VAT basis", setup.vat_basis, [["inclusive", "Amount includes VAT"], ["exclusive", "Add VAT to amount"]], disabled)}
         ${financeSetupSelect("ewt_basis", "EWT basis", setup.ewt_basis, [["net_of_vat", "Amount excluding VAT"], ["gross", "Gross amount"]], disabled)}
@@ -1721,7 +1726,7 @@ function financeReadinessSection(setup) {
   return `<section class="finance-readiness" aria-label="Finance readiness checklist">
     <h4>Finance readiness checklist</h4>
     <p>Checked ${escapeHtml(report.as_of)} · Setup version ${escapeHtml(report.configuration_version)}. ${report.blocked_count} checks need attention.</p>
-    <p>Draft settings are not active. Existing request processing continues while Finance prepares the required rules.</p>
+    <p>General request EWT uses the saved tax choices. Full accounting activation and the creation/submission readiness gate remain pending.</p>
     <details><summary>View checks and missing settings</summary>
       <ul>${issues.map((check) => `<li><strong>${check.request_type ? `${escapeHtml(typeNames[check.request_type] || check.request_type)} — ` : ""}${escapeHtml(check.label)}</strong>: ${escapeHtml(check.message)}</li>`).join("")}</ul>
       ${report.missing_choices.length ? `<h4>Missing choices</h4><ul>${report.missing_choices.map((choice) => `<li>${escapeHtml(choice)}</li>`).join("")}</ul>` : ""}
@@ -2139,6 +2144,7 @@ function detail(r, showWorkflowSummary = false) {
   const canUnlock = !r.backendId && ["all", "financeManager"].includes(state.persona) && r.currentStep >= 4 && !r.unlocked;
   let requestControls = canEdit || canUnlock || r.unlocked ? `<div class="request-control-bar"><div><span class="eyebrow">Request Controls</span><strong>${r.unlocked ? "Unlocked for urgent correction" : canEdit ? "Editing is available before Document Validation" : "Request is workflow-locked"}</strong></div>${canEdit ? `<button type="button" data-edit-request="${r.id}">Edit Request</button>` : ""}${canUnlock ? `<button type="button" class="danger" data-unlock-request="${r.id}">Authorize Unlock</button>` : ""}</div>` : "";
   requestControls += workflowExceptionPanel(r);
+  requestControls += financeTaxPanel(r);
   const latestReturn = r.backendId ? [...(state.workflowDetails[r.backendId]?.events || [])].reverse().find((event) => event.action === "returned") : null;
   return `<section class="panel request-detail-panel"><details class="request-metadata responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Request Summary</span><strong>${r.requestor} · ${requestMoney(r)}</strong><small>${r.department} · ${r.vendor}</small></span><span class="disclosure-label">Details</span></summary><dl class="detail-list">
       <div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div>
@@ -2244,6 +2250,76 @@ async function loadFinanceValidation(r, force = false) {
   }
   catch (error) { state.financeValidationErrors[key] = error.message || "Finance validation could not be loaded."; }
   finally { state.financeValidationLoading[key] = false; render(); }
+}
+
+function financeTaxKey(r) { return `${state.authUser?.id}:${r.backendId}:${r.backendVersion}:${r.currentStep}:${r.backendStatus}`; }
+
+async function loadFinanceTax(r, force = false) {
+  const key = financeTaxKey(r);
+  if (state.financeTaxLoading[key] || (!force && (state.financeTax[key] || state.financeTaxErrors[key]))) return;
+  state.financeTaxLoading[key] = true;
+  state.financeTaxErrors[key] = "";
+  try { state.financeTax[key] = await dataSource.getFinanceTax(r.backendId); }
+  catch (error) { state.financeTaxErrors[key] = error.message; }
+  finally { state.financeTaxLoading[key] = false; render(); }
+}
+
+function financeTaxPanel(r) {
+  if (!r.backendId || r.type !== "general") return "";
+  const key = financeTaxKey(r), tax = state.financeTax[key], error = state.financeTaxErrors[key];
+  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT"><h3>General Request EWT</h3>${body}</section>`;
+  if (!tax) return wrapper(error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-finance-tax>Retry EWT</button>` : `<p role="status">Loading EWT…</p>`);
+  const result = tax.stale ? tax.preview : (tax.saved?.result || tax.preview);
+  const draft = state.financeTaxDrafts[key] || { request_ewt_tax_id: result?.request_ewt_tax_id || "", line_ewt_overrides: result?.line_ewt_overrides || {}, reason: "" };
+  const options = (value, inherit) => `<option value="">${inherit}</option>${tax.tax_codes.map(code => `<option value="${escapeHtml(code.id)}" ${code.id === value ? "selected" : ""}>${escapeHtml(code.ewt_classification)} · ${escapeHtml(code.ewt_rate)}% (${escapeHtml(code.code)})</option>`).join("")}`;
+  const editable = tax.can_edit && state.persona === "financeAssociate";
+  const totals = result ? `<dl class="detail-list">${[["Gross", "gross"], ["VAT", "vat"], ["EWT", "ewt"], ["Amount due", "amount_due"]].map(([label, field]) => `<div><dt>${label}</dt><dd data-tax-total="${field}">${money(Number(result.totals[field]), r.currency)}</dd></div>`).join("")}</dl><p>Setup version ${escapeHtml(result.configuration.version)} · ${tax.saved && !tax.stale ? `Saved calculation ${tax.version}` : "Default preview — not saved"}. EWT selection does not change VAT treatment.</p>` : "";
+  return wrapper(`${tax.stale ? '<p role="status">The request changed. Save a new calculation for its current lines; earlier calculations remain in history.</p>' : ""}${tax.blocker ? `<p role="alert">${escapeHtml(tax.blocker)} Update Finance Setup in Request Settings.</p>` : ""}${totals}
+    ${editable ? `<form data-finance-tax-form class="identity-form"><label>Request EWT<select name="request_ewt_tax_id">${options(draft.request_ewt_tax_id, "Use General request default")}</select></label><p>Lines inherit the request selection unless an override is selected.</p>
+      ${(r.lines || []).map((line, index) => `<label>Line ${index + 1}: ${escapeHtml(line.particulars)}<select data-line-ewt="${escapeHtml(line.id)}">${options(draft.line_ewt_overrides[line.id], "Use request EWT")}</select></label>`).join("")}
+      <label>Reason for assignment or change<textarea name="reason" maxlength="4000" required rows="2">${escapeHtml(draft.reason)}</textarea></label>
+      <p data-tax-error role="alert">${escapeHtml(error || "")}</p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save EWT and recalculate</button>
+    </form>` : ""}
+    ${result ? `<details><summary>Calculation by line</summary>${result.lines.map(line => `<p><strong>Line ${line.position}: ${escapeHtml(line.particulars)}</strong><br>${escapeHtml(line.ewt_tax.ewt_classification)} ${escapeHtml(line.ewt_tax.ewt_rate)}% · ${line.source === "line" ? "Line override" : "Request EWT"}<br>Base ${money(Number(line.ewt_base), r.currency)} · EWT ${money(Number(line.ewt), r.currency)} · Due ${money(Number(line.amount_due), r.currency)}</p>`).join("")}</details>` : ""}
+    ${tax.history.length ? `<details><summary>EWT history (${tax.history.length})</summary>${tax.history.map(entry => `<p><strong>Calculation ${entry.version}</strong> · ${escapeHtml(entry.result.assigned_by || "Finance Associate")} · ${escapeHtml(entry.created_at)}<br>${escapeHtml(entry.reason)}<br>EWT ${money(Number(entry.result.totals.ewt), r.currency)} · Due ${money(Number(entry.result.totals.amount_due), r.currency)}</p>`).join("")}</details>` : ""}`);
+}
+
+function bindFinanceTax() {
+  document.querySelectorAll("[data-finance-tax]").forEach(panel => {
+    const r = requests.find(item => item.backendId === panel.dataset.financeTax);
+    if (!r) return;
+    const key = financeTaxKey(r);
+    if (!state.financeTax[key] && !state.financeTaxLoading[key] && !state.financeTaxErrors[key]) queueMicrotask(() => loadFinanceTax(r));
+    panel.querySelector("[data-retry-finance-tax]")?.addEventListener("click", () => loadFinanceTax(r, true));
+    const form = panel.querySelector("[data-finance-tax-form]");
+    if (!form) return;
+    const values = () => ({ request_ewt_tax_id: form.elements.request_ewt_tax_id.value || null,
+      line_ewt_overrides: Object.fromEntries([...form.querySelectorAll("[data-line-ewt]")].filter(el => el.value).map(el => [el.dataset.lineEwt, el.value])), reason: form.elements.reason.value });
+    form.addEventListener("input", () => { state.financeTaxDrafts[key] = values(); });
+    form.addEventListener("change", () => { state.financeTaxDrafts[key] = values(); });
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const tax = state.financeTax[key];
+      const payload = { ...values(), request_version: tax.request_version, version: tax.version };
+      const signature = JSON.stringify(payload), prior = state.financeTaxRetries[key];
+      const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() };
+      state.financeTaxRetries[key] = retry;
+      state.financeTaxDrafts[key] = values();
+      const button = form.querySelector('[type="submit"]');
+      button.disabled = true;
+      try {
+        await dataSource.saveFinanceTax(r.backendId, payload, state.csrfToken, retry.key);
+        delete state.financeTaxDrafts[key]; delete state.financeTaxRetries[key];
+        await loadFinanceTax(r, true);
+        if (state.financeValidation[r.backendId]) await loadFinanceValidation(r, true);
+        setState({ toast: successToast("EWT assignment saved") });
+      } catch (error) {
+        state.financeTaxErrors[key] = error.message;
+        form.querySelector("[data-tax-error]").textContent = error.message;
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 async function loadNotifications() {
@@ -3335,6 +3411,7 @@ function render() {
     if (financeRequest && !state.financeValidationLoading[financeRequest.backendId] && !state.financeValidation[financeRequest.backendId] && !state.financeValidationErrors[financeRequest.backendId]) queueMicrotask(() => loadFinanceValidation(financeRequest));
   }
   bindMasterData();
+  bindFinanceTax();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "financeManager", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {

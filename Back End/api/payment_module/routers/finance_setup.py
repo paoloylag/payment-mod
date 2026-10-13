@@ -84,6 +84,7 @@ def view(draft: FinanceSetupDraft, db: Session) -> dict:
         "missing_choices": missing_choices(draft),
         "configuration_complete": not missing_choices(draft),
         "operational_status": "draft",
+        "general_ewt_configured": bool(draft.tax_by_request_type.get("general")),
         "readiness": readiness_report(db, draft, missing_choices(draft), REQUEST_TYPES),
     }
 

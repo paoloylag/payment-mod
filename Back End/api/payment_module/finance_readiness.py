@@ -110,8 +110,9 @@ def readiness_report(db, draft, missing, request_types):
             "code": "activation",
             "label": "Finance policy activation",
             "status": "pending_confirmation",
-            "message": "Finance must confirm vendor/line tax applicability, mapping exceptions, and sign-off scope "
-            "before automatic accounting and the full request gate can be activated.",
+            "message": "General request EWT defaults and Finance Associate line overrides are supported. "
+            "Account mapping exceptions, other request types, and sign-off scope remain pending "
+            "before full automatic accounting and the request creation gate can be activated.",
             "request_type": None,
         }
     )

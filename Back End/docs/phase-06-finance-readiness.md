@@ -5,6 +5,8 @@ Status: Live readiness report implemented; policy activation pending Finance rul
 
 ## Saved configuration draft
 
+General request EWT is now supported: the saved General tax default supplies VAT treatment and initial EWT; Finance Associate saves request-level EWT and optional line overrides, including explicit No EWT. These selections affect EWT only. Saved calculations retain their own configuration and rates. Configured General requests require a current saved calculation at Finance Associate approval. The draft status below continues to apply to account/voucher activation and other request types, not to this confirmed General EWT feature.
+
 Administration → Request Settings → Finance Setup Draft now saves partial Finance choices with a version and audit event. Finance Managers and System Administrators can edit; Finance Associates can view. Options cover VAT/EWT bases, rounding, rule dates, tax and debit/credit account defaults by request type, voucher numbering and certification, voucher authority, and the proposed sign-off scope. Only active tax codes and active posting accounts can be selected.
 
 The draft reports missing choices. Even a fully filled draft is not activated: detailed vendor/line applicability, department-specific mappings, sign-off records, calculation snapshots, and the creation/submission gate still require implementation and Finance confirmation. The scope selector records the intended scope; it does not yet create separate department configurations.

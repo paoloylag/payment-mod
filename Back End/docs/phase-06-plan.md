@@ -34,6 +34,16 @@ The concrete checks, current enforcement, Finance decisions still needed, and im
 
 ## Objective
 
+### General request EWT — 2026-10-13
+
+- Owner confirmed General requests use configured tax defaults, with Finance Associate assigning EWT at request level and overriding individual lines. A line can explicitly select No EWT; selecting an EWT code never changes the default VAT classification/rate.
+- Request details show a default preview, a request EWT dropdown, inheriting/overriding line dropdowns, calculation totals and breakdown, and immutable saved history. Only the currently assigned Finance Associate (including an assigned information/correction response) may save; reached participants may view.
+- Saving records a reason, actor, request version, configuration version and date basis, rates/classifications, line amounts, decimal rounding, EWT bases/results, VAT and amount due. Repeated commands are idempotent; stale versions and foreign request lines are rejected. The request is locked with its workflow while saving.
+- When a General tax default is configured, Finance Associate approval requires a saved calculation for the current request version. Editing/resubmitting a request invalidates its previous calculation; historical snapshots remain intact. Previously unconfigured requests retain the existing flow until Finance supplies the General tax default. Full configuration activation and the creation/submission gate remain separate work.
+- Calculations honor currency precision, configured half-up/half-even rounding, gross/net-of-VAT EWT bases, and configured rule date. Gross must equal the request amount. VAT-exclusive additions that increase the approved amount are blocked rather than silently changing the approval basis.
+- Account mappings, balanced entries, and voucher operations remain pending. Other request types are not included in this EWT increment.
+- Validation: 165 backend tests passed; five Chrome workflows passed, including General EWT at 390/768/1280px, error/retry, keyboard save, persistence, and existing approvals. Migration 0021 downgrade/replay, backend lint, and frontend build passed. Mobile evidence: `outputs/phase06-general-ewt-mobile.png`.
+
 ### Readiness implementation — 2026-10-13
 
 - Request Settings now displays a live Finance readiness checklist, including missing choices, current tax/account reference validity, effective dates, distinct debit/credit accounts, department cost centers, and nonblank voucher certification. Saving or reloading recomputes the report from current master data.
