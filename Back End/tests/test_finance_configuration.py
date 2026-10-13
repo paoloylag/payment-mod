@@ -47,7 +47,12 @@ def configuration_fixture():
         "setup_scope": "request_type",
         "tax_by_request_type": {"general": str(tax_id)},
         "accounts_by_request_type": {
-            "general": {"debit_account_id": body["lines"][0]["chart_account_id"], "credit_account_id": str(credit_id)}
+            "general": {
+                "debit_account_id": body["lines"][0]["chart_account_id"],
+                "credit_account_id": str(credit_id),
+                "input_vat_account_id": body["lines"][0]["chart_account_id"],
+                "ewt_payable_account_id": str(credit_id),
+            }
         },
     }
     yield config, body
@@ -167,3 +172,16 @@ def test_future_activation_blocks_until_effective(client, configuration_fixture)
     blocked = client.post("/api/v1/requests", json=body, headers=owner)
     assert blocked.status_code == 409
     assert "not yet effective" in blocked.text
+
+
+@pytest.mark.parametrize("field", ["input_vat_account_id", "ewt_payable_account_id"])
+def test_activation_requires_accounts_for_applicable_taxes(client, configuration_fixture, field):
+    config, _ = configuration_fixture
+    manager = login(client, "finance.manager@payment.local")
+    config["accounts_by_request_type"]["general"][field] = None
+    saved = save_setup(client, manager, config)
+    assert any(
+        field.replace("_account_id", "").replace("_", " ") in blocker for blocker in saved["activation"]["blockers"]
+    )
+    blocked = activate(client, manager)
+    assert blocked.status_code == 409

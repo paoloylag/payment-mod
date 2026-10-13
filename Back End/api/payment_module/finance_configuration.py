@@ -27,6 +27,16 @@ def reference(record):
     return {"id": str(record.id), "code": record.code, "name": record.name}
 
 
+def tax_ledger_fields(vat_rate, ewt_rate):
+    from decimal import Decimal
+
+    return [
+        field
+        for field, rate in (("input_vat_account_id", vat_rate), ("ewt_payable_account_id", ewt_rate))
+        if Decimal(str(rate)) > 0
+    ]
+
+
 def activation_errors(db, config):
     errors = []
     for field in ("vat_basis", "ewt_basis", "rounding", "effective_date_basis", "effective_from", "setup_scope"):
@@ -58,6 +68,13 @@ def activation_errors(db, config):
             errors.append(f"Select an active, effective posting {side} account for General requests")
     if mapping.get("debit_account_id") == mapping.get("credit_account_id"):
         errors.append("Debit and credit accounts must be different")
+    for field in tax_ledger_fields(tax.vat_rate, tax.ewt_rate) if tax else []:
+        account_id = mapping.get(field)
+        account = db.get(ChartAccount, UUID(str(account_id))) if account_id else None
+        if not effective(account, on_date) or not account.is_posting:
+            errors.append(
+                f"Select an active, effective posting {field.replace('_account_id', '').replace('_', ' ')} account"
+            )
     return errors
 
 
@@ -74,6 +91,12 @@ def mapping_for_department(db, configuration, department_id):
         if not effective(account, on_date) or not account.is_posting:
             raise HTTPException(409, f"Finance setup is incomplete: General {side} account is inactive or expired")
         accounts[side] = account
+    frozen_tax = config.get("default_tax_snapshot", {})
+    for field in tax_ledger_fields(frozen_tax.get("vat_rate", tax.vat_rate), frozen_tax.get("ewt_rate", tax.ewt_rate)):
+        account_id = mapping.get(field)
+        account = db.get(ChartAccount, UUID(str(account_id))) if account_id else None
+        if not effective(account, on_date) or not account.is_posting:
+            raise HTTPException(409, "Finance setup is incomplete: configure active input VAT and EWT payable accounts")
     center = db.scalar(select(CostCenter).where(CostCenter.department_id == department_id))
     if not effective(center, on_date):
         raise HTTPException(409, "Finance setup is incomplete: configure an effective cost center for this department")

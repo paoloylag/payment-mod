@@ -3,7 +3,20 @@
 from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,4 +82,43 @@ class FinanceCodingSnapshot(Base):
     request_version: Mapped[int] = mapped_column(Integer, nullable=False)
     configuration_id: Mapped[UUID] = mapped_column(ForeignKey("finance_configurations.id", ondelete="RESTRICT"))
     result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceJournalSnapshot(Base):
+    __tablename__ = "finance_journal_snapshots"
+    __table_args__ = (
+        UniqueConstraint("request_id", "version"),
+        UniqueConstraint("request_id", "command_key"),
+        CheckConstraint("state IN ('draft', 'posted')", name="ck_finance_journal_state"),
+        Index(
+            "uq_finance_journal_posted_request", "request_id", unique=True, postgresql_where=text("state = 'posted'")
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
+    request_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    tax_snapshot_id: Mapped[UUID] = mapped_column(ForeignKey("finance_tax_snapshots.id", ondelete="RESTRICT"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(10), nullable=False)
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FinanceVoucherDraft(Base):
+    __tablename__ = "finance_voucher_drafts"
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), unique=True)
+    journal_id: Mapped[UUID] = mapped_column(
+        ForeignKey("finance_journal_snapshots.id", ondelete="RESTRICT"), unique=True
+    )
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

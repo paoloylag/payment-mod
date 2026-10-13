@@ -1,9 +1,9 @@
 # Phase 06 — Finance Validation and Vouchers
 
 Date prepared: 2026-08-28  
-Status: In progress — General configuration activation, automatic account assignment, and EWT snapshots implemented; balanced accounting entries and vouchers remain pending.
+Status: In progress — General configuration, EWT, accounting preparation/corrections/posting, and voucher draft preparation implemented; formal voucher issuance/printing, reversals and other request types remain pending.
 
-Finance Setup Draft was added to Request Settings on 2026-10-13. It saves versioned tax calculation choices, request-type tax/account defaults, voucher controls, and proposed sign-off scope. See [Finance configuration readiness](phase-06-finance-readiness.md). These saved choices await detailed applicability rules and activation; they do not yet enforce readiness or calculate vouchers.
+Finance Setup Draft was added to Request Settings on 2026-10-13. It saves versioned tax calculation choices, request-type tax/account defaults, voucher controls, and proposed sign-off scope. See [Finance configuration readiness](phase-06-finance-readiness.md). General tax/account choices can be activated and now support the accounting workbench. Other request-type applicability and formal voucher controls remain pending.
 Depends on: Phase 05 — Workflow and Approvals
 
 ## Finance Associate validation decisions — 2026-10-10
@@ -160,3 +160,16 @@ Bank/check processing, release, clearing, and settlement attempts are delivered 
 ### General tax ledger configuration
 
 General request defaults now include optional Input VAT and EWT payable account selectors. Saving validates that each selected account exists and is active and posting. Choices use the existing versioned, audited Finance setup and are retained in configuration snapshots. These are explicitly draft choices for the upcoming accounting workbench; journal balancing, posting, correction permissions and vouchers are still pending.
+
+
+### General accounting workbench and voucher preparation — 2026-10-13
+
+- Owner approved Finance Associate preparation and draft corrections, with Finance Manager review/posting. Reached Finance participants can view; future-stage staff, requestors and non-Finance participants cannot access accounting APIs. Requestors cannot prepare/post their own requests even when holding a Finance role.
+- The server builds expense and input VAT debits, EWT payable and vendor payable credits from the current immutable EWT calculation. Zero components are omitted, including No EWT. Decimal amounts remain in request currency; every draft must balance and match the request gross amount. Finance Associate can correct an individual entry's posting account, with a required reason; tax amounts are changed through EWT reassignment and recalculation.
+- General activation requires active/effective input VAT and EWT payable mappings when the default tax code applies those taxes. General creation/submission also checks these active mappings. Legacy calculations without a bound active mapping can be completed by choosing accounts per entry in the workbench.
+- Accounting preparation is available during the assigned Finance Associate review/information response and again after final approval. Each save creates a new immutable version with account names/codes, cost centers, tax/request versions, amounts, actor and reason. Changes to the request or EWT mark an existing draft stale and require a new preparation. API clients cannot supply arbitrary entry amounts.
+- Finance Manager posting requires final workflow approval, current request/tax/draft versions, accepted Finance document/line validation, active/effective posting accounts and cost centers, and balanced entries matching the request. Row locks, command keys and a database unique posted-request index prevent duplicate posting. Retries return the original result; conflicting commands are rejected.
+- Posting adds an immutable snapshot. Posted accounting cannot be edited; cancellation and document-review changes are blocked after posting. No reversal path is available yet. Corrections record before/after audit data and remain visible in accounting history.
+- After final approval and posting, Finance Associate can prepare one persisted voucher draft from the posted entries. It freezes request/payee/purpose, currency, gross/VAT/EWT/due, journal version, certification wording and preparer. The existing paired voucher reference is displayed as reserved. Draft preparation does not issue a payment authorization. Numbering activation, formal voucher printing/certification, void/replacement and accounting reversal remain pending.
+- UI: General request details → Accounting workbench. The panel uses existing select/button/card styles, retains correction/reason inputs during failed saves, supports keyboard submission, and stacks the entries and voucher details on mobile.
+- Verification: complete backend regression run passed (174 tests before the final readiness additions); final affected Finance/document checks passed (20 tests). Browser click-through passed preparation, correction, posting and voucher reload, plus activation and existing approval/lifecycle regressions. Mobile/tablet/desktop checks cover 390/768/1280px, save error/retry, keyboard actions and clipped-value checks. Migration 0023 rollback/replay, lint and frontend build passed. Evidence: `outputs/phase06-accounting-mobile.png`.

@@ -1,7 +1,7 @@
 # Phase 06 — Finance configuration readiness checklist
 
 Prepared: 2026-10-13
-Status: General activation and automatic coding implemented; accounting entries, vouchers, and other request-type activation remain pending
+Status: General activation, coding, accounting preparation/posting and voucher draft preparation implemented; formal vouchers and other request types remain pending
 
 ## Saved configuration draft
 
@@ -43,3 +43,8 @@ The Finance Setup response now includes a live `readiness` report, displayed bel
 4. Add exact calculation fixtures and tests for every approved example, including No EWT, rounding boundaries, and the PHP 200,000 TOJUST case. Then enable the tax/account readiness gate and voucher workbench.
 
 Until the applicability and mapping matrix is approved, a generic “at least one tax code exists” check is insufficient to declare Finance configuration ready.
+
+
+## General accounting readiness update — 2026-10-13
+
+General activation now requires input VAT and EWT payable posting accounts when the default tax code applies those taxes. Active request creation/submission checks their current validity. Finance Associate may correct individual draft entry accounts with a reason; Finance Manager posts only after final request approval and current Finance validation. Unbalanced or stale entries cannot post. Posted accounting and document decisions are frozen. Voucher preparation uses the posted accounting snapshot and preserves its source versions. Other request-type tax/account applicability, formal voucher numbering/printing/certification, reversals, void/replacement and payment authorization are still open.

@@ -1,4 +1,5 @@
 import { closeIcon } from "./icons.js";
+import { accountingBody } from "./finance-accounting-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
 import { printSystemGuide } from "./guide-print.js";
@@ -284,6 +285,11 @@ let state = {
   financeTaxErrors: {},
   financeTaxDrafts: {},
   financeTaxRetries: {},
+  financeAccounting: {},
+  financeAccountingLoading: {},
+  financeAccountingErrors: {},
+  financeAccountingDrafts: {},
+  financeAccountingRetries: {},
   financeValidationLoading: {},
   financeValidationErrors: {},
   conversations: {},
@@ -1697,7 +1703,7 @@ function financeSetupSection(editable) {
       ${financeSetupSelect(`tax_${key}`, "Default tax code", setup.tax_by_request_type?.[key] || "", taxChoices, disabled)}
       ${financeSetupSelect(`debit_${key}`, "Debit account", mapping.debit_account_id || "", accountChoices, disabled)}
       ${financeSetupSelect(`credit_${key}`, "Credit account", mapping.credit_account_id || "", accountChoices, disabled)}
-      ${key === "general" ? `${financeSetupSelect(`input_vat_${key}`, "Input VAT account (draft)", mapping.input_vat_account_id || "", accountChoices, disabled)}${financeSetupSelect(`ewt_payable_${key}`, "EWT payable account (draft)", mapping.ewt_payable_account_id || "", accountChoices, disabled)}` : ""}
+      ${key === "general" ? `${financeSetupSelect(`input_vat_${key}`, "Input VAT account", mapping.input_vat_account_id || "", accountChoices, disabled)}${financeSetupSelect(`ewt_payable_${key}`, "EWT payable account", mapping.ewt_payable_account_id || "", accountChoices, disabled)}` : ""}
     </div></fieldset>`;
   }).join("");
   return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
@@ -1710,7 +1716,7 @@ function financeSetupSection(editable) {
         ${financeSetupSelect("effective_date_basis", "Rule date", setup.effective_date_basis, [["submission", "Submission date"], ["finance_review", "Finance review date"]], disabled)}
         <label>Effective from<input name="effective_from" type="date" value="${escapeHtml(setup.effective_from || "")}" ${disabled}></label>
         ${financeSetupSelect("setup_scope", "Finance sign-off scope", setup.setup_scope, [["system", "Whole system"], ["request_type", "Per request type"], ["department", "Per department"]], disabled)}
-      </div><h4>Request type defaults</h4><p class="finance-setup-help">Select an explicit tax code for each type, including a No EWT code where applicable. General input VAT and EWT payable accounts are draft choices for the upcoming accounting workbench; these choices do not create or post entries.</p>${rows}
+      </div><h4>Request type defaults</h4><p class="finance-setup-help">Select an explicit tax code for each type, including a No EWT code where applicable. General input VAT and EWT payable mappings are required on activation when the default tax code applies them. Finance Associate can correct account assignments in the accounting workbench.</p>${rows}
       <h4>Voucher controls</h4><div class="field-grid">
         <label>Voucher prefix<input name="voucher_prefix" maxlength="12" pattern="[A-Z0-9-]*" value="${escapeHtml(setup.voucher?.prefix || "")}" ${disabled}></label>
         ${financeSetupSelect("voucher_reset_basis", "Numbering period", setup.voucher?.reset_basis, [["academic_year", "Academic year"], ["calendar_year", "Calendar year"], ["continuous", "Continuous"]], disabled)}
@@ -2177,6 +2183,7 @@ function detail(r, showWorkflowSummary = false) {
   let requestControls = canEdit || canUnlock || r.unlocked ? `<div class="request-control-bar"><div><span class="eyebrow">Request Controls</span><strong>${r.unlocked ? "Unlocked for urgent correction" : canEdit ? "Editing is available before Document Validation" : "Request is workflow-locked"}</strong></div>${canEdit ? `<button type="button" data-edit-request="${r.id}">Edit Request</button>` : ""}${canUnlock ? `<button type="button" class="danger" data-unlock-request="${r.id}">Authorize Unlock</button>` : ""}</div>` : "";
   requestControls += workflowExceptionPanel(r);
   requestControls += financeTaxPanel(r);
+  requestControls += financeAccountingPanel(r);
   const latestReturn = r.backendId ? [...(state.workflowDetails[r.backendId]?.events || [])].reverse().find((event) => event.action === "returned") : null;
   return `<section class="panel request-detail-panel"><details class="request-metadata responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Request Summary</span><strong>${r.requestor} · ${requestMoney(r)}</strong><small>${r.department} · ${r.vendor}</small></span><span class="disclosure-label">Details</span></summary><dl class="detail-list">
       <div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div>
@@ -2299,7 +2306,7 @@ async function loadFinanceTax(r, force = false) {
 function financeTaxPanel(r) {
   if (!r.backendId || r.type !== "general") return "";
   const key = financeTaxKey(r), tax = state.financeTax[key], error = state.financeTaxErrors[key];
-  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Posting and balanced accounting entries follow in the accounting workbench.</p></div>` : ""}<h3>General Request EWT</h3>${body}</section>`;
+  const wrapper = (body) => `<section class="finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="General request EWT">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Finance prepares and reviews balanced entries in the accounting workbench.</p></div>` : ""}<h3>General Request EWT</h3>${body}</section>`;
   if (!tax) return wrapper(error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-finance-tax>Retry EWT</button>` : `<p role="status">Loading EWT…</p>`);
   const result = tax.stale ? tax.preview : (tax.saved?.result || tax.preview);
   const draft = state.financeTaxDrafts[key] || { request_ewt_tax_id: result?.request_ewt_tax_id || "", line_ewt_overrides: result?.line_ewt_overrides || {}, reason: "" };
@@ -2343,6 +2350,7 @@ function bindFinanceTax() {
         await dataSource.saveFinanceTax(r.backendId, payload, state.csrfToken, retry.key);
         delete state.financeTaxDrafts[key]; delete state.financeTaxRetries[key];
         await loadFinanceTax(r, true);
+        if (["financeAssociate", "financeManager"].includes(state.persona)) await loadFinanceAccounting(r, true);
         if (state.financeValidation[r.backendId]) await loadFinanceValidation(r, true);
         setState({ toast: successToast("EWT assignment saved") });
       } catch (error) {
@@ -2350,6 +2358,61 @@ function bindFinanceTax() {
         form.querySelector("[data-tax-error]").textContent = error.message;
         button.disabled = false;
       }
+    });
+  });
+}
+
+async function loadFinanceAccounting(r, force = false) {
+  const key = financeTaxKey(r);
+  if (state.financeAccountingLoading[key] || (!force && (state.financeAccounting[key] || state.financeAccountingErrors[key]))) return;
+  state.financeAccountingLoading[key] = true;
+  state.financeAccountingErrors[key] = "";
+  try { state.financeAccounting[key] = await dataSource.getFinanceAccounting(r.backendId); }
+  catch (error) { state.financeAccountingErrors[key] = error.message; }
+  finally { state.financeAccountingLoading[key] = false; render(); }
+}
+
+function financeAccountingPanel(r) {
+  if (!r.backendId || r.type !== "general" || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
+  const key = financeTaxKey(r), data = state.financeAccounting[key], error = state.financeAccountingErrors[key];
+  const body = data ? accountingBody(r, data, state.financeAccountingDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-accounting>Retry accounting</button>` : '<p role="status">Loading accounting…</p>';
+  return `<section class="finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="General request accounting"><h3>Accounting workbench</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
+}
+
+function bindFinanceAccounting() {
+  document.querySelectorAll("[data-finance-accounting]").forEach(panel => {
+    const r = requests.find(item => item.backendId === panel.dataset.financeAccounting);
+    if (!r) return;
+    const key = financeTaxKey(r);
+    if (!state.financeAccounting[key] && !state.financeAccountingLoading[key] && !state.financeAccountingErrors[key]) queueMicrotask(() => loadFinanceAccounting(r));
+    panel.querySelector("[data-retry-accounting]")?.addEventListener("click", () => loadFinanceAccounting(r, true));
+    panel.querySelectorAll("[data-accounting-action]").forEach(form => {
+      const action = form.dataset.accountingAction;
+      const values = () => ({ ...(state.financeAccountingDrafts[key] || {}),
+        ...(action === "draft" ? { reason: form.elements.reason.value, account_overrides: Object.fromEntries([...form.querySelectorAll("[data-accounting-entry]")].filter(el => el.value).map(el => [el.dataset.accountingEntry, el.value])) } : { [`${action}_reason`]: form.elements.reason.value }) });
+      form.addEventListener("input", () => { state.financeAccountingDrafts[key] = values(); });
+      form.addEventListener("change", () => { state.financeAccountingDrafts[key] = values(); });
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const data = state.financeAccounting[key], draft = values();
+        const payload = { request_version: data.request_version, version: data.version, tax_version: data.tax_version,
+          reason: action === "draft" ? draft.reason : draft[`${action}_reason`], ...(action === "draft" ? { account_overrides: draft.account_overrides } : {}) };
+        const signature = JSON.stringify({ action, ...payload }), prior = state.financeAccountingRetries[key];
+        const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() };
+        state.financeAccountingRetries[key] = retry;
+        state.financeAccountingDrafts[key] = draft;
+        const button = form.querySelector('[type="submit"]'); button.disabled = true;
+        try {
+          await dataSource.saveFinanceAccounting(r.backendId, action, payload, state.csrfToken, retry.key);
+          delete state.financeAccountingDrafts[key]; delete state.financeAccountingRetries[key];
+          await loadFinanceAccounting(r, true);
+          setState({ toast: successToast(action === "draft" ? "Accounting draft saved" : action === "post" ? "Accounting posted" : "Voucher draft prepared") });
+        } catch (error) {
+          state.financeAccountingErrors[key] = error.message;
+          form.querySelector("[data-accounting-error]").textContent = error.message;
+          button.disabled = false;
+        }
+      });
     });
   });
 }
@@ -3445,6 +3508,7 @@ function render() {
   }
   bindMasterData();
   bindFinanceTax();
+  bindFinanceAccounting();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "financeManager", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {

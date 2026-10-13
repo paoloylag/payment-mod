@@ -2172,3 +2172,8 @@ button, input, select, textarea, dialog { font-family: var(--font-body); }
 .finance-tax-panel { min-width: 0; margin-block: 1.25rem; overflow-wrap: anywhere; }
 .finance-tax-panel select, .finance-tax-panel textarea { width: 100%; min-width: 0; }
 .finance-tax-panel summary { padding-block: .75rem; cursor: pointer; }
+.finance-tax-panel .detail-list { grid-template-columns: minmax(0, 1fr); margin-block: 1rem; }
+.finance-tax-panel .detail-list dd { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+@media (min-width: 640px) {
+  .finance-tax-panel .detail-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

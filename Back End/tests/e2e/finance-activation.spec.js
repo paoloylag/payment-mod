@@ -34,7 +34,8 @@ test("Finance activates General setup and requests receive immutable account ass
       ...original, vat_basis: "inclusive", ewt_basis: "net_of_vat", rounding: "half_up", setup_scope: "request_type",
       effective_from: "2020-01-01", effective_date_basis: "finance_review",
       tax_by_request_type: { general: codes.find(row => row.code === "VAT12-EWT2").id },
-      accounts_by_request_type: { general: { debit_account_id: accounts[0].id, credit_account_id: accounts[1].id } },
+      accounts_by_request_type: { general: { debit_account_id: accounts[0].id, credit_account_id: accounts[1].id,
+        input_vat_account_id: accounts[0].id, ewt_payable_account_id: accounts[1].id } },
     } });
     expect(saved.ok()).toBeTruthy();
     const manager = await managerContext.newPage();

@@ -5,7 +5,14 @@ from .documents import (
     DocumentReviewDecision,
     DocumentVersion,
 )
-from .finance import FinanceCodingSnapshot, FinanceConfiguration, FinanceLineReview, FinanceTaxSnapshot
+from .finance import (
+    FinanceCodingSnapshot,
+    FinanceConfiguration,
+    FinanceJournalSnapshot,
+    FinanceLineReview,
+    FinanceTaxSnapshot,
+    FinanceVoucherDraft,
+)
 from .identity import (
     AuditEvent,
     AuthSession,
@@ -59,6 +66,8 @@ __all__ = [
     "FinanceTaxSnapshot",
     "FinanceConfiguration",
     "FinanceCodingSnapshot",
+    "FinanceJournalSnapshot",
+    "FinanceVoucherDraft",
     "NotificationOutboxEvent",
     "PaymentRequest",
     "RequestConversationMessage",

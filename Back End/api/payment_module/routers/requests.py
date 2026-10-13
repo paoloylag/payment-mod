@@ -1319,6 +1319,11 @@ def cancel_payment_request(
     actor: User = Depends(current_user),
 ):
     item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    from ..finance_accounting import latest_journal
+
+    journal = latest_journal(db, item.id)
+    if journal and journal.state == "posted":
+        raise HTTPException(409, "Posted accounting must be reversed before cancelling this request")
     allowed = item.requestor_id == actor.id or "requests.manage_lifecycle" in permissions(request)
     if not allowed or item.status not in {"draft", "submitted", "returned"}:
         raise HTTPException(409, "Request cannot be cancelled by this user or from its current status")

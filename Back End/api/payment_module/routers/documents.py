@@ -718,7 +718,12 @@ def review_document(
     document = db.get(Document, document_id)
     if not document or document.removed_at:
         raise HTTPException(404, "Document not found")
-    get_visible(db, request, actor, document.request_id)
+    get_visible(db, request, actor, document.request_id, lock_for_update=True)
+    from ..finance_accounting import latest_journal
+
+    journal = latest_journal(db, document.request_id)
+    if journal and journal.state == "posted":
+        raise HTTPException(409, "Document decisions are frozen with posted accounting")
     if payload.decision not in {"accepted", "rejected", "replacement_required"}:
         raise HTTPException(422, "Invalid document review decision")
     if payload.decision != "accepted" and not payload.comment.strip():

@@ -11,6 +11,7 @@ from .middleware import RequestContextMiddleware
 from .routers.auth import router as auth_router
 from .routers.conversation import router as conversation_router
 from .routers.documents import router as documents_router
+from .routers.finance_accounting import router as finance_accounting_router
 from .routers.finance_setup import router as finance_setup_router
 from .routers.finance_tax import router as finance_tax_router
 from .routers.finance_validation import router as finance_validation_router
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     application.include_router(finance_validation_router)
     application.include_router(finance_setup_router)
     application.include_router(finance_tax_router)
+    application.include_router(finance_accounting_router)
     application.include_router(requests_router)
     application.include_router(conversation_router)
     application.include_router(notifications_router)

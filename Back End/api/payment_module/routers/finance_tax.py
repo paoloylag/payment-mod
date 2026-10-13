@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..database import get_db
+from ..finance_accounting import latest_journal
 from ..finance_configuration import active_configuration, request_coding
 from ..finance_readiness import effective, finance_date
 from ..finance_tax import build_calculation, latest_snapshot, tax_details
@@ -41,6 +42,9 @@ class TaxAssignment(BaseModel):
 
 def editable(db, request, actor, item, instance):
     if item.request_type != "general" or item.status != "submitted" or not instance:
+        return False
+    journal = latest_journal(db, item.id)
+    if journal and journal.state == "posted":
         return False
     roles = actor_roles(db, actor)
     if instance.state == "information_requested":
