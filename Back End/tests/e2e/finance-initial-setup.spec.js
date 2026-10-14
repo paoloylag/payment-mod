@@ -65,6 +65,7 @@ test("initial Finance setup saves progress, activates all types and records vers
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
     await guide.getByRole("button", { name: "3. Accounts", exact: true }).click();
     expect(await guide.locator('[name="debit_general"]').evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(42);
+    expect(await guide.getByRole("button", { name: "1. Prerequisites", exact: true }).evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(42);
   }
   await page.setViewportSize({ width: 390, height: 900 });
   const dismiss = page.getByRole("button", { name: "Dismiss message" });
