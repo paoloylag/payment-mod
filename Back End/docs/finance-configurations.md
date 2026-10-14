@@ -37,6 +37,25 @@ Configuration can store an approved rule; it cannot supply missing business fact
 
 QuickBooks, bank connectivity, currency conversion, currency-based assignment, payroll deductions, Cash Advance exception approvals, and Petty Cash routing remain outside this configuration. No bank connection is planned.
 
+## Guided initial Finance setup
+
+Open **Administration → Request Settings → Finance Setup Draft → Start / resume initial setup** as Finance Manager or System Administrator.
+
+1. Prepare active posting accounts, tax codes, department cost centers, currencies, payment methods and request document requirements using the prerequisite links.
+2. Select the tax calculation bases, rounding, effective date, sign-off scope and General default tax code.
+3. Choose General expense/payable/VAT/EWT accounts and the Cash Advance asset/credit accounts. Reimbursement and PO Payment inherit General defaults; Liquidation offsets the original advance.
+4. Set voucher numbering and certification wording. Finance Associate prepares; Finance Manager posts/certifies/voids.
+5. Save progress, resolve saved-configuration blockers and activate **All request types** with a reason. Partial drafts can be saved and resumed after reload. Unsaved fields remain available while navigating within the guide; save before leaving or reloading.
+6. Finance Manager exercises the document, approval, accounting, payment, Liquidation and voucher-print scenarios, checks all six review areas and records an acceptance note.
+
+Acceptance records the activated version, Finance Manager identity, timestamp, review areas and note with an audit event. The record cannot be overwritten; an identical retry returns the same record. Draft changes need activation and a fresh review. Inactive or ineffective references block recording acceptance. Finance roles and System Administrators can view the record; other users cannot read the acceptance note.
+
+The guide reuses existing activation and request enforcement. Its readiness checks prevent incomplete activation through the guide; it does not introduce a new business-acceptance gate for requests or payments. Recording acceptance is Finance's attestation after exercising the scenarios, not an automatic test result. SLA/escalation, fund returns and post-release reversals remain deferred.
+
+### Initial setup verification
+
+Use `pnpm test:e2e:isolated` for browser regression, including `finance-initial-setup.spec.js`. The setup scenario uses only the disposable E2E database and verifies save/resume, blockers, error retries, All activation, acceptance, version changes, keyboard submission and mobile/tablet/desktop layouts. API tests are in `tests/test_finance_initial_setup.py`.
+
 ## Test commands
 
 Run browser click-through first, followed by API and build checks:

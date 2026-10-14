@@ -1,12 +1,12 @@
 """Versioned Finance setup choices awaiting calculation and voucher activation."""
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,38 @@ from ..security import current_user
 router = APIRouter(prefix="/api/v1/request-settings", tags=["finance setup"])
 SETTING_KEY = "finance.setup.draft"
 REQUEST_TYPES = ("reimbursement", "cashAdvance", "liquidation", "poPayment", "general")
+REVIEW_AREAS = {"documents", "approvals", "accounting", "payments", "liquidation", "voucher_print"}
+
+
+def initial_setup_status(db, draft, active):
+    missing = missing_choices(draft, "all")
+    report = readiness_report(db, draft, missing, REQUEST_TYPES, "all")
+    blockers = activation_errors(db, draft.model_dump(mode="json"), "all") + missing
+    blockers += [check["message"] for check in report["checks"] if check["status"] == "blocked"]
+    if draft.voucher.create_role != "finance_associate":
+        blockers.append("Voucher creator must be Finance Associate")
+    acceptance = (
+        db.scalar(select(SystemSetting).where(SystemSetting.key == f"finance.business_acceptance.{active.version}"))
+        if active
+        else None
+    )
+    accepted = json.loads(acceptance.value) if acceptance else None
+    current = bool(active and active.version == draft.version and active.configuration.get("scope") == "all")
+    return {
+        "status": "changes_pending"
+        if active and active.version != draft.version
+        else "complete"
+        if current and accepted and not blockers
+        else "business_review"
+        if current and not blockers
+        else "configuration",
+        "configuration_ready": not blockers,
+        "blockers": list(dict.fromkeys(blockers)),
+        "current_all_activation": current,
+        "acceptance": accepted,
+        "review_record_visible": True,
+        "review_areas": sorted(REVIEW_AREAS),
+    }
 
 
 class AccountMapping(BaseModel):
@@ -109,6 +141,7 @@ def view(draft: FinanceSetupDraft, db: Session) -> dict:
 
     return {
         **draft.model_dump(mode="json"),
+        "initial_setup": initial_setup_status(db, draft, active),
         "missing_choices": missing,
         "configuration_complete": not missing,
         "operational_status": ("all_active" if scope == "all" else "general_active") if active else "draft",
@@ -128,7 +161,74 @@ def view(draft: FinanceSetupDraft, db: Session) -> dict:
 
 @router.get("/finance-setup")
 def get_finance_setup(db: Session = Depends(get_db), actor: User = Depends(current_user)):
-    return view(read_draft(db), db)
+    result = view(read_draft(db), db)
+    roles = set(db.scalars(select(Role.code).join(UserRole).where(UserRole.user_id == actor.id)))
+    if not roles.intersection({"finance_associate", "finance_manager", "system_administrator"}):
+        result["initial_setup"]["acceptance"] = None
+        result["initial_setup"]["review_record_visible"] = False
+    return result
+
+
+class BusinessAcceptance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    configuration_version: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=2000)
+    reviewed_areas: dict[str, bool]
+
+
+@router.post("/finance-setup/business-acceptance")
+def accept_business_setup(
+    payload: BusinessAcceptance, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    roles = set(db.scalars(select(Role.code).join(UserRole).where(UserRole.user_id == actor.id)))
+    if "finance_manager" not in roles or "requests.numbering.manage" not in getattr(
+        request.state, "permissions", set()
+    ):
+        raise HTTPException(403, "Finance Manager must record business acceptance")
+    if (
+        set(payload.reviewed_areas) != REVIEW_AREAS
+        or not all(payload.reviewed_areas.values())
+        or not payload.reason.strip()
+    ):
+        raise HTTPException(422, "Confirm all six review areas and provide an acceptance note")
+    lock_configuration(db)
+    draft, active = read_draft(db), active_configuration(db)
+    if not active or active.version != payload.configuration_version:
+        raise HTTPException(409, "Active configuration changed; refresh the setup")
+    status = initial_setup_status(db, draft, active)
+    if not status["current_all_activation"] or status["blockers"]:
+        raise HTTPException(409, "Save and activate a complete, effective All request types setup before acceptance")
+    key = f"finance.business_acceptance.{active.version}"
+    previous = db.scalar(select(SystemSetting).where(SystemSetting.key == key))
+    result = {
+        "configuration_version": active.version,
+        "reviewer_id": str(actor.id),
+        "reviewer": actor.display_name,
+        "accepted_at": datetime.now(UTC).isoformat(),
+        "reason": payload.reason.strip(),
+        "reviewed_areas": payload.reviewed_areas,
+    }
+    if previous:
+        saved = json.loads(previous.value)
+        if (
+            saved["reviewer_id"] != str(actor.id)
+            or saved["reason"] != result["reason"]
+            or saved["reviewed_areas"] != payload.reviewed_areas
+        ):
+            raise HTTPException(409, "Business acceptance is already recorded for this version")
+        return view(draft, db)
+    db.add(SystemSetting(key=key, value=json.dumps(result)))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="finance.business_acceptance_recorded",
+        entity_type="finance_configuration",
+        entity_id=active.id,
+        request_id=request.state.request_id,
+        after=result,
+    )
+    db.commit()
+    return view(draft, db)
 
 
 @router.put("/finance-setup")

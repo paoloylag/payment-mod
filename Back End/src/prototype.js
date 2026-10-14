@@ -1,6 +1,7 @@
 import { closeIcon, uploadIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
 import { financeOperationsBody } from "./finance-operations-ui.js";
+import { initialSetupBody, initialSetupSteps, businessAcceptanceBody } from "./finance-initial-setup-ui.js";
 import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
@@ -229,6 +230,8 @@ let toastDismissTimer;
 let scheduledToastId = null;
 let expandedLineIndex = 0;
 let state = {
+  financeInitialMode: false, financeInitialStep: 0, financeInitialValues: {},
+  financeBusinessDrafts: {},
   financeQueue: null, financeQueueOwner: null, financeQueueFilters: {}, financeQueueError: "", financeQueueLoading: false,
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
@@ -1717,6 +1720,7 @@ function financeSetupSelect(name, label, value, choices, disabled) {
 
 function financeSetupSection(editable) {
   const setup = state.financeSetup;
+  if (editable && state.financeInitialMode) return initialSetupBody(setup, state.financeSetupAccounts, state.financeSetupTaxCodes, state.financeInitialValues, state.financeInitialStep, financeSetupSelect, escapeHtml);
   const disabled = editable ? "" : "disabled";
   const taxChoices = state.financeSetupTaxCodes.filter((item) => item.is_active).map((item) => [item.id, `${item.code} — ${item.name}`]);
   const accountChoices = state.financeSetupAccounts.filter((item) => item.is_active && item.is_posting).map((item) => [item.id, `${item.code} — ${item.name}`]);
@@ -1730,7 +1734,7 @@ function financeSetupSection(editable) {
       ${key === "general" ? `${financeSetupSelect(`input_vat_${key}`, "Input VAT account", mapping.input_vat_account_id || "", accountChoices, disabled)}${financeSetupSelect(`ewt_payable_${key}`, "EWT payable account", mapping.ewt_payable_account_id || "", accountChoices, disabled)}` : ""}
     </div></fieldset>`;
   }).join("");
-  return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div></div>
+  return `<section class="panel"><div class="panel-header"><div><h3>Finance Setup Draft</h3><p>Choose tax, account, and voucher defaults for Finance review.</p></div>${editable && setup.initial_setup ? `<button type="button" data-start-initial-setup>Start / resume initial setup</button>` : ""}</div><p>Initial setup: ${escapeHtml(setup.initial_setup?.status?.replaceAll("_", " ") || "configuration")}</p>
     <form data-finance-setup class="identity-form numbering-settings-form">
       <div class="numbering-settings-summary"><p>${setup.activation?.active ? "General requests use the active configuration for tax and account defaults. Save changes here, then activate the saved version below." : "General requests use saved tax defaults for EWT. Activate a complete General configuration below to enable automatic account assignment and readiness checks."} Finance Associate can override EWT per request or line. Select All request types to reuse General defaults for Reimbursement and PO Payment, configure a Cash Advance asset account, and enable advance-offset Liquidation. Each payment line retains one assigned signatory.</p></div>
       <h4>Tax calculation</h4><div class="field-grid">
@@ -1750,7 +1754,12 @@ function financeSetupSection(editable) {
       </div><label>Certification wording<textarea name="voucher_certification_text" maxlength="1000" rows="3" ${disabled}>${escapeHtml(setup.voucher?.certification_text || "")}</textarea></label>
       <div class="numbering-settings-summary"><p>${setup.configuration_complete ? "All draft choices are filled in." : `${setup.missing_choices?.length || 0} draft choices remain open.`} ${setup.missing_choices?.length ? escapeHtml(setup.missing_choices.slice(0, 5).join("; ")) + (setup.missing_choices.length > 5 ? "…" : "") : ""}</p></div>
       ${editable ? `<button type="submit" class="primary-button">Save Finance setup draft</button>` : ""}
-    </form>${financeActivationSection(setup, editable)}${financeReadinessSection(setup)}</section>`;
+    </form>${financeActivationSection(setup, editable)}${financeReadinessSection(setup)}${financeBusinessReviewSection(setup)}</section>`;
+}
+
+function financeBusinessReviewSection(setup) {
+  const key = `${state.authUser?.id}:${setup.activation?.active?.version}`;
+  return businessAcceptanceBody(setup, state.authUser?.roles?.includes("finance_manager"), escapeHtml, state.financeBusinessDrafts[key] || {}, key);
 }
 
 function financeActivationSection(setup, editable) {
@@ -1799,7 +1808,48 @@ function requestSettingsPage() {
   </div></section>`;
 }
 
+function bindInitialFinanceSetup() {
+  document.querySelector("[data-start-initial-setup]")?.addEventListener("click", () => {
+    const setup = state.financeSetup;
+    state.financeInitialMode = true;
+    state.financeInitialStep = setup.initial_setup.current_all_activation && !setup.initial_setup.blockers.length ? 5 : setup.initial_setup.configuration_ready ? 4 : !setup.version ? 0 : ["vat_basis", "ewt_basis", "rounding", "effective_date_basis", "effective_from", "setup_scope"].some(key => !setup[key]) ? 1 : setup.initial_setup.blockers.some(message => /account/i.test(message)) ? 2 : 3;
+    render();
+  });
+  document.querySelector("[data-close-initial-setup]")?.addEventListener("click", () => { state.financeInitialMode = false; render(); });
+  const initial = document.querySelector('[aria-label="Initial Finance setup"]');
+  if (initial) {
+    initial.querySelector("[data-initial-activation]").innerHTML = financeActivationSection(state.financeSetup, true);
+    const activation = initial.querySelector("[data-finance-activation]"); if (activation) {
+      activation.elements.scope.value = "all";
+      activation.elements.scope.querySelector('[value="general"]').remove();
+    }
+    initial.querySelector("[data-initial-business]").innerHTML = financeBusinessReviewSection(state.financeSetup);
+    const move = step => {
+      state.financeInitialStep = Math.max(0, Math.min(5, step));
+      initial.querySelectorAll("[data-initial-step]").forEach(pane => { pane.hidden = Number(pane.dataset.initialStep) !== state.financeInitialStep; });
+      initial.querySelector("[data-initial-activation]").hidden = state.financeInitialStep !== 4;
+      initial.querySelector("[data-initial-business]").hidden = state.financeInitialStep !== 5;
+      initial.querySelector("[data-initial-step-status]").textContent = `Step ${state.financeInitialStep + 1} of 6 · ${initialSetupSteps[state.financeInitialStep]}`;
+      initial.querySelector("[data-initial-previous]").disabled = state.financeInitialStep === 0;
+      initial.querySelector("[data-initial-next]").disabled = state.financeInitialStep === 5;
+      initial.querySelectorAll("[data-initial-step-button]").forEach(button => { if (Number(button.dataset.initialStepButton) === state.financeInitialStep) button.setAttribute("aria-current", "step"); else button.removeAttribute("aria-current"); });
+      initial.querySelector(`[data-initial-step-button="${state.financeInitialStep}"]`).focus();
+    };
+    initial.querySelectorAll("[data-initial-step-button]").forEach(button => button.addEventListener("click", () => move(Number(button.dataset.initialStepButton))));
+    initial.querySelector("[data-initial-previous]").addEventListener("click", () => move(state.financeInitialStep - 1));
+    initial.querySelector("[data-initial-next]").addEventListener("click", () => move(state.financeInitialStep + 1));
+  }
+  document.querySelector("[data-finance-business-review]")?.addEventListener("submit", async event => {
+    event.preventDefault(); const form = event.currentTarget;
+    const payload = { configuration_version: state.financeSetup.activation.active.version, reason: form.elements.reason.value, reviewed_areas: Object.fromEntries(state.financeSetup.initial_setup.review_areas.map(key => [key, form.elements[key].checked])) };
+    const button = form.querySelector('[type="submit"]'); button.disabled = true;
+    try { state.financeSetup = await dataSource.acceptFinanceSetup(payload, state.csrfToken); render(); }
+    catch (error) { form.querySelector("[data-business-review-error]").textContent = error.message; button.disabled = false; }
+  });
+}
+
 function bindRequestSettings() {
+  bindInitialFinanceSetup();
   if (state.tab !== "requestSettings" || !canManageRequestSettings()) return;
   document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1839,7 +1889,7 @@ function bindRequestSettings() {
   });
   const activationForm = document.querySelector("[data-finance-activation]");
   activationForm?.elements.scope.addEventListener("change", () => {
-    const blockers = activationForm.elements.scope.value === "all" ? state.financeSetup.activation.all_type_blockers : state.financeSetup.activation.blockers;
+    const blockers = state.financeInitialMode ? state.financeSetup.initial_setup.blockers : activationForm.elements.scope.value === "all" ? state.financeSetup.activation.all_type_blockers : state.financeSetup.activation.blockers;
     activationForm.querySelector("[data-activation-error]").textContent = blockers.join("; ");
     const button = activationForm.querySelector('button[type="submit"]');
     button.disabled = Boolean(blockers.length || state.financeSetup.activation.draft_already_activated);
@@ -1860,7 +1910,8 @@ function bindRequestSettings() {
   });
   document.querySelector("[data-finance-setup]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const setupForm = event.currentTarget;
+    const form = new FormData(setupForm);
     const choice = (key) => String(form.get(key) || "") || null;
     const payload = {
       version: state.financeSetup.version,
@@ -1874,13 +1925,23 @@ function bindRequestSettings() {
       },
     };
     for (const [key] of financeSetupRequestTypes) {
+      if (state.financeInitialMode && !["general", "cashAdvance"].includes(key)) {
+        payload.tax_by_request_type[key] = state.financeSetup.tax_by_request_type?.[key] || null;
+        payload.accounts_by_request_type[key] = state.financeSetup.accounts_by_request_type?.[key] || {};
+        continue;
+      }
       payload.tax_by_request_type[key] = choice(`tax_${key}`);
       payload.accounts_by_request_type[key] = { debit_account_id: choice(`debit_${key}`), credit_account_id: choice(`credit_${key}`), input_vat_account_id: key === "general" ? choice(`input_vat_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.input_vat_account_id || null), ewt_payable_account_id: key === "general" ? choice(`ewt_payable_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.ewt_payable_account_id || null) };
     }
+    const saveButton = setupForm.querySelector('button[type="submit"]');
+    saveButton.disabled = true;
+    setupForm.setAttribute("aria-busy", "true");
     try {
       state.financeSetup = await dataSource.updateFinanceSetupDraft(payload, state.csrfToken);
+      if (!state.financeInitialMode) state.financeInitialValues = {};
+      else setupForm.elements.voucher_prefix.value = payload.voucher.prefix;
       setState({ toast: successToast("The Finance choices were saved as a draft.", "Finance setup saved") });
-    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save Finance setup") }); }
+    } catch (error) { saveButton.disabled = false; setupForm.removeAttribute("aria-busy"); const target = document.querySelector("[data-initial-save-error]"); if (target) target.textContent = error.message; else setState({ toast: errorToast(error.message, "Unable to save Finance setup") }); }
   });
 }
 
@@ -3513,6 +3574,10 @@ function compressActionGroups() {
 }
 
 function render() {
+  const initialForm = document.querySelector("[data-initial-finance-form]");
+  if (initialForm && state.authUser) state.financeInitialValues = Object.fromEntries(new FormData(initialForm));
+  const businessForm = document.querySelector("[data-finance-business-review]");
+  if (businessForm && state.authUser) state.financeBusinessDrafts[businessForm.dataset.reviewKey] = { reason: businessForm.elements.reason.value, reviewed: Object.fromEntries(state.financeSetup.initial_setup.review_areas.map(key => [key, businessForm.elements[key].checked])) };
   document.querySelectorAll("[data-voucher-draft-key]").forEach(panel => {
     const key = panel.dataset.voucherDraftKey;
     const draft = state.financeVoucherDrafts[key] ||= {};
@@ -3776,7 +3841,7 @@ function render() {
   });
   document.querySelector("[data-logout]")?.addEventListener("click", async () => {
     await dataSource.logout(state.csrfToken).catch(() => undefined);
-    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {}, conversationDraftBody: {}, conversationDraftMentions: {}, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false });
+    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, financeInitialMode: false, financeInitialValues: {}, financeBusinessDrafts: {}, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {}, conversationDraftBody: {}, conversationDraftMentions: {}, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false });
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);
@@ -4601,6 +4666,7 @@ function render() {
 
 window.addEventListener("hashchange", async () => {
   state = { ...state, ...routeStateFromHash() };
+  if (state.authStatus === "authenticated" && state.tab === "requestSettings" && state.financeInitialMode) await loadRequestSettings();
   if (state.authStatus === "authenticated" && state.tab === "tracker") {
     state.financeQueue = null; state.financeQueueError = "";
     state.trackerLoading = true; state.trackerError = ""; render();

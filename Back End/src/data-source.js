@@ -331,6 +331,9 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve({ version: 0, vat_basis: null, ewt_basis: null, rounding: null, effective_date_basis: null, effective_from: null, tax_by_request_type: {}, accounts_by_request_type: {}, voucher: { prefix: "", reset_basis: null, certification_text: "", create_role: null, post_role: null, void_role: null }, setup_scope: null, missing_choices: [], configuration_complete: false, operational_status: "draft" });
       return apiRequest("/api/v1/request-settings/finance-setup");
     },
+    acceptFinanceSetup(payload, csrfToken) {
+      return apiRequest("/api/v1/request-settings/finance-setup/business-acceptance", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
+    },
     activateFinanceSetup(payload, csrfToken, key) {
       return apiRequest("/api/v1/request-settings/finance-setup/activate", { method: "POST",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key },
