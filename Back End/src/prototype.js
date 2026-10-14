@@ -1819,6 +1819,7 @@ function bindInitialFinanceSetup() {
   const initial = document.querySelector('[aria-label="Initial Finance setup"]');
   if (initial) {
     initial.querySelector("[data-initial-activation]").innerHTML = financeActivationSection(state.financeSetup, true);
+    initial.querySelector("[data-initial-activation] h4").textContent = "Activate payment setup for all request types";
     const activation = initial.querySelector("[data-finance-activation]"); if (activation) {
       activation.elements.scope.value = "all";
       activation.elements.scope.querySelector('[value="general"]').remove();
@@ -1905,7 +1906,7 @@ function bindRequestSettings() {
     try {
       state.financeSetup = await dataSource.activateFinanceSetup(payload, state.csrfToken, state.financeActivationRetry.key);
       state.financeActivationReason = ""; state.financeActivationRetry = null;
-      setState({ toast: successToast("General request configuration activated") });
+      setState({ toast: successToast(payload.scope === "all" ? "All request types configuration activated" : "General request configuration activated") });
     } catch (error) { activationForm.querySelector("[data-activation-error]").textContent = error.message; button.disabled = false; }
   });
   document.querySelector("[data-finance-setup]")?.addEventListener("submit", async (event) => {
