@@ -22,6 +22,7 @@ from ..models import (
     FinanceJournalSnapshot,
     FinanceVoucherDraft,
     FinanceVoucherEvent,
+    FinanceVoucherReplacement,
     FinanceVoucherSequence,
     PaymentInstruction,
     PaymentMethod,
@@ -30,9 +31,18 @@ from ..models import (
     WorkflowEvent,
     WorkflowInstance,
 )
-from ..payment_execution import execution_view, latest_line_event, line_state, payment_summary
+from ..payment_execution import (
+    execution_view,
+    latest_line_event,
+    line_state,
+    payment_summary,
+)
 from ..security import current_user
-from ..voucher_service import assigned_instruction, latest_voucher_event, signatory_users
+from ..voucher_service import (
+    assigned_instruction,
+    latest_voucher_event,
+    signatory_users,
+)
 from .conversation import participant
 from .finance_setup import read_draft
 from .requests import numbering_reset_month
@@ -52,6 +62,11 @@ class IssueCommand(VoucherCommand):
     setup_version: int = Field(ge=1)
 
 
+class ReplacementCommand(VoucherCommand):
+    replacement_request_id: UUID
+    replacement_request_version: int = Field(ge=1)
+
+
 class InstructionCommand(VoucherCommand):
     method_id: UUID
     signatory_user_id: UUID
@@ -68,6 +83,65 @@ def event_view(row):
         "actor_user_id": str(row.actor_user_id),
         "created_at": row.created_at.isoformat(),
     }
+
+
+def replacement_links(db, request, actor, item):
+    links = []
+    for row in db.scalars(
+        select(FinanceVoucherReplacement).where(
+            (FinanceVoucherReplacement.original_request_id == item.id)
+            | (FinanceVoucherReplacement.replacement_request_id == item.id)
+        )
+    ):
+        original = row.original_request_id == item.id
+        other = db.get(
+            PaymentRequest,
+            row.replacement_request_id if original else row.original_request_id,
+        )
+        if other and participant(db, request, actor, other):
+            links.append(
+                {
+                    "direction": "replaced_by" if original else "replacement_for",
+                    **row.result,
+                    "reason": row.reason,
+                    "created_at": row.created_at.isoformat(),
+                }
+            )
+    return links
+
+
+def replacement_candidates(db, request, actor, item):
+    rows = db.scalars(
+        select(PaymentRequest)
+        .join(FinanceVoucherDraft, FinanceVoucherDraft.request_id == PaymentRequest.id)
+        .join(WorkflowInstance, WorkflowInstance.request_id == PaymentRequest.id)
+        .where(
+            PaymentRequest.id != item.id,
+            PaymentRequest.requestor_id == item.requestor_id,
+            PaymentRequest.department_id == item.department_id,
+            PaymentRequest.request_type == item.request_type,
+            PaymentRequest.currency_code == item.currency_code,
+            PaymentRequest.status == "submitted",
+            WorkflowInstance.state == "approved",
+            ~select(FinanceVoucherEvent.id).where(FinanceVoucherEvent.voucher_id == FinanceVoucherDraft.id).exists(),
+            ~select(FinanceVoucherReplacement.id)
+            .where(FinanceVoucherReplacement.replacement_request_id == PaymentRequest.id)
+            .exists(),
+        )
+        .order_by(PaymentRequest.created_at.desc())
+        .limit(100)
+    )
+    return [
+        {
+            "id": str(row.id),
+            "request_number": row.request_number,
+            "request_version": row.version,
+        }
+        for row in rows
+        if row.requestor_id != actor.id
+        and participant(db, request, actor, row)
+        and latest_journal(db, row.id).state == "posted"
+    ]
 
 
 def context(db, request, actor, request_id, lock=False):
@@ -123,7 +197,8 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
     if latest:
         issuer = db.scalar(
             select(FinanceVoucherEvent).where(
-                FinanceVoucherEvent.voucher_id == voucher.id, FinanceVoucherEvent.state == "issued"
+                FinanceVoucherEvent.voucher_id == voucher.id,
+                FinanceVoucherEvent.state == "issued",
             )
         )
         if issuer:
@@ -133,7 +208,20 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
     if latest and state != "voided":
         state = execution["summary"]["state"]
     mutation_allowed = item.status == "submitted" and actor.id != item.requestor_id
+    can_link = bool(
+        voucher
+        and state == "voided"
+        and actor.id != item.requestor_id
+        and "finance_manager" in roles
+        and "vouchers.replace" in codes
+        and not db.scalar(
+            select(FinanceVoucherReplacement.id).where(FinanceVoucherReplacement.original_request_id == item.id)
+        )
+    )
     return {
+        "replacement_links": replacement_links(db, request, actor, item),
+        "can_link_replacement": can_link,
+        "replacement_candidates": replacement_candidates(db, request, actor, item) if can_link else [],
         "execution": execution,
         "request_id": str(item.id),
         "request_version": item.version,
@@ -216,19 +304,30 @@ def authorization_queue(request: Request, db: Session = Depends(get_db), actor: 
 
 
 @router.get("/{request_id}")
-def get_voucher(request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)):
+def get_voucher(
+    request_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
     return visible_view(db, request, actor, *context(db, request, actor, request_id))
 
 
 @router.get("/{request_id}/print-data")
-def print_data(request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)):
+def print_data(
+    request_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
     item, voucher, roles, codes = context(db, request, actor, request_id)
     latest = latest_voucher_event(db, voucher.id) if voucher else None
     if not latest:
         raise HTTPException(409, "Issue the voucher before printing")
     issue = db.scalar(
         select(FinanceVoucherEvent).where(
-            FinanceVoucherEvent.voucher_id == voucher.id, FinanceVoucherEvent.state == "issued"
+            FinanceVoucherEvent.voucher_id == voucher.id,
+            FinanceVoucherEvent.state == "issued",
         )
     )
     if not issue:
@@ -246,6 +345,7 @@ def print_data(request_id: UUID, request: Request, db: Session = Depends(get_db)
     db.commit()
     return {
         **issue.result,
+        "replacement_links": replacement_links(db, request, actor, item),
         "current_state": payment_summary(db, voucher)["state"],
         "execution": execution_view(db, voucher, actor, roles, codes),
         "payment_instruction": instruction.result if instruction else None,
@@ -258,6 +358,108 @@ def print_data(request_id: UUID, request: Request, db: Session = Depends(get_db)
             )
         ],
     }
+
+
+@router.post("/{request_id}/link-replacement")
+def link_replacement(
+    request_id: UUID,
+    payload: ReplacementCommand,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+    key: str = Header(alias="Idempotency-Key", min_length=1, max_length=100),
+):
+    if request_id == payload.replacement_request_id:
+        raise HTTPException(422, "A replacement must be a separate request")
+    # Take both request locks in stable order, including when two originals compete for one replacement.
+    list(
+        db.scalars(
+            select(PaymentRequest)
+            .where(PaymentRequest.id.in_([request_id, payload.replacement_request_id]))
+            .order_by(PaymentRequest.id)
+            .with_for_update()
+        )
+    )
+    item, voucher, roles, codes = context(db, request, actor, request_id)
+    if "finance_manager" not in roles or "vouchers.replace" not in codes or item.requestor_id == actor.id:
+        raise HTTPException(403, "Finance Manager replacement permission is required")
+    signature = digest(payload, "link_replacement")
+    existing = db.scalar(
+        select(FinanceVoucherReplacement).where(FinanceVoucherReplacement.original_request_id == item.id)
+    )
+    if existing:
+        if existing.command_key == key and existing.payload_hash == signature and existing.actor_user_id == actor.id:
+            return existing.result
+        raise HTTPException(409, "This voucher already has a replacement link")
+    latest = latest_voucher_event(db, voucher.id) if voucher else None
+    if not latest or latest.state != "voided":
+        raise HTTPException(409, "Void the original voucher before linking its replacement")
+    if item.version != payload.request_version or latest.version != payload.version:
+        raise HTTPException(409, "Original request or voucher changed; reload")
+    if not payload.reason.strip():
+        raise HTTPException(422, "A replacement reason is required")
+    target, target_voucher, _, _ = context(db, request, actor, payload.replacement_request_id)
+    if target.requestor_id == actor.id:
+        raise HTTPException(403, "You cannot link your own replacement request")
+    if target.version != payload.replacement_request_version:
+        raise HTTPException(409, "Replacement request changed; reload")
+    if any(
+        getattr(item, field) != getattr(target, field)
+        for field in ("requestor_id", "department_id", "request_type", "currency_code")
+    ):
+        raise HTTPException(
+            422,
+            "Replacement must have the same requestor, department, type and currency",
+        )
+    workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == target.id))
+    journal = latest_journal(db, target.id)
+    if (
+        target.status != "submitted"
+        or not workflow
+        or workflow.state != "approved"
+        or not journal
+        or journal.state != "posted"
+        or not target_voucher
+    ):
+        raise HTTPException(
+            409,
+            "Replacement needs independent final approval, posted accounting and a voucher draft",
+        )
+    if latest_voucher_event(db, target_voucher.id):
+        raise HTTPException(409, "Link the replacement before its voucher is issued")
+    if db.scalar(
+        select(FinanceVoucherReplacement.id).where(FinanceVoucherReplacement.replacement_request_id == target.id)
+    ):
+        raise HTTPException(409, "Replacement request is already linked to another original")
+    result = {
+        "original_request_id": str(item.id),
+        "original_request_number": item.request_number,
+        "replacement_request_id": str(target.id),
+        "replacement_request_number": target.request_number,
+        "actor_name": actor.display_name,
+    }
+    db.add(
+        FinanceVoucherReplacement(
+            original_request_id=item.id,
+            replacement_request_id=target.id,
+            command_key=key,
+            payload_hash=signature,
+            reason=payload.reason.strip(),
+            actor_user_id=actor.id,
+            result=result,
+        )
+    )
+    audit(
+        db,
+        actor_id=actor.id,
+        action="finance.voucher_replacement_linked",
+        entity_type="payment_request",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        after={**result, "reason": payload.reason.strip()},
+    )
+    db.commit()
+    return result
 
 
 def record_event(db, request, actor, item, voucher, payload, key, action, result):
@@ -302,7 +504,8 @@ def guard(db, request, actor, request_id, payload, key, action, role, permission
         raise HTTPException(409, "Prepare the voucher draft first")
     existing = db.scalar(
         select(FinanceVoucherEvent).where(
-            FinanceVoucherEvent.voucher_id == voucher.id, FinanceVoucherEvent.command_key == key
+            FinanceVoucherEvent.voucher_id == voucher.id,
+            FinanceVoucherEvent.command_key == key,
         )
     )
     if existing:
@@ -336,7 +539,15 @@ def issue_voucher(
     actor: User = Depends(current_user),
 ):
     item, voucher, latest, repeated = guard(
-        db, request, actor, request_id, payload, idempotency_key, "issued", "finance_manager", "vouchers.issue"
+        db,
+        request,
+        actor,
+        request_id,
+        payload,
+        idempotency_key,
+        "issued",
+        "finance_manager",
+        "vouchers.issue",
     )
     if repeated:
         return event_view(latest)
@@ -361,7 +572,10 @@ def issue_voucher(
         else str(today.year - int(options.reset_basis == "academic_year" and today.month < numbering_reset_month(db)))
     )
     period_key = f"{options.prefix}:{period}"
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"voucher-number:{period_key}"})
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"voucher-number:{period_key}"},
+    )
     sequence = db.get(FinanceVoucherSequence, period_key, with_for_update=True)
     if not sequence:
         sequence = FinanceVoucherSequence(period_key=period_key, last_value=0)
@@ -377,7 +591,10 @@ def issue_voucher(
         }
         for row in db.scalars(
             select(WorkflowEvent)
-            .where(WorkflowEvent.request_id == item.id, WorkflowEvent.action == "stage_approved")
+            .where(
+                WorkflowEvent.request_id == item.id,
+                WorkflowEvent.action == "stage_approved",
+            )
             .order_by(WorkflowEvent.occurred_at)
         )
     ]
@@ -422,15 +639,29 @@ def prepare_payment(
     if db.scalar(select(PaymentInstruction.id).where(PaymentInstruction.voucher_id == voucher.id)):
         raise HTTPException(409, "Use payment line items for additional payments")
     method = db.get(PaymentMethod, payload.method_id)
-    if not effective(method, finance_date()) or method.category not in {"check", "bank_transfer", "cash"}:
+    if not effective(method, finance_date()) or method.category not in {
+        "check",
+        "bank_transfer",
+        "cash",
+    }:
         raise HTTPException(422, "Select an active, effective payment method")
     journal = latest_journal(db, item.id)
     eligible = signatory_users(
-        db, {item.requestor_id, actor.id, voucher.actor_user_id, latest.actor_user_id, journal.actor_user_id}
+        db,
+        {
+            item.requestor_id,
+            actor.id,
+            voucher.actor_user_id,
+            latest.actor_user_id,
+            journal.actor_user_id,
+        },
     )
     signatory = next((user for user in eligible if user.id == payload.signatory_user_id), None)
     if not signatory:
-        raise HTTPException(422, "Assign an active signatory who did not prepare, request, issue or post this voucher")
+        raise HTTPException(
+            422,
+            "Assign an active signatory who did not prepare, request, issue or post this voucher",
+        )
     due = Decimal(voucher.result["totals"]["amount_due"])
     if due <= 0:
         raise HTTPException(409, "A positive amount due is required for payment authorization")
@@ -505,7 +736,11 @@ def authorize(
         raise HTTPException(409, "Only the assigned pending payment instruction can be authorized")
     if latest_line_event(db, instruction.id):
         raise HTTPException(409, "Authorize each payment line individually")
-    if actor.id in {item.requestor_id, voucher.actor_user_id, instruction.preparer_user_id}:
+    if actor.id in {
+        item.requestor_id,
+        voucher.actor_user_id,
+        instruction.preparer_user_id,
+    }:
         raise HTTPException(403, "The requestor or preparer cannot authorize this payment")
     if not effective(db.get(PaymentMethod, instruction.method_id), finance_date()):
         raise HTTPException(409, "Payment method is no longer active")
@@ -538,7 +773,15 @@ def void_voucher(
     actor: User = Depends(current_user),
 ):
     item, voucher, latest, repeated = guard(
-        db, request, actor, request_id, payload, idempotency_key, "voided", "finance_manager", "vouchers.void"
+        db,
+        request,
+        actor,
+        request_id,
+        payload,
+        idempotency_key,
+        "voided",
+        "finance_manager",
+        "vouchers.void",
     )
     if repeated:
         return event_view(latest)

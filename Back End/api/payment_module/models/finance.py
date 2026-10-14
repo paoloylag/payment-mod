@@ -161,6 +161,29 @@ class FinanceVoucherSequence(Base):
     last_value: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class FinanceVoucherReplacement(Base):
+    __tablename__ = "finance_voucher_replacements"
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    original_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("payment_requests.id", ondelete="CASCADE"), unique=True
+    )
+    replacement_request_id: Mapped[UUID] = mapped_column(
+        ForeignKey("payment_requests.id", ondelete="CASCADE"), unique=True
+    )
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (
+        CheckConstraint(
+            "original_request_id <> replacement_request_id",
+            name="ck_voucher_replacement_distinct",
+        ),
+    )
+
+
 class PaymentInstruction(Base):
     __tablename__ = "payment_instructions"
     __table_args__ = (

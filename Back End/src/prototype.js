@@ -1,5 +1,6 @@
 import { closeIcon, uploadIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
+import { financeOperationsBody } from "./finance-operations-ui.js";
 import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
@@ -228,6 +229,7 @@ let toastDismissTimer;
 let scheduledToastId = null;
 let expandedLineIndex = 0;
 let state = {
+  financeQueue: null, financeQueueOwner: null, financeQueueFilters: {}, financeQueueError: "", financeQueueLoading: false,
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
   backendStatus: { state: dataSource.mode === "mock" ? "mock" : "checking", label: dataSource.mode === "mock" ? "Mock data" : "Checking API" },
@@ -2469,7 +2471,7 @@ function financeVoucherPanel(r) {
   if (!r.backendId || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
   const key = financeVoucherKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
   const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money, state.paymentDrafts[r.backendId] || {}) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
-  return `<section class="finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" aria-label="Voucher and payment authorization"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
+  return `<section class="finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" data-voucher-draft-key="${escapeHtml(key)}" aria-label="Voucher and payment authorization"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
 }
 
 function bindFinanceVouchers() {
@@ -2479,6 +2481,7 @@ function bindFinanceVouchers() {
     const key = financeVoucherKey(r);
     if (!state.financeVouchers[key] && !state.financeVoucherLoading[key] && !state.financeVoucherErrors[key]) queueMicrotask(() => loadFinanceVoucher(r));
     panel.querySelector("[data-refresh-voucher]")?.addEventListener("click", () => loadFinanceVoucher(r, true));
+    panel.querySelector("[data-voucher-replacement]")?.addEventListener("toggle", event => { const draft = state.financeVoucherDrafts[key] ||= {}; draft.replacement_open = event.currentTarget.open; });
     panel.querySelector("[data-print-issued-voucher]")?.addEventListener("click", async event => {
       const button = event.currentTarget; button.disabled = true;
       try { openVoucherPrint(voucherPrintHtml(await dataSource.getVoucherPrint(r.backendId), escapeHtml, money)); }
@@ -2489,6 +2492,7 @@ function bindFinanceVouchers() {
     panel.querySelectorAll("[data-voucher-action]").forEach(form => {
       const action = form.dataset.voucherAction;
       const values = () => ({ ...(state.financeVoucherDrafts[key] || {}), [`${action}_reason`]: form.elements.reason.value,
+        ...(action === "link-replacement" ? { replacement_request_id: form.elements.replacement_request_id.value } : {}),
         ...(action === "prepare-payment" ? { method_id: form.elements.method_id.value, signatory_user_id: form.elements.signatory_user_id.value, reference: form.elements.reference.value } : {}) });
       form.addEventListener("input", () => { state.financeVoucherDrafts[key] = values(); });
       form.addEventListener("change", () => { state.financeVoucherDrafts[key] = values(); });
@@ -2496,6 +2500,7 @@ function bindFinanceVouchers() {
         event.preventDefault();
         const data = state.financeVouchers[key], draft = values();
         const payload = { request_version: data.request_version, version: data.version, reason: draft[`${action}_reason`],
+          ...(action === "link-replacement" ? { replacement_request_id: draft.replacement_request_id, replacement_request_version: data.replacement_candidates.find(row => row.id === draft.replacement_request_id)?.request_version } : {}),
           ...(action === "issue" ? { setup_version: data.setup_version } : {}),
           ...(action === "prepare-payment" ? { method_id: draft.method_id, signatory_user_id: draft.signatory_user_id, reference: draft.reference } : {}) };
         const signature = JSON.stringify({ action, ...payload }), prior = state.financeVoucherRetries[key];
@@ -2509,7 +2514,7 @@ function bindFinanceVouchers() {
           const current = requests.find(item => item.backendId === r.backendId) || r;
           await loadFinanceVoucher(current, true);
           if (["financeAssociate", "financeManager"].includes(state.persona)) await loadFinanceAccounting(current, true);
-          setState({ toast: successToast({ issue: "Voucher issued", "prepare-payment": "Payment instruction prepared", authorize: "Payment authorized", void: "Voucher voided and accounting reversed" }[action]) });
+          setState({ toast: successToast({ issue: "Voucher issued", "prepare-payment": "Payment instruction prepared", authorize: "Payment authorized", void: "Voucher voided and accounting reversed", "link-replacement": "Replacement voucher linked" }[action]) });
         } catch (error) { state.financeVoucherErrors[key] = error.message; form.querySelector("[data-voucher-error]").textContent = error.message; button.disabled = false; }
       });
     });
@@ -3104,6 +3109,7 @@ function unifiedRoleAction(request, lifecycleButtons = "") {
   if (request.backendId && state.persona === "authorizedSignatory") return "";
   const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   if (request.backendId && request.backendStatus !== "submitted") return "";
+  if (request.backendId && request.approvalState === "approved") return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><span class="eyebrow">Approval complete</span><h3>${escapeHtml(request.status)}</h3><p>Request approvals are complete. Finance and the assigned signatory manage accounting, vouchers and payments. The recorded status is shown above.</p></div></section>`;
   const informationAssignment = request.backendId && state.workflowQueue.find((entry) => entry.request_id === request.backendId && entry.state === "information_requested");
   if (informationAssignment && state.persona === "financeAssociate") return backendInformationResponseCard(request, informationAssignment);
   if (!request.backendId && request.infoRequest && state.persona === "financeAssociate") return mockInformationResponseCard(request);
@@ -3274,6 +3280,33 @@ function vendorNotificationModal(request) {
   return `<div class="vendor-notification-modal-backdrop" data-vendor-notification-backdrop><section class="vendor-notification-modal" role="dialog" aria-modal="true" aria-labelledby="vendor-notification-title"><header><div><span class="eyebrow">Vendor Notification</span><h3 id="vendor-notification-title">${request.id}</h3><p>Review each recipient and send notifications individually or send all remaining emails.</p></div><button type="button" data-close-vendor-notifications aria-label="Close vendor notifications" class="close-icon-button">${closeIcon}</button></header><div class="vendor-notification-modal-summary"><div><span>Request</span><strong>${request.id}</strong></div><div><span>Total Amount</span><strong>${requestMoney(request)}</strong></div><div><span>Vendors</span><strong>${vendorItems.length}</strong></div><div><span>Remaining</span><strong>${remaining}</strong></div></div><div class="vendor-notification-modal-list">${vendorItems.map((item, index) => `<article><div><strong>${item.vendor}</strong><span>${item.email}</span><small>${item.item}</small></div><div class="vendor-notification-modal-action"><strong>${money(item.amount)}</strong><button type="button" class="${item.sentAt ? "completed" : "confirmation-button"}" data-send-one-vendor="${index}" ${item.sentAt ? "disabled" : ""}>${item.sentAt ? "Sent" : "Send"}</button></div></article>`).join("")}</div><footer><p>${remaining ? `${remaining} vendor notification${remaining === 1 ? "" : "s"} remaining.` : "All vendor notifications have been sent."}</p><div><button type="button" data-close-vendor-notifications>Close</button><button type="button" class="confirmation-button" data-send-all-vendors ${remaining ? "" : "disabled"}>${remaining ? `Send All Remaining (${remaining})` : "All Sent"}</button></div></footer></section></div>`;
 }
 
+async function loadFinanceQueue(filters = state.financeQueueFilters) {
+  const owner = state.authUser?.id;
+  state.financeQueueLoading = true; state.financeQueueError = ""; state.financeQueueFilters = filters; render();
+  try {
+    const result = await dataSource.getFinanceOperations(filters);
+    if (state.authUser?.id === owner) { state.financeQueue = result; state.financeQueueOwner = owner; }
+  } catch (error) { if (state.authUser?.id === owner) state.financeQueueError = error.message; }
+  finally { state.financeQueueLoading = false; render(); }
+}
+
+function financeQueuePanel() {
+  if (dataSource.mode === "mock" || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
+  const data = state.financeQueueOwner === state.authUser?.id ? state.financeQueue : null;
+  if (!data && !state.financeQueueLoading && !state.financeQueueError) queueMicrotask(() => loadFinanceQueue());
+  return financeOperationsBody(data, state.financeQueueFilters, state.financeQueueError, state.financeQueueLoading, escapeHtml, money);
+}
+
+function bindFinanceQueue() {
+  document.querySelector("[data-finance-queue-filters]")?.addEventListener("input", event => { if (event.target.name) state.financeQueueFilters[event.target.name] = event.target.value; });
+  document.querySelector("[data-finance-queue-filters]")?.addEventListener("change", event => { if (event.target.name) state.financeQueueFilters[event.target.name] = event.target.value; });
+  document.querySelector("[data-finance-queue-filters]")?.addEventListener("submit", event => {
+    event.preventDefault(); loadFinanceQueue({ ...Object.fromEntries(new FormData(event.currentTarget)), page: 1 });
+  });
+  document.querySelector("[data-finance-queue-retry]")?.addEventListener("click", () => loadFinanceQueue());
+  document.querySelectorAll("[data-finance-queue-page]").forEach(button => button.addEventListener("click", () => loadFinanceQueue({ ...state.financeQueueFilters, page: button.dataset.financeQueuePage })));
+}
+
 function tracker() {
   if (state.trackerLoading) return '<section class="panel"><p role="status">Refreshing payment tracker…</p></section>';
   if (state.trackerError) return `<section class="panel"><p role="alert">${escapeHtml(state.trackerError)}</p></section>`;
@@ -3286,7 +3319,7 @@ function tracker() {
     const label = released ? "Released" : request.pickupAvailableAt ? "Available for Pickup" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release";
     return `<span class="tracker-status-text ${released || request.pickupAvailableAt ? "complete" : "pending"}">${label}</span>`;
   };
-  return `<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${r.backendId ? escapeHtml(({ approved: "Approved", active: "Pending", information_requested: "Information requested", declined: "Declined", returned: "Returned", cancelled: "Cancelled" })[r.approvalState] || "Not started") : i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
+  return `${financeQueuePanel()}<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${r.backendId ? escapeHtml(({ approved: "Approved", active: "Pending", information_requested: "Information requested", declined: "Declined", returned: "Returned", cancelled: "Cancelled" })[r.approvalState] || "Not started") : i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
 
 function documentUploads() {
@@ -3480,6 +3513,15 @@ function compressActionGroups() {
 }
 
 function render() {
+  document.querySelectorAll("[data-voucher-draft-key]").forEach(panel => {
+    const key = panel.dataset.voucherDraftKey;
+    const draft = state.financeVoucherDrafts[key] ||= {};
+    panel.querySelectorAll("[data-voucher-action]").forEach(form => {
+      draft[`${form.dataset.voucherAction}_reason`] = form.elements.reason.value;
+      for (const name of ["replacement_request_id", "method_id", "reference", "signatory_user_id"]) if (form.elements[name]) draft[name] = form.elements[name].value;
+    });
+    const disclosure = panel.querySelector("[data-voucher-replacement]"); if (disclosure) draft.replacement_open = disclosure.open;
+  });
   document.documentElement.dataset.theme = state.theme;
   if (["documents", "emails"].includes(state.tab) && !canViewAdminReference() && ["mock", "authenticated"].includes(state.authStatus)) {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/dashboard`);
@@ -3675,6 +3717,7 @@ function render() {
   bindFinanceTax();
   bindFinanceAccounting();
   bindFinanceVouchers();
+  bindFinanceQueue();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "financeManager", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
@@ -4559,6 +4602,7 @@ function render() {
 window.addEventListener("hashchange", async () => {
   state = { ...state, ...routeStateFromHash() };
   if (state.authStatus === "authenticated" && state.tab === "tracker") {
+    state.financeQueue = null; state.financeQueueError = "";
     state.trackerLoading = true; state.trackerError = ""; render();
     try { await loadApiPaymentRequests(); }
     catch (error) { state.trackerError = error.message; }

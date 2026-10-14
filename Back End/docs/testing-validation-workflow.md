@@ -21,3 +21,15 @@ smoke test, followed by focused and full automated testing.
 
 If the initial click-through fails, diagnose and correct the defect before treating later automated results as acceptance
 evidence. Regression tests may still be run to locate the fault, but the browser gate must be repeated after the fix.
+
+## Finance browser regression isolation
+
+Use `pnpm test:e2e:isolated` for the full browser regression. It invokes each specification separately so global setup
+recreates only the dedicated `payment_module_e2e` database between specifications. Configuration activation tests persist
+immutable policies; sharing their database with later specifications changes the scenarios those tests are exercising.
+The ordinary `test:e2e` command remains available for one focused specification.
+
+To select several specifications, pass their paths, for example
+`pnpm test:e2e:isolated tests/e2e/finance-closeout.spec.js tests/e2e/all-type-payments.spec.js`.
+Playwright flags are forwarded. Install the standard Playwright video dependency and set `PLAYWRIGHT_BROWSERS_PATH`
+when using a custom workspace browser cache.

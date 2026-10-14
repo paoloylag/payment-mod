@@ -3,6 +3,8 @@
 Prepared: 2026-09-28  
 Scope: backend integration branch, Phases 02–09  
 Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, and the Finance orientation findings in this directory.
+Current Phase 05–07 closeout: [development and Finance acceptance](phase-05-07-closeout.md). Earlier planning sequences remain historical context.
+
 
 ## Current baseline and planning rule
 
@@ -13,9 +15,9 @@ Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, 
 | 02 — Master Data | Validated for local development | Activate authoritative Finance/vendor sources only through the Phase 09 production gate. |
 | 03 — Requests | Validated for local development | Activate live Procurement/vendor providers only through the Phase 09 production gate. |
 | 04 — Documents | Validated for local development | Production storage, scanning, retention, accessibility, and hosted-browser assurance remain Phase 09 work. |
-| 05 | Approved exception scope implemented — named delegation, reassignment, material correction, and recovery | Complete local validation/reviewer acceptance and hosted CI. SLA/escalation deferred by owner on 2026-10-13. |
-| 06 | General configuration, EWT, accounting and voucher issuance/printing/void implemented | Business acceptance, other request types and replacement links. |
-| 07 | Full instruction preparation and assigned authorization implemented for General vouchers | Confirm partial/multiple attempts and signatory thresholds; implement release/settlement. |
+| 05 | Confirmed approval and exception scope implemented and validated | Finance business acceptance. SLA/escalation deferred. |
+| 06 | All-type Finance configuration/accounting/vouchers and replacement links implemented | Actual Finance setup activation and business acceptance. |
+| 07 | All-type multiple payment lines, authorization, pickup, release, clearing, exceptions and Finance queue implemented | Finance acceptance. Fund returns and post-release reversals deferred; detailed reporting is Phase 08. |
 | 08 | Foundation started — transactional workflow outbox | Confirm recipients/templates and reporting definitions before delivery or dashboards. |
 | 09 | Not started | Approve providers, identity contracts, owners, and production controls before activation. |
 

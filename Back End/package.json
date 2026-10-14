@@ -50,6 +50,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "dev:e2e": "vite --host 127.0.0.1 --port 5178",
     "test:e2e": "playwright test",
+    "test:e2e:isolated": "node tests/e2e/run-isolated.js",
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {

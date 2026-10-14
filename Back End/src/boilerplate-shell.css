@@ -2193,6 +2193,8 @@ button, input, select, textarea, dialog { font-family: var(--font-body); }
 .finance-tax-panel .identity-form :is(input, select, textarea) { font-size: 14px; color: var(--text); }
 .finance-tax-panel .identity-form > button { justify-self: start; max-width: 100%; }
 .finance-tax-panel fieldset { display: grid; gap: 14px; min-width: 0; }
+.finance-tax-panel [data-finance-queue-filters] fieldset { margin: 0; padding: 0; border: 0; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.finance-tax-panel [data-finance-queue-filters] button { align-self: end; justify-self: start; }
 .finance-tax-panel legend { padding-inline: 6px; color: var(--text); font-size: 14px; }
 .finance-tax-panel .detail-list dt { color: var(--muted); font-size: 12px; }
 .finance-tax-panel .detail-list dd { margin: 4px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }

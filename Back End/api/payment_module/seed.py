@@ -115,6 +115,7 @@ PERMISSIONS = {
     "vouchers.read": "Read reached vouchers and assigned payment instructions",
     "vouchers.issue": "Issue and certify approved payment vouchers",
     "vouchers.void": "Void vouchers and reverse their posted accounting",
+    "vouchers.replace": "Link voided vouchers to independently approved replacements",
     "payments.prepare": "Prepare a recorded payment instruction and assign its signatory",
     "payments.authorize": "Authorize an assigned payment instruction",
     "payments.release": "Record authorized payment release and supporting evidence",
@@ -143,7 +144,7 @@ ROLE_PERMISSIONS["finance_manager"] |= {
     "documents.rules.manage",
 }
 ROLE_PERMISSIONS["request_settings_editor"] = {"requests.numbering.manage"}
-ROLE_PERMISSIONS["finance_manager"] |= {"vouchers.read", "vouchers.issue", "vouchers.void"}
+ROLE_PERMISSIONS["finance_manager"] |= {"vouchers.read", "vouchers.issue", "vouchers.void", "vouchers.replace"}
 ROLE_PERMISSIONS["finance_associate"] |= {"vouchers.read", "payments.prepare"}
 ROLE_PERMISSIONS["authorized_signatory"] |= {"vouchers.read", "payments.authorize"}
 ROLE_PERMISSIONS["finance_associate"].add("payments.release")

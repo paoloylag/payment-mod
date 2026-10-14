@@ -223,6 +223,7 @@ export function createDataSource() {
     getFinanceTax(id) { return apiRequest(`/api/v1/finance-tax/${id}`); },
     getFinanceAccounting(id) { return apiRequest(`/api/v1/finance-accounting/${id}`); },
     getFinanceVoucher(id) { return apiRequest(`/api/v1/finance-vouchers/${id}`); },
+    getFinanceOperations(filters = {}) { return apiRequest(`/api/v1/finance-operations?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== ""))}`); },
     getVoucherPrint(id) { return apiRequest(`/api/v1/finance-vouchers/${id}/print-data`); },
     listPaymentAuthorizations() { return mode === "mock" ? Promise.resolve([]) : apiRequest("/api/v1/finance-vouchers/queue"); },
     saveFinanceVoucher(id, action, payload, csrfToken, key) {

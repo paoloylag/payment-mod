@@ -1,9 +1,11 @@
 # Phase 06 — Finance Validation and Vouchers
 
 Date prepared: 2026-08-28  
-Status: In progress — General configuration, EWT, accounting, voucher issuance/printing and void/reversal implemented; other request types, replacement links and business sign-off remain pending.
+Status: Confirmed local development scope implemented for all request types, including replacement links. Finance configuration and business acceptance remain the operational closeout.
 
-Finance Setup Draft was added to Request Settings on 2026-10-13. It saves versioned tax calculation choices, request-type tax/account defaults, voucher controls, and proposed sign-off scope. See [Finance configuration readiness](phase-06-finance-readiness.md). General tax/account choices can be activated and now support the accounting workbench. Other request-type applicability and formal voucher controls remain pending.
+Current closeout: [Phase 05 to 07 development closeout](phase-05-07-closeout.md). Dated increments below retain their delivery history; their earlier pending statements are superseded by the current closeout.
+
+Finance setup activation now supports all request types under the confirmed rules. Tax/account snapshots, accounting, voucher controls and replacement links are implemented. See [Finance configuration readiness](phase-06-finance-readiness.md).
 Depends on: Phase 05 — Workflow and Approvals
 
 ## Finance Associate validation decisions — 2026-10-10

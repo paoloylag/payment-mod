@@ -1,7 +1,9 @@
 # Phase 06 — Finance configuration readiness checklist
 
 Prepared: 2026-10-13
-Status: General configuration, accounting, voucher issuance/printing and void/reversal implemented; other request types and replacement links remain pending
+Status: Confirmed configuration, accounting and voucher scope implemented for all request types. Finance must select its actual accounts and activate All scope before exercising the shared flow.
+
+Current closeout: [Phase 05 to 07 development closeout](phase-05-07-closeout.md). Dated increments below retain their delivery history; their earlier pending statements are superseded by the current closeout.
 
 ## Saved configuration draft
 
