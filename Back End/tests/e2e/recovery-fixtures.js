@@ -59,5 +59,5 @@ export async function prepareRecoveries() {
   const liquidation = await prepare("liquidation", "600", { cash_advance_reference: advance.request_number, liquidation_advance_amount: "1000", liquidation_due_date: "2026-10-28", actual_liquidation_date: "2026-10-14" });
   const general = await prepare("general", "1120", { billing_document_refs: ["proof.pdf"] });
   const payment = await release(general, "1100", "LongPaymentDescription".repeat(8));
-  return { general, payment, liquidation, advance, advancePayment, receivingAccount: ids[5], roles, get, post, upload, dispose: async () => { for (const context of contexts) await context.dispose(); } };
+  return { general, payment, liquidation, advance, advancePayment, prepare, release, receivingAccount: ids[5], roles, get, post, upload, dispose: async () => { for (const context of contexts) await context.dispose(); } };
 }

@@ -23,6 +23,9 @@ def advance_source(db, item, lock=False):
     if Decimal(str(item.type_data.get("liquidation_advance_amount", 0))) != source.gross_amount:
         raise HTTPException(409, "Liquidation advance amount must match the original Cash Advance")
     voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == source.id))
+    returned = latest_return(db, voucher.id) if voucher else None
+    if returned and returned.state in {"recorded", "verified"}:
+        raise HTTPException(409, "This advance has a recorded or verified full return and cannot also be liquidated")
     summary = payment_summary(db, voucher) if voucher else None
     if not summary or summary["state"] == "recovery_pending" or Decimal(summary["released"]) != source.gross_amount:
         raise HTTPException(409, "The original Cash Advance must be fully released before liquidation accounting")
@@ -88,6 +91,17 @@ def validate_liquidation_posting(db, item, tax):
 
 def settled_advance_references(db, requestor_id):
     references = set()
+    for source in db.scalars(
+        select(PaymentRequest).where(
+            PaymentRequest.request_type == "cashAdvance",
+            PaymentRequest.requestor_id == requestor_id,
+            PaymentRequest.status == "submitted",
+        )
+    ):
+        voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == source.id))
+        returned = latest_return(db, voucher.id) if voucher else None
+        if returned and returned.state == "verified" and returned.amount == source.gross_amount:
+            references.add(source.request_number)
     for item in db.scalars(
         select(PaymentRequest).where(
             PaymentRequest.request_type == "liquidation",

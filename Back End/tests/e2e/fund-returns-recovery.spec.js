@@ -87,6 +87,38 @@ test("full fund returns and recovered payments require independent Finance verif
     await newCard.locator("textarea").fill("Fresh authorization for replacement");
     await newCard.getByRole("button", { name: "Authorize payment line", exact: true }).click();
     await expect(newCard.locator("[data-payment-state]")).toHaveText("Authorized");
+    const unspent = await fixture.prepare("cashAdvance", "500", { event_end_date: "2026-10-13", liquidation_due_date: "2026-10-28", accountability_acknowledged: true });
+    await fixture.release(unspent, "500", "Unspent advance");
+    await associate.goto(`/#/requests/${unspent.request_number}`);
+    const fullReturn = associate.locator("[data-fund-return]");
+    await expect(fullReturn).toContainText("Optional full return");
+    await fullReturn.locator("summary").filter({ hasText: /^Record full fund return$/ }).click();
+    const fullForm = fullReturn.locator("form");
+    await fullForm.getByRole("checkbox").check();
+    await fullForm.locator('[name="recorded_on"]').fill("2026-10-15");
+    await fullForm.locator('[name="reference"]').fill("UNUSED-ADVANCE-500");
+    await fullForm.locator('[name="receiving_office"]').fill("Cash office");
+    await fullForm.locator('[name="receiving_account_id"]').selectOption(fixture.receivingAccount);
+    await fullForm.locator("textarea").fill("Entire advance was unused and returned");
+    await fullForm.locator('[type="file"]').setInputFiles(proof);
+    for (const width of [375, 768, 1280]) {
+      await associate.setViewportSize({ width, height: 900 });
+      await expect(fullForm).toBeVisible();
+      expect(await associate.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+      expect(await fullForm.getByRole("checkbox").evaluate(el => el.getBoundingClientRect().width)).toBeLessThanOrEqual(24);
+      expect(await fullForm.locator(".fund-return-attestation").evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(42);
+    }
+    await associate.setViewportSize({ width: 390, height: 900 });
+    const dismiss = associate.getByRole("button", { name: "Dismiss message" }); if (await dismiss.isVisible()) await dismiss.click();
+    await fullReturn.screenshot({ path: "outputs/unused-advance-full-return-mobile.png" });
+    await fullForm.getByRole("button", { name: "Record full fund return", exact: true }).click();
+    await expect(fullReturn.locator("[data-fund-return-state]")).toContainText("verification pending");
+    await manager.goto(`/#/requests/${unspent.request_number}`);
+    const fullReview = manager.locator("[data-fund-return]");
+    await fullReview.locator("summary").filter({ hasText: /^Verify full fund return$/ }).click();
+    await fullReview.locator('[data-fund-return-action="verify"] textarea').fill("Verified entire unused advance return");
+    await fullReview.getByRole("button", { name: "Verify full fund return", exact: true }).click();
+    await expect(manager.locator("[data-voucher-state]")).toHaveText("Full fund return verified");
     expect(errors).toEqual([]);
   } finally { for (const context of contexts) await context.close(); await fixture.dispose(); }
 });

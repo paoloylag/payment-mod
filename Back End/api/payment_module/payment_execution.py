@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from .fund_returns import latest_return, receipt_available, return_amounts, return_view
+from .fund_returns import full_advance_source, latest_return, receipt_available, return_amounts, return_view
 from .models import (
     Currency,
     Document,
@@ -40,7 +40,7 @@ def balance_state(state, event):
     )
 
 
-def recovery_blocker(db, item):
+def has_posted_liquidation(db, item):
     if item.request_type != "cashAdvance":
         return None
     for candidate in db.scalars(
@@ -56,7 +56,19 @@ def recovery_blocker(db, item):
             .limit(1)
         )
         if journal and journal.state == "posted":
-            return "This advance has posted Liquidation accounting; resolve its settlement before payment recovery"
+            return True
+    return False
+
+
+def recovery_blocker(db, item):
+    if item.request_type != "cashAdvance":
+        return None
+    voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == item.id))
+    returned = latest_return(db, voucher.id) if voucher else None
+    if returned and returned.state in {"recorded", "verified"}:
+        return "This advance has a pending or verified fund return and cannot also be recovered as a payment"
+    if has_posted_liquidation(db, item):
+        return "This advance has posted Liquidation accounting; resolve its settlement before payment recovery"
     return None
 
 
@@ -154,6 +166,10 @@ def balance_summary(voucher, rows, states, latest, fund_return=None):
             state = "funds_returned"
     if latest and latest.state == "voided":
         state = "voided"
+    elif voucher.result.get("request_type") == "cashAdvance" and fund_return and fund_return.state == "verified":
+        state = "funds_returned"
+    elif voucher.result.get("request_type") == "cashAdvance" and fund_return and fund_return.state == "recorded":
+        state = "fund_return_pending"
     return {
         "currency": voucher.result["currency"],
         "due": str(due),
@@ -317,20 +333,33 @@ def execution_view(db, voucher, actor, roles, permissions):
             }
         )
     fund_return = latest_return(db, voucher.id)
-    return_expected = Decimal(summary["fund_return_expected"]) > 0 and bool(
-        voucher_event and voucher_event.state != "voided"
+    offer_full = bool(
+        item.request_type == "cashAdvance"
+        and issued
+        and Decimal(summary["released"]) == item.gross_amount
+        and summary["state"] != "recovery_pending"
+        and not has_posted_liquidation(db, item)
+        and full_advance_source(item, voucher)
+    )
+    return_expected = bool(voucher_event and voucher_event.state != "voided") and (
+        Decimal(summary["fund_return_expected"]) > 0 or offer_full or fund_return
     )
     return {
         "summary": summary,
         "currency_precision": db.get(Currency, voucher.result["currency"]).decimal_precision,
         "lines": rows,
         "fund_return": {
-            **return_amounts(voucher, fund_return),
+            **return_amounts(voucher, fund_return, offer_full),
+            "mode": "full_advance" if item.request_type == "cashAdvance" else "liquidation_balance",
+            "source": full_advance_source(item, voucher)
+            if item.request_type == "cashAdvance"
+            else voucher.result.get("advance_source"),
             "version": fund_return.version if fund_return else 0,
             "latest": return_view(fund_return) if fund_return else None,
             "evidence_available": receipt_available(db, fund_return.result) if fund_return else False,
             "can_record": issued
             and return_expected
+            and (item.request_type != "cashAdvance" or offer_full)
             and (not fund_return or fund_return.state == "rejected")
             and "finance_associate" in roles
             and "payments.release" in permissions,

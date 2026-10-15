@@ -207,6 +207,11 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
             excluded.add(issuer.actor_user_id)
     state = latest.state if latest else "draft" if voucher else "not_prepared"
     execution = execution_view(db, voucher, actor, roles, codes) if voucher else None
+    return_source = (
+        ((execution or {}).get("fund_return") or {}).get("source")
+        or (voucher.result.get("advance_source") if voucher else None)
+        or {}
+    )
     if latest and state != "voided":
         state = execution["summary"]["state"]
     mutation_allowed = item.status == "submitted" and actor.id != item.requestor_id
@@ -232,10 +237,7 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
             and effective(row, finance_date())
             and row.is_posting
             and row.account_type == "asset"
-            and (
-                not voucher
-                or str(row.id) != (voucher.result.get("advance_source") or {}).get("asset_account", {}).get("id")
-            )
+            and (not voucher or str(row.id) != return_source.get("asset_account", {}).get("id"))
         ],
         "request_id": str(item.id),
         "request_version": item.version,

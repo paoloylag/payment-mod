@@ -1139,7 +1139,7 @@ function apiLineToPrototype(type, line) {
   return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department to Be Charged": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
 }
 
-const paymentStages = { funds_returned: [14, "Fund Return Verified"], recovery_pending: [13, "Payment Recovery Review"], reversed: [10, "Payment Reversed — Replacement Preparation"], settled_no_payment: [14, "Liquidation Settled — No Additional Payment"], cash_return_pending: [13, "Cash Return Pending"], draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
+const paymentStages = { fund_return_pending: [13, "Full Advance Return Review"], funds_returned: [14, "Fund Return Verified"], recovery_pending: [13, "Payment Recovery Review"], reversed: [10, "Payment Reversed — Replacement Preparation"], settled_no_payment: [14, "Liquidation Settled — No Additional Payment"], cash_return_pending: [13, "Cash Return Pending"], draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
 
 function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], declined: ["Declined", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
@@ -2588,7 +2588,8 @@ function bindPaymentExecution(panel, r, voucherKey) {
   panel.querySelectorAll("[data-fund-return-action]").forEach(form => {
     const action = form.dataset.fundReturnAction, draftKey = `fundReturn:${action}`;
     const draft = drafts[draftKey] ||= {};
-    const read = () => { Object.assign(draft, Object.fromEntries([...new FormData(form)].filter(([name]) => name !== "evidence"))); draft.open = true; };
+    const read = () => { Object.assign(draft, Object.fromEntries([...new FormData(form)].filter(([name]) => name !== "evidence"))); draft.entirely_unused = form.elements.entirely_unused?.checked ? "on" : ""; draft.open = true; };
+    form.parentElement.addEventListener("toggle", event => { draft.open = event.currentTarget.open; });
     form.addEventListener("input", read); form.addEventListener("change", read);
     const input = form.elements.evidence;
     const showFile = () => {
@@ -2602,7 +2603,7 @@ function bindPaymentExecution(panel, r, voucherKey) {
     form.addEventListener("submit", async event => {
       event.preventDefault(); read(); const data = state.financeVouchers[voucherKey];
       const payload = { request_version: data.request_version, version: data.execution.fund_return.version, reason: draft.reason,
-        ...(action === "record" ? { amount: draft.amount, recorded_on: draft.recorded_on, reference: draft.reference, receiving_office: draft.receiving_office, receiving_account_id: draft.receiving_account_id } : {}) };
+        ...(action === "record" ? { amount: draft.amount, recorded_on: draft.recorded_on, reference: draft.reference, receiving_office: draft.receiving_office, receiving_account_id: draft.receiving_account_id, entirely_unused: draft.entirely_unused === "on" } : {}) };
       const signature = JSON.stringify({ action, payload, file: draft.file ? `${draft.file.name}:${draft.file.size}:${draft.file.lastModified}` : "" });
       const retryKey = `${r.backendId}:${draftKey}`, prior = state.paymentRetries[retryKey];
       const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() }; state.paymentRetries[retryKey] = retry;
@@ -3414,7 +3415,7 @@ function tracker() {
   const selected = visibleRequests.find((r) => r.id === state.trackerRequestId);
   if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Request Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${paymentOperationsPanel(selected)}${detail(selected)}${workflow(selected.currentStep)}${vendorNotificationModal(selected)}</section>`;
   const paymentStatus = (request) => {
-    if (request.backendId) return `<span class="tracker-status-text ${["cleared", "funds_returned", "settled_no_payment"].includes(request.paymentSummary?.state) ? "complete" : "pending"}">${escapeHtml(({ funds_returned: "Fund return verified", recovery_pending: "Recovery review pending", reversed: "Reversed · Replacement pending", settled_no_payment: "Settled · No additional payment", cash_return_pending: "Cash return pending", draft: "Voucher Draft", issued: "Awaiting payment preparation", payment_prepared: "Awaiting authorization", authorized: "Authorized · Release pending", partially_released: "Partially released", released: "Released · Clearing pending", cleared: "Cleared", voided: "Voided" })[request.paymentSummary?.state] || "Awaiting approval and voucher")}</span>`;
+    if (request.backendId) return `<span class="tracker-status-text ${["cleared", "funds_returned", "settled_no_payment"].includes(request.paymentSummary?.state) ? "complete" : "pending"}">${escapeHtml(({ fund_return_pending: "Full advance return review pending", funds_returned: "Fund return verified", recovery_pending: "Recovery review pending", reversed: "Reversed · Replacement pending", settled_no_payment: "Settled · No additional payment", cash_return_pending: "Cash return pending", draft: "Voucher Draft", issued: "Awaiting payment preparation", payment_prepared: "Awaiting authorization", authorized: "Authorized · Release pending", partially_released: "Partially released", released: "Released · Clearing pending", cleared: "Cleared", voided: "Voided" })[request.paymentSummary?.state] || "Awaiting approval and voucher")}</span>`;
     const released = request.currentStep > 13;
     const label = released ? "Released" : request.pickupAvailableAt ? "Available for Pickup" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release";
     return `<span class="tracker-status-text ${released || request.pickupAvailableAt ? "complete" : "pending"}">${label}</span>`;
@@ -4725,7 +4726,15 @@ window.addEventListener("hashchange", async () => {
 });
 window.addEventListener("resize", () => window.requestAnimationFrame(centerActiveAdministrationTab));
 window.matchMedia("(max-width: 1199px)").addEventListener("change", event => {
-  if (event.matches && !state.conversationCollapsed) setState({ conversationCollapsed: true });
+  if (!event.matches || state.conversationCollapsed) return;
+  state.conversationCollapsed = true;
+  const panel = document.querySelector("[data-conversation-request]");
+  const current = panel && requests.find(item => (item.backendId || item.id) === panel.dataset.conversationRequest);
+  if (current) {
+    panel.closest(".request-conversation-layout")?.classList.add("conversation-collapsed");
+    panel.outerHTML = conversationPanel(current);
+    document.querySelector("[data-toggle-conversation]")?.addEventListener("click", () => setState({ conversationCollapsed: false }));
+  }
 });
 window.setInterval(() => {
   if (document.visibilityState === "visible" && state.authStatus === "authenticated") loadNotifications();

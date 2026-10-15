@@ -16,7 +16,7 @@ from ..audit import audit
 from ..database import get_db
 from ..finance_configuration import reference as account_reference
 from ..finance_readiness import effective, finance_date
-from ..fund_returns import latest_return, receipt_available, return_amounts, return_view
+from ..fund_returns import full_advance_source, latest_return, receipt_available, return_amounts, return_view
 from ..models import (
     ChartAccount,
     Document,
@@ -26,6 +26,7 @@ from ..models import (
     PaymentLineEvent,
     User,
 )
+from ..payment_execution import has_posted_liquidation, payment_summary
 from ..security import current_user
 from ..voucher_service import latest_voucher_event
 from .documents import _prepare, _store_version, get_storage
@@ -44,17 +45,32 @@ def return_context(db, request, actor, request_id, role, permission):
         not voucher
         or not event
         or event.state == "voided"
-        or item.request_type != "liquidation"
+        or item.request_type not in {"liquidation", "cashAdvance"}
         or item.status != "submitted"
     ):
-        raise HTTPException(409, "An issued Liquidation voucher is required")
+        raise HTTPException(409, "An issued Liquidation or fully unused Cash Advance voucher is required")
     validate_source(db, item, voucher)
-    source = advance_source(db, item, lock=True)
-    if source != voucher.result.get("advance_source"):
-        raise HTTPException(409, "The source advance changed")
-    if Decimal(return_amounts(voucher, None)["expected"]) <= 0:
+    if item.request_type == "cashAdvance":
+        summary = payment_summary(db, voucher)
+        if (
+            Decimal(summary["released"]) != item.gross_amount
+            or summary["state"] == "recovery_pending"
+            or has_posted_liquidation(db, item)
+        ):
+            raise HTTPException(
+                409,
+                "Only a fully released advance without posted Liquidation or payment recovery can be returned in full",
+            )
+        source = full_advance_source(item, voucher)
+        if not source:
+            raise HTTPException(409, "The advance must identify one original asset account and cost center")
+    else:
+        source = advance_source(db, item, lock=True)
+        if source != voucher.result.get("advance_source"):
+            raise HTTPException(409, "The source advance changed")
+    if Decimal(return_amounts(voucher, None, item.request_type == "cashAdvance")["expected"]) <= 0:
         raise HTTPException(409, "This Liquidation has no unused advance to return")
-    return item, voucher, latest_return(db, voucher.id)
+    return item, voucher, latest_return(db, voucher.id), source
 
 
 def record(db, request, actor, voucher, version, key, signature, state, amount, reason, result):
@@ -103,13 +119,16 @@ def receive_return(
     reference: str = Form(min_length=1, max_length=100),
     receiving_office: str = Form(min_length=1, max_length=160),
     receiving_account_id: UUID = Form(...),
+    entirely_unused: bool = Form(False),
     reason: str = Form(min_length=1, max_length=4000),
     file: UploadFile = File(...),
     idempotency_key: str = Header(min_length=1, max_length=100),
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    item, voucher, latest = return_context(db, request, actor, request_id, "finance_associate", "payments.release")
+    item, voucher, latest, source = return_context(
+        db, request, actor, request_id, "finance_associate", "payments.release"
+    )
     filename, media_type, size, checksum, spool = _prepare(file)
     spool.close()
     file.file.seek(0)
@@ -121,6 +140,7 @@ def receive_return(
         "reference": reference,
         "receiving_office": receiving_office,
         "receiving_account_id": str(receiving_account_id),
+        "entirely_unused": entirely_unused,
         "reason": reason,
         "filename": filename,
         "media_type": media_type,
@@ -137,8 +157,10 @@ def receive_return(
         or (latest and latest.state != "rejected")
     ):
         raise HTTPException(409, "Fund return changed or already recorded; reload before continuing")
-    if amount != Decimal(return_amounts(voucher, None)["expected"]):
+    if amount != Decimal(return_amounts(voucher, None, item.request_type == "cashAdvance")["expected"]):
         raise HTTPException(422, "Return the full unused advance balance in the original currency")
+    if item.request_type == "cashAdvance" and not entirely_unused:
+        raise HTTPException(422, "Confirm the entire advance is unused; otherwise prepare Liquidation first")
     if recorded_on > finance_date() or not all(value.strip() for value in (reference, receiving_office, reason)):
         raise HTTPException(422, "Provide receipt details, a reason and a date no later than today")
     releases = list(
@@ -146,7 +168,7 @@ def receive_return(
             select(PaymentLineEvent)
             .join(PaymentInstruction, PaymentInstruction.id == PaymentLineEvent.instruction_id)
             .where(
-                PaymentInstruction.request_id == UUID(voucher.result["advance_source"]["request_id"]),
+                PaymentInstruction.request_id == UUID(source["request_id"]),
                 PaymentLineEvent.state == "released",
             )
         )
@@ -163,7 +185,7 @@ def receive_return(
         not effective(account, finance_date())
         or not account.is_posting
         or account.account_type != "asset"
-        or str(account.id) == voucher.result["advance_source"]["asset_account"]["id"]
+        or str(account.id) == source["asset_account"]["id"]
     ):
         raise HTTPException(422, "Choose an active posting cash/bank asset account distinct from the advance asset")
     document = Document(request_id=item.id, owner_user_id=actor.id)
@@ -180,9 +202,10 @@ def receive_return(
         "receiving_office": receiving_office.strip(),
         "received_by": actor.display_name,
         "received_by_id": str(actor.id),
-        "advance_source": voucher.result["advance_source"],
+        "advance_source": source,
         "currency": item.currency_code,
         "receiving_account": account_reference(account),
+        "entirely_unused": entirely_unused,
     }
     db.add(
         DocumentReviewDecision(
@@ -212,7 +235,7 @@ def verify_return(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    item, voucher, latest = return_context(db, request, actor, request_id, "finance_manager", "payments.clear")
+    item, voucher, latest, _ = return_context(db, request, actor, request_id, "finance_manager", "payments.clear")
     signature = digest(payload, f"fund-return:{action}")
     previous = replay(db, voucher, idempotency_key, signature, actor)
     if previous:

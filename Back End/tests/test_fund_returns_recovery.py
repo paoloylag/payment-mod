@@ -1,11 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from payment_module.advance_settlement import settled_advance_references
+from payment_module.advance_settlement import advance_source, settled_advance_references
 from payment_module.database import SessionLocal
 from payment_module.main import app
 from payment_module.models import (
@@ -207,7 +208,16 @@ def unused_advance(client, all_setup, monkeypatch):  # noqa: F811
     return all_setup[0], reference, all_setup[2][1]
 
 
-def receipt(client, request_id, account, version=0, amount="380", email="finance.associate@payment.local", key=None):
+def receipt(
+    client,
+    request_id,
+    account,
+    version=0,
+    amount="380",
+    email="finance.associate@payment.local",
+    key=None,
+    entirely_unused=False,
+):
     headers = login(client, email)
     return client.post(
         f"/api/v1/payments/{request_id}/fund-return",
@@ -220,6 +230,7 @@ def receipt(client, request_id, account, version=0, amount="380", email="finance
             "reference": "RECEIPT-001",
             "receiving_office": "Cash office",
             "receiving_account_id": account,
+            "entirely_unused": str(entirely_unused).lower(),
             "reason": "Full unused advance deposited",
         },
         files={"file": ("return.pdf", b"%PDF-1.4\nReceipt\n%%EOF", "application/pdf")},
@@ -328,3 +339,70 @@ def test_return_date_cannot_precede_the_source_advance_release(client, unused_ad
         event.result = {"recorded_on": "2026-01-05"}
     response = receipt(client, request_id, account)
     assert response.status_code == 422 and "before" in response.text
+
+
+def test_entirely_unused_advance_can_be_returned_without_creating_zero_expense_liquidation(
+    client,
+    all_setup,  # noqa: F811
+    monkeypatch,
+):  # noqa: F811
+    request_id = all_setup[0]
+    prepare_type(client, all_setup, "cashAdvance")
+    with SessionLocal() as db:
+        from payment_module.models import PaymentMethod, User
+
+        signatory = str(db.scalar(select(User.id).where(User.email == "signatory@payment.local")))
+        method = str(db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")))
+    assert schedule(client, request_id, [line("1120", signatory, method)]).status_code == 200
+    instruction = view(client, request_id)["lines"][0]["id"]
+    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
+    proof = evidence(client, request_id, instruction, "release").json()["id"]
+    assert (
+        action(
+            client,
+            request_id,
+            instruction,
+            "release",
+            2,
+            {"evidence_id": proof, "bank_name": "Bank", "recipient_name": "Payee", "recorded_on": "2026-01-02"},
+        ).status_code
+        == 200
+    )
+    login(client, "finance.associate@payment.local")
+    before = client.get(f"/api/v1/payments/{request_id}").json()
+    assert before["fund_return"]["can_record"]
+    assert before["fund_return"]["mode"] == "full_advance"
+    storage = FakeStorage()
+    monkeypatch.setattr("payment_module.routers.fund_returns.get_storage", lambda: storage)
+    account = all_setup[2][1]
+    assert receipt(client, request_id, account, amount="1120").status_code == 422
+    saved = receipt(client, request_id, account, amount="1120", entirely_unused=True)
+    assert saved.status_code == 200, saved.text
+    assert view(client, request_id)["summary"]["state"] == "fund_return_pending"
+    assert recovery_evidence_blocked(client, request_id, instruction)
+    with SessionLocal() as db:
+        item = db.get(PaymentRequest, request_id)
+        candidate = SimpleNamespace(
+            requestor_id=item.requestor_id,
+            currency_code=item.currency_code,
+            type_data={"cash_advance_reference": item.request_number, "liquidation_advance_amount": "1120"},
+        )
+        with pytest.raises(HTTPException, match="full return"):
+            advance_source(db, candidate)
+    verified = review(client, request_id, 1)
+    assert verified.status_code == 200, verified.text
+    assert view(client, request_id)["summary"]["state"] == "funds_returned"
+    with SessionLocal() as db:
+        item = db.get(PaymentRequest, request_id)
+        assert item.request_number in settled_advance_references(db, item.requestor_id)
+
+
+def recovery_evidence_blocked(client, request_id, instruction):
+    headers = login(client, "finance.associate@payment.local")
+    response = client.post(
+        f"/api/v1/payments/{request_id}/lines/{instruction}/evidence/upload",
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+        data={"kind": "recovery"},
+        files={"file": ("double-return.pdf", b"%PDF-1.4\nProof\n%%EOF", "application/pdf")},
+    )
+    return response.status_code == 409

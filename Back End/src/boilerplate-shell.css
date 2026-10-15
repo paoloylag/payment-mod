@@ -2207,6 +2207,8 @@ button, input, select, textarea, dialog { font-family: var(--font-body); }
 .finance-initial-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .app-shell main .finance-initial-steps button { min-width: 0; min-height: 42px; white-space: normal; overflow-wrap: normal; }
 .finance-initial-steps button[aria-current="step"] { border-color: var(--primary); font-weight: 700; }
+.finance-tax-panel .identity-form .fund-return-attestation { display: flex; align-items: center; gap: 10px; min-height: 42px; }
+.finance-tax-panel .fund-return-attestation input { width: 20px; min-width: 20px; height: 20px; min-height: 20px; padding: 0; }
 @media (min-width: 640px) {
   .finance-initial-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

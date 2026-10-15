@@ -64,6 +64,7 @@ test("fund return and recovery views handle long text at mobile, tablet and desk
     await expect(recovery.locator("[data-payment-file-name]")).toHaveText(`${"Recovery".repeat(25)}.pdf`);
     await expect(recovery.locator("textarea")).toHaveValue(longReason);
     await associate.setViewportSize({ width: 390, height: 900 });
+    const dismiss = associate.getByRole("button", { name: "Dismiss message" }); if (await dismiss.isVisible()) await dismiss.click();
     await recoveryCard.screenshot({ path: "outputs/payment-recovery-mobile.png" });
     await recovery.getByRole("button", { name: "Record full payment recovery", exact: true }).click();
     await expect(recoveryCard.locator("[data-payment-state]")).toContainText("Manager review pending");

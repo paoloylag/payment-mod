@@ -30,10 +30,33 @@ def return_view(row):
     }
 
 
-def return_amounts(voucher, latest):
-    expected = Decimal(voucher.result["totals"].get("cash_return_pending", "0"))
+def return_amounts(voucher, latest, offer_full_advance=False):
+    expected = (
+        Decimal(voucher.result["totals"]["gross"])
+        if voucher.result.get("request_type") == "cashAdvance"
+        and (offer_full_advance or (latest and latest.state in {"recorded", "verified"}))
+        else Decimal(voucher.result["totals"].get("cash_return_pending", "0"))
+    )
     verified = latest.amount if latest and latest.state == "verified" else Decimal(0)
     return {"expected": str(expected), "verified": str(verified), "outstanding": str(expected - verified)}
+
+
+def full_advance_source(item, voucher):
+    entries = [row for row in voucher.result["entries"] if Decimal(row["debit"]) > 0]
+    if (
+        not entries
+        or len({row["account"]["id"] for row in entries}) != 1
+        or len({row["cost_center"]["id"] for row in entries}) != 1
+    ):
+        return None
+    return {
+        "request_id": str(item.id),
+        "request_number": item.request_number,
+        "amount": str(item.gross_amount),
+        "journal_id": str(voucher.journal_id),
+        "asset_account": entries[0]["account"],
+        "asset_cost_center": entries[0]["cost_center"],
+    }
 
 
 def receipt_available(db, result):

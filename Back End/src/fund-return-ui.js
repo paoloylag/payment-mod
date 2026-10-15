@@ -7,6 +7,7 @@ export function fundReturnBody(data, drafts, text, money, currency, accounts) {
     const draft = drafts[`fundReturn:${action}`] || {};
     return `<details ${draft.open ? "open" : ""}><summary>${title}</summary><form class="identity-form" data-fund-return-action="${action}">
       ${action === "record" ? `<p>Record the full unused balance in ${text(currency)}. It remains outstanding until Finance Manager verifies the receipt.</p>
+      ${data.mode === "full_advance" ? `<p>Use this only when the entire advance is unused. If any amount was spent, prepare Liquidation first.</p><label class="fund-return-attestation"><input type="checkbox" name="entirely_unused" required ${draft.entirely_unused === "on" ? "checked" : ""}><span>I confirm the entire advance is unused.</span></label>` : ""}
       <label>Full return amount<input name="amount" value="${text(data.expected)}" readonly required></label>
       <label>Receipt date<input type="date" name="recorded_on" value="${text(draft.recorded_on || "")}" required></label>
       <label>Receipt or deposit reference<input name="reference" value="${text(draft.reference || "")}" required maxlength="100"></label>
@@ -17,7 +18,7 @@ export function fundReturnBody(data, drafts, text, money, currency, accounts) {
   };
   return `<section data-fund-return aria-label="Unused advance fund return" class="payment-line-card"><h4>Unused advance fund return</h4>
     <dl class="detail-list">${[["Required return", data.expected], ["Verified returned funds", data.verified], ["Outstanding return", data.outstanding]].map(([title, value]) => `<div><dt>${title}</dt><dd>${amount(value)}</dd></div>`).join("")}</dl>
-    <p data-fund-return-state>${({ recorded: "Receipt recorded · Finance Manager verification pending", verified: "Full fund return verified", rejected: "Receipt rejected · Finance Associate must record corrected evidence" })[data.latest?.state] || "Full return receipt required"}</p>
+    <p data-fund-return-state>${({ recorded: "Receipt recorded · Finance Manager verification pending", verified: "Full fund return verified", rejected: "Receipt rejected · Funds not verified" })[data.latest?.state] || (data.mode === "full_advance" ? "Optional full return of an entirely unused advance" : "Full return receipt required")}</p>
     ${data.latest ? `<p>Receipt ${text(data.latest.result.reference)} · ${text(data.latest.result.receiving_office)} · ${text(data.latest.result.recorded_on)}<br>Receiving account: ${text(data.latest.result.receiving_account.code)} — ${text(data.latest.result.receiving_account.name)}</p>${data.evidence_available ? `<a href="/api/v1/documents/${text(data.latest.result.document_id)}/content" target="_blank" rel="noopener">Open return evidence</a>` : '<p role="alert">Receipt evidence unavailable.</p>'}` : ""}
     ${data.can_record ? form("record", "Record full fund return") : ""}${data.can_verify ? `${form("verify", "Verify full fund return")}${form("reject", "Reject fund return receipt")}` : ""}
     ${data.latest?.result.receipt_entries ? `<h4>Verified receipt accounting</h4><dl class="detail-list">${data.latest.result.receipt_entries.map(row => `<div><dt>${Number(row.debit) > 0 ? "Debit" : "Credit"} · ${text(row.account.code)} — ${text(row.account.name)}</dt><dd>${amount(Number(row.debit) > 0 ? row.debit : row.credit)}</dd></div>`).join("")}</dl>` : ""}
