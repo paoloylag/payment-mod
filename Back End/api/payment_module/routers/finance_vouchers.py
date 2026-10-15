@@ -18,7 +18,9 @@ from ..finance_configuration import lock_configuration
 from ..finance_readiness import effective, finance_date
 from ..finance_tax import latest_snapshot
 from ..finance_validation import validation_summary
+from ..fund_returns import latest_return
 from ..models import (
+    ChartAccount,
     FinanceJournalSnapshot,
     FinanceVoucherDraft,
     FinanceVoucherEvent,
@@ -223,6 +225,18 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
         "can_link_replacement": can_link,
         "replacement_candidates": replacement_candidates(db, request, actor, item) if can_link else [],
         "execution": execution,
+        "return_accounts": [
+            {"id": str(row.id), "name": f"{row.code} — {row.name}"}
+            for row in db.scalars(select(ChartAccount).order_by(ChartAccount.code))
+            if "finance_associate" in roles
+            and effective(row, finance_date())
+            and row.is_posting
+            and row.account_type == "asset"
+            and (
+                not voucher
+                or str(row.id) != (voucher.result.get("advance_source") or {}).get("asset_account", {}).get("id")
+            )
+        ],
         "request_id": str(item.id),
         "request_version": item.version,
         "version": latest.version if latest else 0,
@@ -242,6 +256,11 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
             and state != "voided"
             and "finance_manager" in roles
             and Decimal(execution["summary"]["released"]) == 0
+            and not (
+                execution["fund_return"]
+                and execution["fund_return"]["latest"]
+                and execution["fund_return"]["latest"]["state"] in {"recorded", "verified"}
+            )
             and "vouchers.void" in codes
         ),
         "can_prepare_payment": bool(
@@ -491,9 +510,10 @@ def record_event(db, request, actor, item, voucher, payload, key, action, result
 
 
 def digest(payload, action):
-    return hashlib.sha256(
-        json.dumps({"action": action, **payload.model_dump(mode="json")}, sort_keys=True).encode()
-    ).hexdigest()
+    body = payload.model_dump(mode="json")
+    if body.get("recovered_amount") is None:
+        body.pop("recovered_amount", None)
+    return hashlib.sha256(json.dumps({"action": action, **body}, sort_keys=True).encode()).hexdigest()
 
 
 def guard(db, request, actor, request_id, payload, key, action, role, permission):
@@ -787,6 +807,9 @@ def void_voucher(
         return event_view(latest)
     if Decimal(payment_summary(db, voucher)["released"]) > 0:
         raise HTTPException(409, "A voucher with released payments cannot be voided")
+    returned = latest_return(db, voucher.id)
+    if returned and returned.state in {"recorded", "verified"}:
+        raise HTTPException(409, "A voucher with pending or verified returned funds cannot be voided")
     journal = latest_journal(db, item.id)
     entries = [{**entry, "debit": entry["credit"], "credit": entry["debit"]} for entry in journal.result["entries"]]
     totals = {

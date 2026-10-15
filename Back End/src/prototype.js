@@ -1139,7 +1139,7 @@ function apiLineToPrototype(type, line) {
   return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department to Be Charged": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
 }
 
-const paymentStages = { settled_no_payment: [14, "Liquidation Settled — No Additional Payment"], cash_return_pending: [13, "Cash Return Pending"], draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
+const paymentStages = { funds_returned: [14, "Fund Return Verified"], recovery_pending: [13, "Payment Recovery Review"], reversed: [10, "Payment Reversed — Replacement Preparation"], settled_no_payment: [14, "Liquidation Settled — No Additional Payment"], cash_return_pending: [13, "Cash Return Pending"], draft: [9, "Voucher Draft"], issued: [10, "Voucher Issued"], payment_prepared: [11, "Signatory Approval"], authorized: [12, "Payment Authorized — Release Pending"], partially_released: [12, "Partially Released"], released: [13, "Payment Released"], cleared: [14, "Payment Cleared"], voided: [9, "Voucher Voided"] };
 
 function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], declined: ["Declined", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
@@ -2585,6 +2585,38 @@ function bindFinanceVouchers() {
 
 function bindPaymentExecution(panel, r, voucherKey) {
   const drafts = state.paymentDrafts[r.backendId] ||= {};
+  panel.querySelectorAll("[data-fund-return-action]").forEach(form => {
+    const action = form.dataset.fundReturnAction, draftKey = `fundReturn:${action}`;
+    const draft = drafts[draftKey] ||= {};
+    const read = () => { Object.assign(draft, Object.fromEntries([...new FormData(form)].filter(([name]) => name !== "evidence"))); draft.open = true; };
+    form.addEventListener("input", read); form.addEventListener("change", read);
+    const input = form.elements.evidence;
+    const showFile = () => {
+      if (!input) return;
+      input.required = !draft.file;
+      const tag = form.querySelector("[data-return-file-selection]"); tag.hidden = !draft.file;
+      tag.querySelector("[data-return-file-name]").textContent = draft.file?.name || "";
+    };
+    input?.addEventListener("change", () => { draft.file = input.files[0]; showFile(); });
+    form.querySelector("[data-remove-return-file]")?.addEventListener("click", () => { delete draft.file; input.value = ""; showFile(); input.focus(); });
+    form.addEventListener("submit", async event => {
+      event.preventDefault(); read(); const data = state.financeVouchers[voucherKey];
+      const payload = { request_version: data.request_version, version: data.execution.fund_return.version, reason: draft.reason,
+        ...(action === "record" ? { amount: draft.amount, recorded_on: draft.recorded_on, reference: draft.reference, receiving_office: draft.receiving_office, receiving_account_id: draft.receiving_account_id } : {}) };
+      const signature = JSON.stringify({ action, payload, file: draft.file ? `${draft.file.name}:${draft.file.size}:${draft.file.lastModified}` : "" });
+      const retryKey = `${r.backendId}:${draftKey}`, prior = state.paymentRetries[retryKey];
+      const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() }; state.paymentRetries[retryKey] = retry;
+      const button = form.querySelector('[type="submit"]'); button.disabled = true; form.setAttribute("aria-busy", "true");
+      const errorBox = form.querySelector("[data-return-error]"); errorBox.textContent = "";
+      try {
+        if (action === "record" && !draft.file) throw new Error("Choose return receipt or deposit evidence first.");
+        await dataSource.saveFundReturn(r.backendId, action, payload, draft.file, state.csrfToken, retry.key);
+        delete drafts[draftKey]; delete state.paymentRetries[retryKey];
+        await loadApiPaymentRequests(); await loadFinanceVoucher(requests.find(item => item.backendId === r.backendId) || r, true);
+        setState({ toast: successToast("Fund return record updated") });
+      } catch (error) { errorBox.textContent = error.message; button.disabled = false; form.removeAttribute("aria-busy"); }
+    });
+  });
   drafts.schedule ||= { lines: [{}] };
   panel.querySelector("[data-payment-schedule]")?.addEventListener("toggle", event => { drafts.schedule.open = event.currentTarget.open; });
   panel.querySelector("[data-add-payment-line]")?.addEventListener("click", () => { drafts.schedule.lines.push({}); drafts.schedule.open = true; render(); });
@@ -2597,18 +2629,23 @@ function bindPaymentExecution(panel, r, voucherKey) {
   panel.querySelectorAll("[data-payment-action]").forEach(form => {
     const action = form.dataset.paymentAction, lineId = form.dataset.paymentLine;
     const draftKey = lineId ? `${lineId}:${action}` : "schedule";
+    if (action !== "prepare") form.parentElement.addEventListener("toggle", event => { (drafts[draftKey] ||= {}).open = event.currentTarget.open; });
     const read = () => {
       const values = Object.fromEntries([...new FormData(form).entries()].filter(([name]) => name !== "evidence"));
       if (action === "prepare") values.lines = [...form.querySelectorAll("[data-payment-draft-line]")].map(fieldset => Object.fromEntries([...fieldset.querySelectorAll("input,select")].map(input => [input.name, input.value])));
-      drafts[draftKey] = { ...(drafts[draftKey] || {}), ...values }; return drafts[draftKey];
+      drafts[draftKey] = { ...(drafts[draftKey] || {}), ...values };
+      if (form.elements.evidence?.files[0]) drafts[draftKey].file = form.elements.evidence.files[0];
+      return drafts[draftKey];
     };
     const fileInput = form.elements.evidence;
     const showFile = () => {
       const tag = form.querySelector("[data-payment-file-selection]");
-      if (tag) { tag.hidden = !fileInput?.files.length; tag.querySelector("[data-payment-file-name]").textContent = fileInput?.files[0]?.name || ""; }
+      const file = fileInput?.files[0] || drafts[draftKey]?.file;
+      if (fileInput) fileInput.required = !file;
+      if (tag) { tag.hidden = !file; tag.querySelector("[data-payment-file-name]").textContent = file?.name || ""; }
     };
-    fileInput?.addEventListener("change", () => { delete drafts[draftKey].evidence_id; showFile(); });
-    form.querySelector("[data-remove-payment-file]")?.addEventListener("click", () => { fileInput.value = ""; delete drafts[draftKey].evidence_id; showFile(); fileInput.focus(); });
+    fileInput?.addEventListener("change", () => { const draft = drafts[draftKey] ||= {}; draft.file = fileInput.files[0]; delete draft.evidence_id; showFile(); });
+    form.querySelector("[data-remove-payment-file]")?.addEventListener("click", () => { fileInput.value = ""; delete drafts[draftKey].file; delete drafts[draftKey].evidence_id; showFile(); fileInput.focus(); });
     form.addEventListener("input", read); form.addEventListener("change", read);
     form.addEventListener("submit", async event => {
       event.preventDefault();
@@ -2617,20 +2654,21 @@ function bindPaymentExecution(panel, r, voucherKey) {
       const button = form.querySelector('[type="submit"]'), errorBox = form.querySelector("[data-payment-error]");
       button.disabled = true; errorBox.textContent = "";
       try {
-        if (["release", "clear"].includes(action) && !draft.evidence_id) {
-          const file = form.elements.evidence.files[0];
+        if (["release", "clear", "recover"].includes(action) && !draft.evidence_id) {
+          const file = form.elements.evidence?.files[0] || draft.file;
           if (!file) throw new Error("Choose supporting evidence first.");
           const evidenceKey = `${r.backendId}:${draftKey}:evidence`, signature = `${file.name}:${file.size}:${file.lastModified}`;
           const prior = state.paymentRetries[evidenceKey];
           const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() };
           state.paymentRetries[evidenceKey] = retry;
-          const evidence = await dataSource.uploadPaymentEvidence(r.backendId, lineId, action === "release" ? "release" : "clearing", file, state.csrfToken, retry.key);
+          const evidence = await dataSource.uploadPaymentEvidence(r.backendId, lineId, action === "release" ? "release" : action === "recover" ? "recovery" : "clearing", file, state.csrfToken, retry.key);
           draft.evidence_id = evidence.id;
         }
         const payload = { request_version: data.request_version, version: line ? line.version : data.version, reason: draft.reason,
           ...(action === "prepare" ? { lines: draft.lines.map(row => ({ ...row, amount: row.amount })) } : {}),
-          ...(["release", "clear"].includes(action) ? { evidence_id: draft.evidence_id, recorded_on: draft.recorded_on,
-            ...(action === "release" ? { bank_name: draft.bank_name, recipient_name: draft.recipient_name } : {}) } : {}) };
+          ...(["release", "clear", "recover"].includes(action) ? { evidence_id: draft.evidence_id, recorded_on: draft.recorded_on,
+            ...(["release", "recover"].includes(action) ? { bank_name: draft.bank_name, recipient_name: draft.recipient_name } : {}),
+            ...(action === "recover" ? { recovered_amount: draft.recovered_amount } : {}) } : {}) };
         const retryKey = `${r.backendId}:${draftKey}`, signature = JSON.stringify(payload), prior = state.paymentRetries[retryKey];
         const retry = prior?.signature === signature ? prior : { signature, key: crypto.randomUUID() }; state.paymentRetries[retryKey] = retry;
         await dataSource.savePayment(r.backendId, lineId, action, payload, state.csrfToken, retry.key);
@@ -3376,7 +3414,7 @@ function tracker() {
   const selected = visibleRequests.find((r) => r.id === state.trackerRequestId);
   if (selected) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-tracker="true">← Back to Request Tracker</button></div><div class="metric-detail-header"><div><span class="eyebrow">Tracker Detail</span><h3>${selected.id}</h3><p>Review request information and its current payment progress.</p></div>${statusPill(selected.status)}</div>${paymentOperationsPanel(selected)}${detail(selected)}${workflow(selected.currentStep)}${vendorNotificationModal(selected)}</section>`;
   const paymentStatus = (request) => {
-    if (request.backendId) return `<span class="tracker-status-text ${request.paymentSummary?.state === "cleared" ? "complete" : "pending"}">${escapeHtml(({ settled_no_payment: "Settled · No additional payment", cash_return_pending: "Cash return pending", draft: "Voucher Draft", issued: "Awaiting payment preparation", payment_prepared: "Awaiting authorization", authorized: "Authorized · Release pending", partially_released: "Partially released", released: "Released · Clearing pending", cleared: "Cleared", voided: "Voided" })[request.paymentSummary?.state] || "Awaiting approval and voucher")}</span>`;
+    if (request.backendId) return `<span class="tracker-status-text ${["cleared", "funds_returned", "settled_no_payment"].includes(request.paymentSummary?.state) ? "complete" : "pending"}">${escapeHtml(({ funds_returned: "Fund return verified", recovery_pending: "Recovery review pending", reversed: "Reversed · Replacement pending", settled_no_payment: "Settled · No additional payment", cash_return_pending: "Cash return pending", draft: "Voucher Draft", issued: "Awaiting payment preparation", payment_prepared: "Awaiting authorization", authorized: "Authorized · Release pending", partially_released: "Partially released", released: "Released · Clearing pending", cleared: "Cleared", voided: "Voided" })[request.paymentSummary?.state] || "Awaiting approval and voucher")}</span>`;
     const released = request.currentStep > 13;
     const label = released ? "Released" : request.pickupAvailableAt ? "Available for Pickup" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release";
     return `<span class="tracker-status-text ${released || request.pickupAvailableAt ? "complete" : "pending"}">${label}</span>`;
@@ -4686,6 +4724,9 @@ window.addEventListener("hashchange", async () => {
   resetPageScroll();
 });
 window.addEventListener("resize", () => window.requestAnimationFrame(centerActiveAdministrationTab));
+window.matchMedia("(max-width: 1199px)").addEventListener("change", event => {
+  if (event.matches && !state.conversationCollapsed) setState({ conversationCollapsed: true });
+});
 window.setInterval(() => {
   if (document.visibilityState === "visible" && state.authStatus === "authenticated") loadNotifications();
 }, 30000);

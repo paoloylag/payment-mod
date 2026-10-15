@@ -219,7 +219,8 @@ class PaymentLineEvent(Base):
         UniqueConstraint("instruction_id", "version"),
         UniqueConstraint("instruction_id", "command_key"),
         CheckConstraint(
-            "state IN ('prepared','authorized','ready_for_pickup','released','cleared','failed','voided')",
+            "state IN ('prepared','authorized','ready_for_pickup','released','cleared','failed','voided',"
+            "'recovery_pending','reversed')",
             name="ck_payment_line_state",
         ),
     )
@@ -246,5 +247,26 @@ class PaymentEvidence(Base):
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     command_key: Mapped[str] = mapped_column(String(100), nullable=False)
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class FundReturnEvent(Base):
+    __tablename__ = "fund_return_events"
+    __table_args__ = (
+        UniqueConstraint("voucher_id", "version"),
+        UniqueConstraint("voucher_id", "command_key"),
+        CheckConstraint("state IN ('recorded','verified','rejected')", name="ck_fund_return_state"),
+        CheckConstraint("amount > 0", name="ck_fund_return_amount"),
+    )
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(19, 4), nullable=False)
+    command_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
     actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -30,7 +30,7 @@ from ..models import (
     User,
     WorkflowInstance,
 )
-from ..payment_execution import event_view, evidence_view, execution_view, line_state, payment_summary
+from ..payment_execution import event_view, evidence_view, execution_view, line_state, payment_summary, recovery_blocker
 from ..security import current_user
 from ..voucher_service import latest_voucher_event, signatory_users
 from .documents import _prepare, _store_version, get_storage
@@ -59,15 +59,16 @@ class PaymentAction(VoucherCommand):
     bank_name: str = Field(default="", max_length=160)
     recipient_name: str = Field(default="", max_length=200)
     recorded_on: date | None = None
+    recovered_amount: Decimal | None = Field(default=None, gt=0, max_digits=19, decimal_places=4)
 
 
-def save_line_event(db, request, actor, instruction, payload, key, state, result):
+def save_line_event(db, request, actor, instruction, payload, key, state, result, event_action=None):
     row = PaymentLineEvent(
         instruction_id=instruction.id,
         version=payload.version + 1,
         state=state,
         command_key=key,
-        payload_hash=digest(payload, state),
+        payload_hash=digest(payload, event_action or state),
         result={**result, "actor_name": actor.display_name},
         reason=payload.reason.strip(),
         actor_user_id=actor.id,
@@ -77,7 +78,7 @@ def save_line_event(db, request, actor, instruction, payload, key, state, result
     audit(
         db,
         actor_id=actor.id,
-        action=f"payment.{state}",
+        action=f"payment.{event_action or state}",
         entity_type="payment_instruction",
         entity_id=instruction.id,
         request_id=request.state.request_id,
@@ -124,6 +125,20 @@ def prepare_lines(
     total = sum((line.amount for line in payload.lines), Decimal(0))
     if total > Decimal(summary["available"]):
         raise HTTPException(409, "Payment line amounts exceed the voucher's available payable balance")
+    recovered_unallocated = sum(
+        (
+            row.amount
+            for row in db.scalars(select(PaymentInstruction).where(PaymentInstruction.voucher_id == voucher.id))
+            if line_state(db, row)[0] == "reversed"
+            and not db.scalar(select(PaymentInstruction.id).where(PaymentInstruction.predecessor_id == row.id))
+        ),
+        Decimal(0),
+    )
+    if (
+        sum((line.amount for line in payload.lines if not line.predecessor_id), Decimal(0))
+        > Decimal(summary["available"]) - recovered_unallocated
+    ):
+        raise HTTPException(409, "Use a linked replacement for each recovered payment line")
     currency = db.get(Currency, item.currency_code)
     if not currency or not currency.is_active:
         raise HTTPException(409, "Payment currency must be active")
@@ -159,11 +174,11 @@ def prepare_lines(
             if (
                 not predecessor
                 or predecessor.voucher_id != voucher.id
-                or line_state(db, predecessor)[0] not in {"failed", "voided"}
+                or line_state(db, predecessor)[0] not in {"failed", "voided", "reversed"}
                 or predecessor.amount != line.amount
                 or db.scalar(select(PaymentInstruction.id).where(PaymentInstruction.predecessor_id == predecessor.id))
             ):
-                raise HTTPException(409, "Replace one failed or voided unreleased payment with the same amount")
+                raise HTTPException(409, "Replace one failed, voided or recovered payment with the same amount")
         sequence += 1
         details = {
             "label": line.label.strip(),
@@ -253,11 +268,27 @@ def validate_source(db, item, voucher):
         raise HTTPException(409, "Final approval and original posted voucher accounting are required")
 
 
+def recovery_allowed(db, item):
+    blocker = recovery_blocker(db, item)
+    if blocker:
+        raise HTTPException(409, blocker)
+
+
 @router.post("/{request_id}/lines/{instruction_id}/{action}")
 def payment_action(
     request_id: UUID,
     instruction_id: UUID,
-    action: Literal["authorize", "pickup-ready", "release", "clear", "fail", "void"],
+    action: Literal[
+        "authorize",
+        "pickup-ready",
+        "release",
+        "clear",
+        "fail",
+        "void",
+        "recover",
+        "confirm-reversal",
+        "reject-recovery",
+    ],
     payload: PaymentAction,
     request: Request,
     idempotency_key: str = Header(min_length=1, max_length=100),
@@ -274,6 +305,9 @@ def payment_action(
         "clear": ("finance_manager", "payments.clear", "cleared"),
         "fail": ("finance_manager", "payments.exceptions", "failed"),
         "void": ("finance_manager", "payments.exceptions", "voided"),
+        "recover": ("finance_associate", "payments.release", "recovery_pending"),
+        "confirm-reversal": ("finance_manager", "payments.exceptions", "reversed"),
+        "reject-recovery": ("finance_manager", "payments.exceptions", "recovery_rejected"),
     }
     role, permission, target = policy[action]
     if role not in roles or permission not in permissions or actor.id == item.requestor_id:
@@ -318,6 +352,9 @@ def payment_action(
         "clear": state == "released",
         "fail": state in {"prepared", "authorized", "ready_for_pickup"},
         "void": state in {"prepared", "authorized", "ready_for_pickup"},
+        "recover": state in {"released", "cleared"},
+        "confirm-reversal": state == "recovery_pending",
+        "reject-recovery": state == "recovery_pending",
     }
     if not allowed[action]:
         raise HTTPException(409, f"Cannot {action} a payment line from {state}")
@@ -325,6 +362,49 @@ def payment_action(
     if recorded_on > finance_date():
         raise HTTPException(422, "The recorded date cannot be in the future")
     result = {"instruction": instruction.result, "recorded_on": recorded_on.isoformat()}
+    if action in {"recover", "confirm-reversal", "reject-recovery"}:
+        recovery_allowed(db, item)
+        prior = db.scalar(
+            select(PaymentLineEvent)
+            .where(PaymentLineEvent.instruction_id == instruction.id)
+            .order_by(PaymentLineEvent.version.desc())
+            .limit(1)
+        )
+        if action == "recover":
+            evidence = db.get(PaymentEvidence, payload.evidence_id) if payload.evidence_id else None
+            if payload.recovered_amount != instruction.amount:
+                raise HTTPException(422, "Recover the full payment line amount in the original currency")
+            if (
+                not evidence
+                or evidence.instruction_id != instruction.id
+                or evidence.kind != "recovery"
+                or not evidence_view(db, evidence)["available"]
+            ):
+                raise HTTPException(409, "Upload available recovery evidence for this payment line first")
+            if not payload.bank_name.strip() or not payload.recipient_name.strip():
+                raise HTTPException(422, "Receiving bank or cash office and returned-by name are required")
+            if prior and recorded_on < date.fromisoformat(prior.result.get("recorded_on", recorded_on.isoformat())):
+                raise HTTPException(422, "Recovery cannot be dated before the payment's release or clearing")
+            result.update(
+                prior_state=state,
+                recovered_amount=str(instruction.amount),
+                evidence=evidence_view(db, evidence),
+                bank_name=payload.bank_name.strip(),
+                recipient_name=payload.recipient_name.strip(),
+            )
+        else:
+            if not prior or prior.actor_user_id == actor.id:
+                raise HTTPException(403, "A different Finance Manager must review the recovery")
+            evidence = db.get(PaymentEvidence, UUID(prior.result["evidence"]["id"]))
+            if action == "confirm-reversal" and (not evidence or not evidence_view(db, evidence)["available"]):
+                raise HTTPException(409, "Recovery evidence is no longer available")
+            result = {
+                **prior.result,
+                "recovery_event_id": str(prior.id),
+                "recovery_rejected": action == "reject-recovery",
+            }
+            if action == "reject-recovery":
+                target = prior.result["prior_state"]
     if action in {"release", "clear"}:
         evidence = db.get(PaymentEvidence, payload.evidence_id) if payload.evidence_id else None
         kind = "release" if action == "release" else "clearing"
@@ -351,7 +431,17 @@ def payment_action(
             )
             if release and recorded_on < date.fromisoformat(release.result["recorded_on"]):
                 raise HTTPException(422, "Clearing cannot be dated before release")
-    row = save_line_event(db, request, actor, instruction, payload, idempotency_key, target, result)
+    row = save_line_event(
+        db,
+        request,
+        actor,
+        instruction,
+        payload,
+        idempotency_key,
+        target,
+        result,
+        "recovery_rejected" if action == "reject-recovery" else None,
+    )
     db.commit()
     return event_view(row)
 
@@ -361,7 +451,7 @@ def upload_evidence(
     request_id: UUID,
     instruction_id: UUID,
     request: Request,
-    kind: Literal["release", "clearing"] = Form(...),
+    kind: Literal["release", "clearing", "recovery"] = Form(...),
     file: UploadFile = File(...),
     idempotency_key: str = Header(min_length=1, max_length=100),
     db: Session = Depends(get_db),
@@ -371,7 +461,9 @@ def upload_evidence(
         db, request, actor, request_id, instruction_id
     )
     role, permission = (
-        ("finance_associate", "payments.release") if kind == "release" else ("finance_manager", "payments.clear")
+        ("finance_associate", "payments.release")
+        if kind in {"release", "recovery"}
+        else ("finance_manager", "payments.clear")
     )
     if role not in roles or permission not in permissions or actor.id == item.requestor_id:
         raise HTTPException(403, f"Permission required: {permission}")
@@ -397,9 +489,17 @@ def upload_evidence(
     if (
         item.status != "submitted"
         or latest.state == "voided"
-        or (state not in {"authorized", "ready_for_pickup"} if kind == "release" else state != "released")
+        or not (
+            {
+                "release": state in {"authorized", "ready_for_pickup"},
+                "clearing": state == "released",
+                "recovery": state in {"released", "cleared"},
+            }[kind]
+        )
     ):
         raise HTTPException(409, "Evidence upload is not available at this payment stage")
+    if kind == "recovery":
+        recovery_allowed(db, item)
     document = Document(request_id=item.id, owner_user_id=actor.id)
     db.add(document)
     db.flush()

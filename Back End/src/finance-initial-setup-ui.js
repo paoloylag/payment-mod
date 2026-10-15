@@ -16,7 +16,7 @@ export function initialSetupBody(setup, accounts, taxes, values, step, select, t
     ${pane(4, `<p>Save your choices, review any blockers, then activate All request types below. Saving alone does not activate changes.</p>`)}
     ${pane(5, `<p>After activation, exercise the business scenarios below and have Finance Manager record acceptance.</p>`)}
     <p role="alert" data-initial-save-error></p><div class="metric-detail-actions"><button type="button" data-initial-previous ${step === 0 ? "disabled" : ""}>Previous setup step</button><button type="button" data-initial-next ${step === 5 ? "disabled" : ""}>Next setup step</button><button type="submit" class="primary-button">Save setup progress</button></div>
-  </form><section data-initial-activation ${step === 4 ? "" : "hidden"}></section><section data-initial-business ${step === 5 ? "" : "hidden"}></section><details><summary>Saved setup readiness</summary>${setup.initial_setup?.blockers.length ? `<ul>${setup.initial_setup.blockers.map(message => `<li>${text(message)}</li>`).join("")}</ul>` : "<p>Required saved configuration is ready.</p>"}</details><p>SLA/escalation, fund returns and post-release reversals remain deferred.</p></section>`;
+  </form><section data-initial-activation ${step === 4 ? "" : "hidden"}></section><section data-initial-business ${step === 5 ? "" : "hidden"}></section><details><summary>Saved setup readiness</summary>${setup.initial_setup?.blockers.length ? `<ul>${setup.initial_setup.blockers.map(message => `<li>${text(message)}</li>`).join("")}</ul>` : "<p>Required saved configuration is ready.</p>"}</details><p>SLA deadlines, reminders and escalation remain deferred.</p></section>`;
 }
 
 export function businessAcceptanceBody(setup, editable, text, draft = {}, draftKey = "") {

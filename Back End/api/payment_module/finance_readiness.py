@@ -111,7 +111,7 @@ def readiness_report(db, draft, missing, request_types, scope="general"):
             "code": "activation",
             "label": "Finance policy activation",
             "status": "ready" if scope == "all" else "pending_confirmation",
-            "message": "All request types use confirmed payment rules; fund returns remain deferred."
+            "message": "All request types use confirmed payment rules, with verified fund returns and payment recovery."
             if scope == "all"
             else "General request EWT defaults and Finance Associate line overrides are supported. "
             "Account mapping exceptions, other request types, and sign-off scope remain pending "

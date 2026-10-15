@@ -234,6 +234,14 @@ export function createDataSource() {
       const path = lineId ? `/api/v1/payments/${id}/lines/${lineId}/${action}` : `/api/v1/payments/${id}/lines`;
       return apiRequest(path, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload) });
     },
+    saveFundReturn(id, action, payload, file, csrfToken, key) {
+      const headers = { "X-CSRF-Token": csrfToken, "Idempotency-Key": key };
+      let body;
+      if (action === "record") {
+        body = new FormData(); Object.entries(payload).forEach(([name, value]) => body.append(name, value)); body.append("file", file);
+      } else { headers["Content-Type"] = "application/json"; body = JSON.stringify(payload); }
+      return apiRequest(`/api/v1/payments/${id}/fund-return${action === "record" ? "" : `/${action}`}`, { method: "POST", headers, body });
+    },
     uploadPaymentEvidence(id, lineId, kind, file, csrfToken, key) {
       const body = new FormData(); body.append("kind", kind); body.append("file", file);
       return apiRequest(`/api/v1/payments/${id}/lines/${lineId}/evidence/upload`, { method: "POST", headers: { "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body });

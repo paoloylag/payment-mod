@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from .fund_returns import latest_return
 from .models import ChartAccount, FinanceJournalSnapshot, FinanceVoucherDraft, PaymentRequest
 from .payment_execution import payment_summary
 
@@ -22,7 +23,8 @@ def advance_source(db, item, lock=False):
     if Decimal(str(item.type_data.get("liquidation_advance_amount", 0))) != source.gross_amount:
         raise HTTPException(409, "Liquidation advance amount must match the original Cash Advance")
     voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == source.id))
-    if not voucher or Decimal(payment_summary(db, voucher)["released"]) != source.gross_amount:
+    summary = payment_summary(db, voucher) if voucher else None
+    if not summary or summary["state"] == "recovery_pending" or Decimal(summary["released"]) != source.gross_amount:
         raise HTTPException(409, "The original Cash Advance must be fully released before liquidation accounting")
     journal = db.get(FinanceJournalSnapshot, voucher.journal_id)
     if not journal or journal.request_id != source.id or journal.state != "posted":
@@ -100,11 +102,20 @@ def settled_advance_references(db, requestor_id):
             .limit(1)
         )
         totals = latest.result.get("tax_totals", {}) if latest else {}
+        voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == item.id))
+        returned = latest_return(db, voucher.id) if voucher else None
         if (
             latest
             and latest.state == "posted"
             and "advance_applied" in totals
-            and Decimal(totals.get("cash_return_pending", "0")) == 0
+            and (
+                Decimal(totals.get("cash_return_pending", "0")) == 0
+                or (
+                    returned
+                    and returned.state == "verified"
+                    and returned.amount == Decimal(totals["cash_return_pending"])
+                )
+            )
         ):
             references.add(str(item.type_data.get("cash_advance_reference")))
     return references

@@ -44,6 +44,8 @@ def work_queue(
         "cleared",
         "failed",
         "voided",
+        "recovery_pending",
+        "reversed",
     ]
     | None = None,
     search: str = Query(default="", max_length=100),
@@ -188,6 +190,10 @@ def work_queue(
                 "cleared",
                 "remaining",
                 "available",
+                "recovered",
+                "fund_return_expected",
+                "fund_return_verified",
+                "fund_return_outstanding",
             )
         }
         if voucher_result and (not summary or summary["state"] == "draft"):

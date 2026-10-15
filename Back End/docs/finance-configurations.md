@@ -50,7 +50,17 @@ Open **Administration → Request Settings → Finance Setup Draft → Start / r
 
 Acceptance records the activated version, Finance Manager identity, timestamp, review areas and note with an audit event. The record cannot be overwritten; an identical retry returns the same record. Draft changes need activation and a fresh review. Inactive or ineffective references block recording acceptance. Finance roles and System Administrators can view the record; other users cannot read the acceptance note.
 
-The guide reuses existing activation and request enforcement. Its readiness checks prevent incomplete activation through the guide; it does not introduce a new business-acceptance gate for requests or payments. Recording acceptance is Finance's attestation after exercising the scenarios, not an automatic test result. SLA/escalation, fund returns and post-release reversals remain deferred.
+The guide reuses existing activation and request enforcement. Its readiness checks prevent incomplete activation through the guide; it does not introduce a new business-acceptance gate for requests or payments. Recording acceptance is Finance's attestation after exercising the scenarios, not an automatic test result. SLA deadlines, reminders and escalation remain deferred.
+
+## Fund returns and payment recovery
+
+Finance Associate records the **full unused advance balance** on its issued Liquidation voucher, including receipt/deposit evidence, receipt reference/date, receiving office and an active posting cash/bank asset account distinct from the advance asset. Partial returns are rejected. Finance Manager independently verifies or rejects the receipt. Pending or rejected receipts leave the advance outstanding. Verification records balanced receipt entries (debit receiving asset, credit original advance asset), settles the returned balance, and retains the original expense/tax accounting. A rejected receipt can be recorded again with corrected evidence. Pending or verified returns prevent voucher voiding.
+
+For a released or cleared payment line, Finance Associate records **full recovered funds** with evidence, receiving office/bank, returned-by name, amount, date and reason. Pending recovery retains the released/cleared balance and blocks further actions on that line. A different Finance Manager confirms reversal or rejects recovery. Rejection restores the prior payment state. Confirmation reduces the net released/cleared totals and makes that amount available for a linked replacement of the same amount on the same voucher. The replacement requires fresh independent signatory authorization. Request approvals, tax calculations and expense accounting remain recorded.
+
+All amounts use the original request currency. The system records Finance's evidence of money already received; it does not move money through a bank connection. An advance with posted Liquidation accounting cannot be recovered as a payment; its existing settlement must be resolved first. Pending recovery also prevents new Liquidation accounting against that advance.
+
+Receipt/recovery records, review decisions, evidence references, actors, timestamps, reasons and payment replacement links remain in their histories and audit events. Idempotency keys and request locks prevent duplicate settlement. Migration `20261015_0027` refuses a downgrade that would discard receipt or recovery history.
 
 ### Initial setup verification
 

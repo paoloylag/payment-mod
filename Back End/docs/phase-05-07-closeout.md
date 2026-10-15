@@ -52,6 +52,8 @@ The TOJUST Construction PHP 200,000 configuration example has an exact regressio
 
 ## Deferred or later scope
 
+Update on 2026-10-15: the owner resumed fund returns and post-release reversals. Full unused-advance returns now use Finance Associate receipts and Finance Manager verification. Full payment recoveries reopen linked replacement payments after independent Finance Manager confirmation, retaining expense/tax accounting. See `finance-configurations.md` for the current operating rules. The fund-return/reversal deferral below records the original 2026-10-14 closeout status.
+
 - Owner-deferred Phase 05 SLA deadlines, reminders and escalation.
 - Owner-deferred unused-advance fund returns and post-release reversals.
 - Phase 08 notification processing/delivery, detailed reconciliation reports, exports, aging/report definitions and reporting performance acceptance.
