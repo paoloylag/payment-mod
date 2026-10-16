@@ -77,7 +77,7 @@ SAMPLE_VENDOR_PAYLOADS = (
         "businessDocuments": [],
     },
 )
-SAFE_VENDOR_FIELDS = frozenset(SAMPLE_VENDOR_PAYLOAD)
+SAFE_VENDOR_FIELDS = frozenset(SAMPLE_VENDOR_PAYLOAD) | {"is_active", "version"}
 
 
 def safe_vendor(payload: dict) -> dict:
@@ -85,7 +85,13 @@ def safe_vendor(payload: dict) -> dict:
     item = {key: deepcopy(value) for key, value in payload.items() if key in SAFE_VENDOR_FIELDS}
     item["id"] = str(item.get("id") or item.get("branchCode") or item.get("taxId") or item["name"])
     item["code"] = str(item.get("branchCode") or item["name"]).upper()
-    item["status"] = "active" if item.get("informationStatus") == "Information complete" else "incomplete"
+    item["is_active"] = item.get("is_active", True)
+    item["version"] = item.get("version", 1)
+    item["status"] = (
+        "inactive" if not item["is_active"]
+        else "active" if item.get("informationStatus") == "Information complete"
+        else "incomplete"
+    )
     return item
 
 
@@ -95,14 +101,14 @@ class MockVendorAdapter:
 
     def list(self, search: str = "", active_only: bool = True) -> list[dict]:
         needle = search.casefold().strip()
-        items = [safe_vendor(payload) for payload in SAMPLE_VENDOR_PAYLOADS]
+        payloads = {payload["id"]: payload for payload in SAMPLE_VENDOR_PAYLOADS}
         if self.db is not None:
             from sqlalchemy import select
 
             from .models import VendorRecord
 
-            items.extend(safe_vendor(record.payload) for record in self.db.scalars(select(VendorRecord)))
-        items = list({item["id"]: item for item in items}.values())
+            payloads.update({record.id: record.payload for record in self.db.scalars(select(VendorRecord))})
+        items = [safe_vendor(payload) for payload in payloads.values() if not payload.get("deleted_at")]
         return [
             item
             for item in items

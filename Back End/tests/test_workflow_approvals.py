@@ -517,6 +517,34 @@ def test_finance_manager_return_to_associate_resumes_manager_without_repeating_a
     assert approval.json()["current_stage"] == 3
 
 
+def test_finance_manager_return_to_requestor_resubmits_at_associate(client):
+    seed()
+    request_id = create_submitted()
+    head = login(client, "department.head@payment.local")
+    assert client.post(
+        f"/api/v1/workflow/{request_id}/approve",
+        json={"version": 1}, headers={**head, "Idempotency-Key": "head-before-manager-return"},
+    ).status_code == 200
+    associate = login(client, "finance.associate@payment.local")
+    accept_finance_line(client, request_id, associate)
+    assert client.post(
+        f"/api/v1/workflow/{request_id}/approve",
+        json={"version": 2}, headers={**associate, "Idempotency-Key": "associate-before-manager-return"},
+    ).status_code == 200
+    manager = login(client, "finance.manager@payment.local")
+    returned = client.post(
+        f"/api/v1/workflow/{request_id}/reject",
+        json={"version": 3, "decision": "return", "return_to_role": "requestor", "note": "Correct the breakdown"},
+        headers={**manager, "Idempotency-Key": "manager-return-to-owner"},
+    )
+    assert returned.status_code == 200, returned.text
+    with SessionLocal.begin() as db:
+        item = db.get(PaymentRequest, request_id)
+        item.status = "submitted"
+        item.version += 1
+        assert start_workflow(db, item, item.requestor_id).current_stage == 1
+
+
 def test_finance_associate_return_to_requestor_resubmits_at_associate(client):
     seed()
     request_id = create_submitted()

@@ -28,7 +28,7 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
     )
     resume_finance = bool(
         returned_event
-        and returned_event.stage_index == 1
+        and returned_event.stage_index in {1, 2}
         and previous_department == str(item.department_id)
         and not (returned_event.details or {}).get("material_correction")
     )

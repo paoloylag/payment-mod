@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Barrier
 from time import perf_counter
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +15,7 @@ from payment_module.models import (
     CostCenter,
     Currency,
     Department,
+    Document,
     PaymentRequest,
     PaymentRequestLine,
     Permission,
@@ -142,6 +143,53 @@ def payload_for_type(request_type: str):
             }
         )
     return result
+
+
+def test_edit_reorders_retained_lines_without_deleting_their_documents(client):
+    seed()
+    headers = login(client)
+    body = payload()
+    body["lines"].append({**body["lines"][0], "particulars": "Second item"})
+    created = client.post("/api/v1/requests", json=body, headers=headers).json()
+    first, second = created["lines"]
+    with SessionLocal.begin() as db:
+        item = db.get(PaymentRequest, UUID(created["id"]))
+        document = Document(request_id=item.id, line_id=UUID(first["id"]), owner_user_id=item.requestor_id)
+        db.add(document)
+        db.flush()
+        document_id = document.id
+    body.update(version=created["version"], lines=[{**second, "particulars": "Moved second"}, first])
+    edited = client.patch(f"/api/v1/requests/{created['id']}", json=body, headers=headers)
+    assert edited.status_code == 200, edited.text
+    assert [line["id"] for line in edited.json()["lines"]] == [second["id"], first["id"]]
+    with SessionLocal() as db:
+        assert db.get(Document, document_id).line_id == UUID(first["id"])
+    # Removing another row must leave the retained row and its evidence intact.
+    body.update(version=edited.json()["version"], lines=[first])
+    removed = client.patch(f"/api/v1/requests/{created['id']}", json=body, headers=headers)
+    assert removed.status_code == 200, removed.text
+    with SessionLocal() as db:
+        assert db.get(Document, document_id).line_id == UUID(first["id"])
+        assert db.get(PaymentRequestLine, UUID(second["id"])) is None
+
+
+@pytest.mark.parametrize("invalid_kind", ["foreign", "duplicate"])
+def test_edit_cannot_reuse_foreign_or_duplicate_line_ids(client, invalid_kind):
+    seed()
+    headers = login(client)
+    body = payload()
+    first = client.post("/api/v1/requests", json=body, headers=headers).json()
+    second = client.post("/api/v1/requests", json=body, headers=headers).json()
+    invalid_lines = [second["lines"][0]] if invalid_kind == "foreign" else first["lines"] * 2
+    edited = client.patch(
+        f"/api/v1/requests/{first['id']}",
+        json={**body, "version": first["version"], "lines": invalid_lines},
+        headers=headers,
+    )
+    assert edited.status_code == 422
+    saved = client.get(f"/api/v1/requests/{first['id']}", headers=headers).json()
+    assert saved["version"] == first["version"]
+    assert saved["lines"][0]["id"] == first["lines"][0]["id"]
 
 
 def test_request_crud_optimistic_lock_and_idempotent_submit(client):

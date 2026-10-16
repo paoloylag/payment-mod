@@ -77,6 +77,7 @@ class PermissionUpdate(BaseModel):
 
 
 class PaymentRequestLineInput(BaseModel):
+    id: UUID | None = None
     invoice_date: date | None = None
     invoice_number: str | None = Field(default=None, max_length=120)
     vendor_name: str = Field(default="", max_length=200)

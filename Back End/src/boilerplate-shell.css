@@ -1698,6 +1698,7 @@ body:has(.guide-main) { overflow: visible; }
 .notification-item-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .notification-empty { padding: 18px; color: var(--muted); }
 @media (max-width: 639px) {
+  .drafts-view .responsive-request-table td[data-label="Type"] { display: grid; }
   .conversation-list { max-height: none; }
   .conversation-entry-header time { width: 100%; margin-left: 0; }
   .conversation-form > div { align-items: stretch; }
@@ -2122,8 +2123,13 @@ dialog.finance-upload-modal > header .close-icon-button { flex: 0 0 42px; margin
 .app-shell main .compressed-actions-menu > :is(button,a) { width: 100%; margin: 0; white-space: normal; justify-content: flex-start; text-align: left; }
 
 .draft-row-actions .compressed-actions { margin-left: 0; }
-.draft-row-actions .compressed-actions-menu { left: 0; right: auto; }
+.draft-row-actions .compressed-actions-menu { left: auto; right: 0; }
 .drafts-view .table-wrap:has(.compressed-actions-menu:not([hidden])) { overflow: visible; }
+@media (max-width: 639px) {
+  .drafts-view .responsive-request-table td[data-label="Actions"] { grid-template-columns: minmax(0, 1fr); }
+  .drafts-view .draft-row-actions { justify-content: flex-end; }
+  .drafts-view .responsive-request-table tr:has(.compressed-actions-menu:not([hidden])) { overflow: visible; }
+}
 .finance-readiness { min-width: 0; margin-top: 1.5rem; overflow-wrap: anywhere; }
 .finance-readiness summary { cursor: pointer; padding-block: .75rem; }
 .finance-readiness ul { padding-inline-start: 1.5rem; }
@@ -2141,7 +2147,12 @@ dialog.finance-upload-modal > header .close-icon-button { flex: 0 0 42px; margin
   grid-template-columns: minmax(0, 1fr) 190px 100px 164px;
 }
 .app-shell main .vendor-directory .identity-list > article > .status-pill { justify-self: center; }
-.app-shell main .vendor-directory .vendor-row-actions { justify-self: end; }
+.app-shell main .vendor-directory .vendor-row-actions { justify-self: end; flex-wrap: wrap; }
+.vendor-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-block: 16px; }
+.vendor-filters label { flex: 1 1 180px; min-width: 0; }
+.vendor-form-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.vendor-field-grid dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.app-shell main .vendor-directory [data-vendor-row][hidden] { display: none; }
 @media (max-width: 639px) {
  .app-shell main .vendor-directory .identity-list > article { grid-template-columns: minmax(0,1fr) 100px; }
 }

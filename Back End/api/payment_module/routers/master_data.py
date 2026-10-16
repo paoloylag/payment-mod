@@ -1,10 +1,10 @@
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from ..models import (
     Currency,
     DocumentType,
     PaymentMethod,
+    PaymentRequest,
     TaxCode,
     User,
     VendorRecord,
@@ -499,6 +500,40 @@ class VendorCreate(BaseModel):
     )
     informationRequestedAt: datetime | None = None
     businessDocuments: list[dict] = Field(default_factory=list, max_length=30)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value):
+        return " ".join(value.split())
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value):
+        import re
+
+        if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+    @field_validator("website")
+    @classmethod
+    def validate_website(cls, value):
+        from urllib.parse import urlsplit
+
+        if value and (urlsplit(value).scheme not in {"http", "https"} or not urlsplit(value).netloc):
+            raise ValueError("Website must be an http or https URL")
+        return value
+
+
+class VendorUpdate(VendorCreate):
+    name: str = Field(default="", min_length=1, max_length=160)
+    version: int | None = Field(default=None, ge=1)
+
+
+def lock_vendor_directory(db):
+    # Also serializes edits of provider fixtures that do not yet have a local override row.
+    db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
 
 
 @router.post("/vendors", status_code=201)
@@ -508,12 +543,14 @@ def create_vendor(
     db: Session = Depends(get_db),
     actor: User = Depends(require_permission("vendors.manage")),
 ):
+    lock_vendor_directory(db)
     values = payload.model_dump(mode="json")
     if any(
         item["name"].casefold() == values["name"].casefold() for item in get_vendor_adapter(db).list(active_only=False)
     ):
         raise HTTPException(409, "A vendor with this name already exists")
     values["id"] = "VEND-" + str(uuid4())
+    values["version"] = 1
     db.add(VendorRecord(id=values["id"], payload=values))
     audit(
         db,
@@ -522,7 +559,7 @@ def create_vendor(
         entity_type="vendor",
         entity_id=None,
         request_id=request.state.request_id,
-        after={"vendor_id": values["id"], "name": values["name"]},
+        after={"vendor_id": values["id"], **safe_vendor(values)},
     )
     db.commit()
     return safe_vendor(values)
@@ -531,15 +568,21 @@ def create_vendor(
 @router.patch("/vendors/{vendor_id}")
 def update_vendor(
     vendor_id: str,
-    payload: VendorCreate,
+    payload: VendorUpdate,
     request: Request,
     db: Session = Depends(get_db),
     actor: User = Depends(require_permission("vendors.manage")),
 ):
+    lock_vendor_directory(db)
     existing = get_vendor_adapter(db).get(vendor_id)
     if existing is None:
         raise HTTPException(404, "Vendor not found")
-    values = payload.model_dump(mode="json")
+    if payload.version is not None and payload.version != existing["version"]:
+        raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory and reopen this form.")
+    values = {**existing, **payload.model_dump(mode="json", exclude_unset=True, exclude={"version"})}
+    values.pop("code", None)
+    values.pop("status", None)
+    values["version"] = existing["version"] + 1
     if any(
         item["id"] != vendor_id and item["name"].casefold() == values["name"].casefold()
         for item in get_vendor_adapter(db).list(active_only=False)
@@ -558,7 +601,38 @@ def update_vendor(
         entity_type="vendor",
         entity_id=None,
         request_id=request.state.request_id,
-        after={"vendor_id": vendor_id, "name": values["name"]},
+        before={"vendor_id": vendor_id, **existing},
+        after={"vendor_id": vendor_id, **safe_vendor(values)},
     )
     db.commit()
     return safe_vendor(values)
+
+
+@router.delete("/vendors/{vendor_id}", status_code=204)
+def delete_vendor(
+    vendor_id: str,
+    request: Request,
+    version: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    lock_vendor_directory(db)
+    existing = get_vendor_adapter(db).get(vendor_id)
+    if existing is None:
+        raise HTTPException(404, "Vendor not found")
+    if version is not None and version != existing["version"]:
+        raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory before deleting.")
+    if db.scalar(select(PaymentRequest.id).where(PaymentRequest.vendor_external_id == vendor_id).limit(1)) or any(
+        order.get("vendorId") == vendor_id for order in get_procurement_adapter().list(eligible_only=False)
+    ):
+        raise HTTPException(409, "This vendor is used by a request or purchase order. Deactivate it instead.")
+    # A tombstone also prevents bundled/provider records from reappearing after deletion.
+    values = {**existing, "deleted_at": datetime.now(UTC).isoformat(), "version": existing["version"] + 1}
+    record = db.get(VendorRecord, vendor_id)
+    if record:
+        record.payload = values
+    else:
+        db.add(VendorRecord(id=vendor_id, payload=values))
+    audit(db, actor_id=actor.id, action="vendor.deleted", entity_type="vendor", entity_id=None,
+          request_id=request.state.request_id, before={"vendor_id": vendor_id, **existing})
+    db.commit()

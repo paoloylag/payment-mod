@@ -6,7 +6,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
-from sqlalchemy import String, and_, delete, func, or_, select, text
+from sqlalchemy import String, and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from ..audit import audit
@@ -249,6 +249,11 @@ def serialize_many(db: Session, items: list[PaymentRequest], workflow_states: di
 
 
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
+    if payload.vendor_external_id:
+        db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
+        vendor = get_vendor_adapter(db).get(payload.vendor_external_id)
+        if not vendor or vendor["status"] != "active":
+            raise HTTPException(422, "Select an active vendor with complete information")
     department = db.get(Department, payload.department_id)
     if not department or not department.is_active:
         raise HTTPException(422, "Department does not exist or is inactive")
@@ -279,6 +284,12 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
     )
     data = item.type_data or {}
     errors: list[dict[str, str]] = []
+    if item.vendor_external_id:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id)
+        if not vendor or vendor["status"] != "active":
+            errors.append(
+                {"field": "vendor_external_id", "message": "Select an active vendor with complete information"}
+            )
 
     # Recheck current master data: a draft may predate a deactivation or expiry.
     department = db.get(Department, item.department_id)
@@ -564,6 +575,8 @@ def ensure_submittable(db: Session, item: PaymentRequest) -> None:
 
 def lock_submission_constraints(db: Session, item: PaymentRequest) -> None:
     """Serialize rules whose result depends on other submitted requests."""
+    if item.vendor_external_id:
+        db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
     if item.request_type == "poPayment":
         reference = str((item.type_data or {}).get("po_reference") or "").strip()
         if reference:
@@ -714,9 +727,30 @@ def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
 
 
 def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
-    db.execute(delete(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
+    existing = {
+        line.id: line
+        for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
+    }
+    retained = [line.id for line in payload.lines if line.id is not None]
+    if len(retained) != len(set(retained)) or any(line_id not in existing for line_id in retained):
+        raise HTTPException(422, "Line IDs must be unique and belong to this request")
+    # Move positions aside before reordering retained rows. Their documents keep the same line ID.
+    for line in existing.values():
+        line.position = -line.position
+    db.flush()
+    for line_id, line in existing.items():
+        if line_id not in retained:
+            db.delete(line)
+    db.flush()
     for position, line in enumerate(payload.lines, 1):
-        db.add(PaymentRequestLine(request_id=item.id, position=position, **line.model_dump()))
+        values = line.model_dump(exclude={"id"})
+        if line.id is not None:
+            saved = existing[line.id]
+            saved.position = position
+            for key, value in values.items():
+                setattr(saved, key, value)
+        else:
+            db.add(PaymentRequestLine(request_id=item.id, position=position, **values))
 
 
 def snapshot(db: Session, item: PaymentRequest, actor: User) -> dict:

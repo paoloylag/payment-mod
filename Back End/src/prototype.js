@@ -1,3 +1,4 @@
+import { vendorDirectory } from "./vendor-ui.js";
 import { closeIcon, uploadIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
 import { financeOperationsBody } from "./finance-operations-ui.js";
@@ -11,6 +12,18 @@ import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js
 
 const dataSource = createDataSource();
 const mockDraftStorageKey = "payment-module-mock-drafts-v1";
+// File objects stay in memory until the draft and its document uploads are saved.
+const draftUploadBuffers = new Map();
+const draftFileRemovals = new Map();
+const draftSaveQueue = new Map();
+const draftUploadScope = () => state.activeDraftId || `new:${state.draftType}`;
+const draftUploadSlot = input => input.hasAttribute("data-line-row") ? `line:${input.dataset.lineRow}:${input.dataset.lineColumn}` : `request:${input.dataset.requestDocument}`;
+function rememberDraftFiles(input) {
+  const scope = draftUploadScope();
+  const buffer = draftUploadBuffers.get(scope) || new Map();
+  buffer.set(draftUploadSlot(input), [...(input.files || [])]);
+  draftUploadBuffers.set(scope, buffer);
+}
 
 function loadMockDrafts(fallback) {
   if (dataSource.mode !== "mock") return fallback;
@@ -910,7 +923,7 @@ async function loadMasterData(tab = state.tab) {
       dataSource.listMasterData(config.resource, tab === "vendors"),
       tab === "currencies" ? dataSource.getRequestNumberingSetting().catch(() => null) : Promise.resolve(state.requestNumbering),
     ]);
-    setState({ masterData: { ...state.masterData, [config.resource]: items }, requestNumbering, masterDataLoading: false });
+    setState({ masterData: { ...state.masterData, [config.resource]: items }, requestNumbering, masterDataLoading: false, vendorDirectoryLoaded: tab === "vendors" ? true : state.vendorDirectoryLoaded });
   } catch (error) {
     const message = error.status === 403 ? "You do not have permission to view this master data." : error.message;
     setState({ masterDataLoading: false, masterDataError: message, toast: errorToast(message, "Master data unavailable") });
@@ -920,6 +933,7 @@ async function loadMasterData(tab = state.tab) {
 async function loadRequestReferenceData() {
   if (state.masterDataLoading) return;
   state.masterDataLoading = true;
+  state.vendorDirectoryLoaded = false;
   try {
     const resources = ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"];
     const [results, purchaseOrders, financeSetup] = await Promise.all([
@@ -962,17 +976,7 @@ function masterDataModal() {
 }
 
 const vendorFields = ["name", "vendorType", "email", "contactPerson", "phone", "street", "street2", "city", "state", "zip", "country", "taxId", "branchCode", "businessRegistration", "website", "terms", "lead", "rating", "tags", "notes", "informationStatus"];
-function vendorsPage() {
-  const items = state.masterData.vendors || [];
-  const selected = items.find(item => item.id === state.vendorView);
-  const creating = state.vendorCreating;
-  const editingVendor = items.find(item => item.id === state.vendorEditing);
-  const canViewVendorJson = state.authUser?.roles?.some(role => ["system_administrator", "developer"].includes(role)) === true;
-  const canCreate = state.authUser?.permissions?.includes("vendors.manage");
-  const labels = {name: "Vendor name", vendorType: "Vendor type", contactPerson: "Contact person", street2: "Address line 2", taxId: "Tax ID", branchCode: "Branch code", businessRegistration: "Business registration", terms: "Payment terms", lead: "Lead time", informationStatus: "Information status"};
-  const label = key => labels[key] || key[0].toUpperCase() + key.slice(1);
-  return `<section class="panel vendor-directory"><div class="panel-header"><div><h3>Vendor Directory</h3><p>Create and view vendor information.</p></div>${canCreate ? '<button type="button" data-new-vendor class="primary-button">Add vendor</button>' : ""}</div>${state.masterDataLoading ? '<p>Loading vendors…</p>' : ""}${state.masterDataError ? `<p role="alert">${escapeHtml(state.masterDataError)}</p>` : ""}<div class="identity-list">${items.map(item => `<article><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.email)}</small></div><div class="vendor-branch-code"><small>Branch Code</small><span>${escapeHtml(item.branchCode || item.code || "—")}</span></div><span class="status-pill ${item.status === "active" ? "success" : "danger"}">${escapeHtml(item.status)}</span><div class="vendor-row-actions"><button type="button" class="vendor-action-button" data-view-vendor="${escapeHtml(item.id)}">View</button>${canCreate ? `<button type="button" class="vendor-action-button" data-edit-vendor="${escapeHtml(item.id)}">Edit</button>` : ""}</div></article>`).join("")}</div></section>${creating || selected ? `<div class="identity-modal-backdrop"><section class="identity-modal" role="dialog" aria-modal="true" aria-label="${creating ? "Create vendor" : "Vendor details"}"><div class="identity-modal-header"><h3>${creating ? editingVendor ? "Edit vendor" : "Create vendor" : escapeHtml(selected.name)}</h3><button type="button" class="close-icon-button" data-close-vendor aria-label="Close vendor">${closeIcon}</button></div>${creating ? `<form data-vendor-create><div class="vendor-field-grid">${vendorFields.map(key => `<label>${label(key)}${key === "informationStatus" ? '<select name="informationStatus"><option>Information complete</option><option>Information requested</option></select>' : key === "notes" ? '<textarea name="notes" rows="2"></textarea>' : `<input name="${key}" ${key === "name" ? "required" : ""} type="${key === "email" ? "email" : "text"}" value="${key === "country" ? "Philippines" : key === "vendorType" ? "Company" : ""}">`}</label>`).join("")}</div><p role="alert" data-vendor-error></p><div class="identity-form-actions"><button type="button" data-close-vendor>Cancel</button><button type="submit" class="primary-button">${editingVendor ? "Save changes" : "Create vendor"}</button></div></form>` : `<dl class="vendor-field-grid">${vendorFields.map(key => `<div><dt>${label(key)}</dt><dd>${escapeHtml(selected[key] || "—")}</dd></div>`).join("")}</dl><h4>Business documents</h4>${(selected.businessDocuments || []).map(doc => `<p>${escapeHtml(doc.name)} · ${escapeHtml(doc.kind)}</p>`).join("") || "<p>No business documents.</p>"}${canViewVendorJson ? `<details><summary>Vendor JSON</summary><pre class="vendor-json">${escapeHtml(JSON.stringify(selected, null, 2))}</pre></details>` : ""}`}</section></div>` : ""}`;
-}
+function vendorsPage() { return vendorDirectory(state, vendorFields, escapeHtml, closeIcon); }
 
 function masterDataPage(tab) {
   if (tab === "vendors") return vendorsPage();
@@ -1020,23 +1024,55 @@ function closeMasterDataModal() {
 }
 
 function bindMasterData() {
-  document.querySelector("[data-new-vendor]")?.addEventListener("click", () => setState({vendorCreating: true, vendorEditing: null, vendorView: null}));
-  document.querySelectorAll("[data-edit-vendor]").forEach(button => button.addEventListener("click", () => { setState({vendorCreating: true, vendorEditing: button.dataset.editVendor, vendorView: null}); const item = state.masterData.vendors.find(item => item.id === button.dataset.editVendor); const form = document.querySelector("[data-vendor-create]"); vendorFields.forEach(key => { if (form.elements[key]) form.elements[key].value = item[key] || ""; }); }));
-  document.querySelectorAll("[data-view-vendor]").forEach(button => button.addEventListener("click", () => setState({vendorView: button.dataset.viewVendor, vendorCreating: false})));
-  document.querySelectorAll("[data-close-vendor]").forEach(button => button.addEventListener("click", () => setState({vendorView: null, vendorCreating: false})));
+  const openVendor = (id = null) => {
+    const item = (state.masterData.vendors || []).find(item => item.id === id);
+    setState({ vendorCreating: true, vendorEditing: id, vendorView: null, vendorError: "", vendorDraft: item ? { ...item } : { country: "Philippines", vendorType: "Company", informationStatus: "Information complete", is_active: true } });
+    document.querySelector('[data-vendor-create] [name="name"]')?.focus();
+  };
+  const closeVendor = () => { if (!state.vendorSaving) setState({ vendorView: null, vendorCreating: false, vendorDraft: null, vendorError: "" }); };
+  document.querySelector("[data-new-vendor]")?.addEventListener("click", () => openVendor());
+  document.querySelectorAll("[data-edit-vendor]").forEach(button => button.addEventListener("click", () => openVendor(button.dataset.editVendor)));
+  document.querySelectorAll("[data-view-vendor]").forEach(button => button.addEventListener("click", () => { setState({ vendorView: button.dataset.viewVendor, vendorCreating: false }); document.querySelector("[data-close-vendor]")?.focus(); }));
+  document.querySelectorAll("[data-close-vendor]").forEach(button => button.addEventListener("click", closeVendor));
+  document.querySelector("[data-vendor-backdrop]")?.addEventListener("click", event => { if (event.target === event.currentTarget) closeVendor(); });
+  document.querySelector("[data-vendor-backdrop] .identity-modal")?.addEventListener("keydown", event => {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")];
+    if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1)?.focus(); }
+    else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0]?.focus(); }
+  });
+  const filterVendors = () => {
+    const rows = [...document.querySelectorAll("[data-vendor-row]")]; let count = 0;
+    rows.forEach(row => { row.hidden = !row.dataset.search.includes((state.vendorSearch || "").trim().toLowerCase()) || (state.vendorStatus && state.vendorStatus !== "all" && row.dataset.status !== state.vendorStatus); if (!row.hidden) count++; });
+    const counter = document.querySelector("[data-vendor-count]"); if (counter) counter.textContent = `${count} ${count === 1 ? "vendor" : "vendors"}`;
+    const empty = document.querySelector("[data-vendor-empty]"); if (empty) empty.hidden = count > 0 || state.masterDataLoading;
+  };
+  document.querySelector("[data-vendor-search]")?.addEventListener("input", event => { state.vendorSearch = event.target.value; filterVendors(); });
+  document.querySelector("[data-vendor-status]")?.addEventListener("change", event => { state.vendorStatus = event.target.value; filterVendors(); });
+  document.querySelector("[data-refresh-vendors]")?.addEventListener("click", () => loadMasterData("vendors"));
+  filterVendors();
+  document.querySelectorAll("[data-delete-vendor], [data-toggle-vendor]").forEach(button => button.addEventListener("click", () => {
+    const deleting = button.hasAttribute("data-delete-vendor");
+    const item = state.masterData.vendors.find(item => item.id === (button.dataset.deleteVendor || button.dataset.toggleVendor));
+    openActionPrompt({ eyebrow: "Vendor Directory", title: `${deleting ? "Delete" : item.is_active === false ? "Reactivate" : "Deactivate"} ${item.name}?`, message: deleting ? "Vendors used by requests or purchase orders cannot be deleted. Their audit history is retained." : "Inactive vendors cannot be selected for new requests. Existing request records remain available.", confirmLabel: deleting ? "Delete vendor" : item.is_active === false ? "Reactivate vendor" : "Deactivate vendor", danger: deleting, onConfirm: async () => {
+      try {
+        if (deleting) await dataSource.deleteMasterData("vendors", item.id, state.csrfToken, item.version);
+        else await dataSource.updateMasterData("vendors", item.id, { is_active: item.is_active === false, version: item.version }, state.csrfToken);
+        state.vendorView = null; await loadMasterData("vendors");
+        setState({ toast: successToast(deleting ? "Vendor deleted. Audit history retained." : "Vendor status updated.") });
+      } catch (error) { showErrorToast(error.message, "Vendor action failed"); }
+    } });
+  }));
   document.querySelector("[data-vendor-create]")?.addEventListener("submit", async event => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const button = form.querySelector('[type="submit"]');
-    button.disabled = true;
+    event.preventDefault(); const form = event.currentTarget;
+    const payload = Object.fromEntries(new FormData(form)); payload.is_active = form.elements.is_active.checked;
+    if (state.vendorEditing) payload.version = state.vendorDraft.version;
+    state.vendorDraft = { ...state.vendorDraft, ...payload }; state.vendorSaving = true; state.vendorError = ""; render();
     try {
-      const payload = Object.fromEntries(new FormData(form));
-      payload.businessDocuments = state.masterData.vendors.find(item => item.id === state.vendorEditing)?.businessDocuments || [];
       const vendor = state.vendorEditing ? await dataSource.updateMasterData("vendors", state.vendorEditing, payload, state.csrfToken) : await dataSource.createMasterData("vendors", payload, state.csrfToken);
-      state.vendorCreating = false;
-      state.vendorView = vendor.id;
-      await loadMasterData("vendors");
-    } catch (error) { form.querySelector("[data-vendor-error]").textContent = error.message; button.disabled = false; }
+      state.vendorCreating = false; state.vendorDraft = null; state.vendorView = vendor.id; state.vendorSaving = false;
+      await loadMasterData("vendors"); setState({ toast: successToast("Vendor saved.") });
+    } catch (error) { setState({ vendorSaving: false, vendorError: error.message }); }
   });
   const config = masterDataConfig[state.tab];
   if (!config) return;
@@ -1122,6 +1158,22 @@ function removeDraftLineItem(rowIndex) {
   if (state.lineItemsByType[state.draftType].length === 1) return;
   state.requestFieldBuffer = captureDraftFields();
   state.requestDocumentBuffer = { ...state.requestDocumentBuffer, ...captureDraftDocuments() };
+  const files = draftUploadBuffers.get(draftUploadScope());
+  if (files) {
+    const shifted = new Map();
+    for (const [slot, values] of files) {
+      const [kind, index, column] = slot.split(":");
+      if (kind !== "line") shifted.set(slot, values);
+      else if (Number(index) !== rowIndex) shifted.set(`line:${Number(index) > rowIndex ? Number(index) - 1 : index}:${column}`, values);
+    }
+    draftUploadBuffers.set(draftUploadScope(), shifted);
+  }
+  const removals = draftFileRemovals.get(draftUploadScope());
+  if (removals) draftFileRemovals.set(draftUploadScope(), removals.flatMap(entry => {
+    const [kind, index, column] = entry.slot.split(":");
+    if (kind !== "line") return [entry];
+    return Number(index) === rowIndex ? [] : [{ ...entry, slot: `line:${Number(index) > rowIndex ? Number(index) - 1 : index}:${column}` }];
+  }));
   expandedLineIndex = Math.max(0, Math.min(expandedLineIndex > rowIndex ? expandedLineIndex - 1 : expandedLineIndex, state.lineItemsByType[state.draftType].length - 2));
   const lineItemsByType = { ...state.lineItemsByType, [state.draftType]: state.lineItemsByType[state.draftType].filter((_, index) => index !== rowIndex) };
   setState({ lineItemsByType });
@@ -1131,11 +1183,11 @@ const draftAmountFor = (draft) => draft.lineItems.reduce((sum, item) => sum + (N
 const activeRequestor = () => state.authUser?.display_name?.trim() || personas[state.persona]?.name || personas.requestor.name;
 
 function apiLineToPrototype(type, line) {
-  const common = { Particulars: line.particulars, Amount: Number(line.amount) || 0 };
+  const common = { backendLineId: line.id, Particulars: line.particulars, Amount: Number(line.amount) || 0 };
   const attachment = lineAttachmentNames(line.attachment_refs);
   if (type === "cashAdvance") return common;
   if (type === "poPayment") return { "P.O. Number": line.invoice_number || "", Supplier: line.vendor_name, ...common, "Expense Account": line.chart_account_id || "", "Department / Cost Center": line.cost_center_id || "", Attachment: attachment };
-  if (type === "general") return { "Merchant Name": line.vendor_name, Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department / Cost Center": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
+  if (type === "general") return { "Merchant Name": line.vendor_name, ...common, "Expense Account": line.chart_account_id || "", "Department / Cost Center": line.cost_center_id || "", Attachment: attachment };
   return { "Merchant Name": line.vendor_name, "Invoice Date": line.invoice_date || "", "Invoice Number": line.invoice_number || "", Particulars: line.particulars, "Expense Account": line.chart_account_id || "", "Department to Be Charged": line.cost_center_id || "", Amount: Number(line.amount) || 0, Attachment: attachment };
 }
 
@@ -1412,10 +1464,15 @@ function renderSelectedFiles(input, names) {
     remove.setAttribute("aria-label", `Remove ${name}`);
     remove.title = `Remove ${name}`;
     remove.addEventListener("click", () => {
+      const removals = draftFileRemovals.get(draftUploadScope()) || [];
+      removals.push({ slot: draftUploadSlot(input), name });
+      draftFileRemovals.set(draftUploadScope(), removals);
       const remaining = names.filter((_, position) => position !== index);
       const transfer = new DataTransfer();
-      [...input.files].forEach((file, position) => { if (position !== index) transfer.items.add(file); });
+      const selected = input.files.length ? [...input.files] : draftUploadBuffers.get(draftUploadScope())?.get(draftUploadSlot(input)) || [];
+      selected.forEach((file, position) => { if (position !== index) transfer.items.add(file); });
       input.files = transfer.files;
+      rememberDraftFiles(input);
       if (input.hasAttribute("data-line-row")) updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, remaining);
       else state.requestDocumentBuffer[input.dataset.requestDocument] = remaining;
       state.draftDirty = true;
@@ -1427,13 +1484,14 @@ function renderSelectedFiles(input, names) {
   });
 }
 function captureDraftDocuments() {
-  return Object.fromEntries([...document.querySelectorAll(".request-form-panel [data-request-document]")].map((control) => [
+  return Object.fromEntries([...document.querySelectorAll(".request-form-page [data-request-document]")].map((control) => [
     control.dataset.requestDocument,
     [...(control.files || [])].map((file) => file.name),
   ]).filter(([, files]) => files.length));
 }
 
-function saveDraft({ silent = false } = {}) {
+async function saveDraft({ silent = false } = {}) {
+  window.clearTimeout(draftAutosaveTimer);
   const now = new Date().toISOString();
   const existing = state.drafts.find((draft) => draft.id === state.activeDraftId);
   const fields = captureDraftFields();
@@ -1462,13 +1520,27 @@ function saveDraft({ silent = false } = {}) {
   };
   state.drafts = existing ? state.drafts.map((item) => item.id === draft.id ? draft : item) : [...state.drafts, draft];
   persistMockDrafts(state.drafts);
+  const pending = draftUploadBuffers.get(draftUploadScope());
+  if (pending) { draftUploadBuffers.set(draft.id, pending); if (draftUploadScope() !== draft.id) draftUploadBuffers.delete(draftUploadScope()); }
+  const removals = draftFileRemovals.get(draftUploadScope());
+  if (removals) { draftFileRemovals.set(draft.id, removals); if (draftUploadScope() !== draft.id) draftFileRemovals.delete(draftUploadScope()); }
   state.activeDraftId = draft.id;
   state.draftDirty = false;
-  void persistDraft(draft);
+  const buttons = [...document.querySelectorAll("[data-save-draft], [data-submit-current], [data-save-and-leave]")];
+  buttons.forEach(button => { button.disabled = true; });
+  try { await persistDraft(draft); }
+  catch (error) {
+    state.draftDirty = true;
+    buttons.forEach(button => { button.disabled = false; });
+    showErrorToast(error.message || "The draft or its files could not be saved. Retry saving before submitting.", "Draft not saved");
+    return null;
+  }
+  buttons.forEach(button => { button.disabled = false; });
   if (!silent) {
     state.toast = successToast("Your draft has been saved and can be continued later.", "Draft saved");
     render();
   }
+  return draft;
 }
 
 function restoreDraftControls() {
@@ -1540,8 +1612,10 @@ async function submitSavedDraft(id) {
   }
   let submittedRecord = null;
   if (dataSource.mode !== "mock" && state.authStatus === "authenticated") {
-    await persistDraft(draft);
+    try { await persistDraft(draft); }
+    catch (error) { showErrorToast(error.message || "Save the request and its files before submitting.", "Request not submitted"); return; }
     const persisted = state.drafts.find((item) => item.id === id);
+    if (!persisted?.backendId) { showErrorToast("The request has not been saved to the server. Retry saving before submitting.", "Request not submitted"); return; }
     if (persisted?.backendId) {
       try {
         const submitted = persisted.backendStatus === "returned"
@@ -1576,8 +1650,11 @@ async function submitSavedDraft(id) {
 }
 
 function draftsView() {
+  if (state.authStatus === "authenticated" && ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some(resource => !state.masterData[resource])) {
+    return `<section class="panel"><p role="status">Loading saved request references…</p>${state.masterDataError ? `<p role="alert">${escapeHtml(state.masterDataError)}</p><button type="button" data-retry-request-references>Try again</button>` : ""}</section>`;
+  }
   const drafts = state.authStatus === "authenticated" ? state.drafts : state.drafts.filter((draft) => draft.requestor === activeRequestor());
-  return `<section class="drafts-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-new-request>← Back to New Request</button></div><section class="panel"><div class="panel-header"><div><span class="eyebrow">Requestor Workspace</span><h3>My Drafts</h3><p>Saved requests remain private until submitted to the department head.</p></div><span class="count">${drafts.length}</span></div><div class="table-wrap"><table><thead><tr><th>Draft</th><th>Type</th><th>Last Saved</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>${drafts.length ? drafts.map((draft) => `<tr><td><strong>${draft.id}</strong></td><td>${paymentTypes[draft.type].label}</td><td>${new Date(draft.savedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</td><td>${money(draftAmountFor(draft), draft.currency)}</td><td>${statusPill("Draft Request")}</td><td><div class="draft-row-actions"><button type="button" data-continue-draft="${draft.id}">Continue Editing</button><button type="button" class="confirmation-button" data-submit-draft="${draft.id}">Submit to Department Head</button><button type="button" class="danger" data-delete-draft="${draft.id}">Delete Draft</button></div></td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No saved drafts yet. Start a request and choose Save as Draft.</td></tr>`}</tbody></table></div></section></section>`;
+  return `<section class="drafts-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-new-request>← Back to New Request</button></div><section class="panel"><div class="panel-header"><div><span class="eyebrow">Requestor Workspace</span><h3>My Drafts</h3><p>Saved requests remain private until submitted to the department head.</p></div><span class="count">${drafts.length}</span></div><div class="table-wrap responsive-request-table"><table><thead><tr><th>Draft</th><th>Type</th><th>Last Saved</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>${drafts.length ? drafts.map((draft) => `<tr><td data-label="Draft"><strong>${draft.id}</strong></td><td data-label="Type">${paymentTypes[draft.type].label}</td><td data-label="Last saved">${new Date(draft.savedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</td><td data-label="Amount">${money(draftAmountFor(draft), draft.currency)}</td><td data-label="Status">${statusPill("Draft Request")}</td><td data-label="Actions"><div class="draft-row-actions"><button type="button" data-continue-draft="${draft.id}">Continue Editing</button><button type="button" class="confirmation-button" data-submit-draft="${draft.id}">Submit to Department Head</button><button type="button" class="danger" data-delete-draft="${draft.id}">Delete Draft</button></div></td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No saved drafts yet. Start a request and choose Save as Draft.</td></tr>`}</tbody></table></div></section></section>`;
 }
 
 function requestTypeSelectionView() {
@@ -2825,7 +2902,7 @@ function apiDraftPayload(draft) {
     department_cost_center_id: center.id,
     proof_of_payment_refs: draft.type === "reimbursement" ? populatedLines.flatMap((row) => lineAttachmentNames(row["Proof of Payment"])) : documents.proof_of_payment || [],
     line_document_refs: populatedLines.map((row) => ({ proof_of_payment: lineAttachmentNames(row["Proof of Payment"]) })),
-    billing_document_refs: documents.billing_or_invoice || [],
+    billing_document_refs: documents.billing_soa_quotation || documents.billing_or_invoice || [],
     po_reference: fields.po_reference || (draft.type === "poPayment" ? state.selectedPO : ""),
     accountability_acknowledged: fields.accountability_acknowledged === true,
   };
@@ -2838,6 +2915,7 @@ function apiDraftPayload(draft) {
     currency_code: currency,
     type_data: typeData,
     lines: populatedLines.map((row) => ({
+      id: row.backendLineId || null,
       invoice_date: valueFor(row, ["Invoice Date"]) || null,
       invoice_number: valueFor(row, ["Invoice Number", "P.O. Number"]) || (draft.type === "poPayment" ? poRecord?.id : null),
       vendor_name: valueFor(row, ["Merchant Name", "Supplier"]) || (draft.type === "poPayment" ? poRecord?.payee || "" : ""),
@@ -2853,18 +2931,61 @@ function apiDraftPayload(draft) {
 
 async function persistDraft(draft) {
   if (dataSource.mode === "mock" || state.authStatus !== "authenticated") return;
-  const payload = apiDraftPayload(draft);
-  if (!payload) return;
-  try {
-    const saved = draft.backendId
-      ? await dataSource.updatePaymentRequest(draft.backendId, { ...payload, version: draft.backendVersion }, state.csrfToken)
+  const previous = draftSaveQueue.get(draft.id) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(async () => {
+    const current = state.drafts.find(item => item.id === draft.id) || draft;
+    const payload = apiDraftPayload(current);
+    if (!payload) throw new Error("Select a valid department before saving the request.");
+    const saved = current.backendId
+      ? await dataSource.updatePaymentRequest(current.backendId, { ...payload, version: current.backendVersion }, state.csrfToken)
       : await dataSource.createPaymentRequest(payload, state.csrfToken);
-    if (saved) state.drafts = state.drafts.map((item) => item.id === draft.id ? { ...item, backendId: saved.id, backendVersion: saved.version, backendStatus: saved.status } : item);
+    let savedLineIndex = 0;
+    const lineItems = current.lineItems.map(row => paymentTypes[current.type].lineColumns.some(name => String(row[name] || "").trim()) ? { ...row, backendLineId: saved.lines[savedLineIndex++]?.id } : row);
+    state.drafts = state.drafts.map(item => item.id === draft.id ? { ...item, lineItems, backendId: saved.id, backendVersion: saved.version, backendStatus: saved.status } : item);
+    if (state.activeDraftId === draft.id) state.lineItemsByType[current.type] = lineItems;
+    const removals = draftFileRemovals.get(draft.id);
+    if (removals?.length) {
+      const documents = await dataSource.listDocuments(saved.id);
+      while (removals.length) {
+        const entry = removals[0], [, index] = entry.slot.split(":");
+        const lineId = entry.slot.startsWith("line:") ? lineItems[Number(index)]?.backendLineId : null;
+        const documentIndex = documents.findIndex(doc => doc.filename === entry.name && (doc.line_id || null) === (lineId || null));
+        if (documentIndex >= 0) {
+          await dataSource.removeDocument(documents[documentIndex].id, "Removed using the request form attachment control.", state.csrfToken);
+          documents.splice(documentIndex, 1);
+        }
+        removals.shift();
+      }
+      state.documentRecords[saved.id] = null;
+    }
+    const pending = draftUploadBuffers.get(draft.id);
+    if (pending?.size) {
+      const types = await dataSource.listMasterData("document-types");
+      const typeFor = slot => {
+        const key = slot.toLowerCase();
+        const code = key.includes("proof of payment") || key.includes("proof_of_payment") ? "PROOF_PAYMENT"
+          : key.includes("billing") ? "BILLING_SOA" : key.includes("bir_2303") ? "BIR_2303"
+          : key.includes("business_permit") ? "BUSINESS_PERMIT" : key.includes("delivery_receipt") ? "DELIVERY_RECEIPT"
+          : key.startsWith("line:") ? (draft.type === "liquidation" ? "RECEIPT" : "INVOICE") : null;
+        return types.find(type => type.code === code && type.allowed_request_types?.includes(draft.type))?.id || null;
+      };
+      for (const [slot, files] of pending) {
+        const [, index] = slot.split(":");
+        const lineId = slot.startsWith("line:") ? lineItems[Number(index)]?.backendLineId : null;
+        if (slot.startsWith("line:") && !lineId) throw new Error("Save the line before attaching its files.");
+        while (files.length) {
+          await dataSource.uploadDocument(saved.id, files[0], typeFor(slot), lineId, state.csrfToken);
+          files.shift();
+        }
+        pending.delete(slot);
+      }
+      state.documentRecords[saved.id] = null;
+    }
     return saved;
-  } catch (error) {
-    console.warn("Draft remains saved locally because API persistence failed.", error);
-    return null;
-  }
+  });
+  draftSaveQueue.set(draft.id, operation);
+  try { return await operation; }
+  finally { if (draftSaveQueue.get(draft.id) === operation) draftSaveQueue.delete(draft.id); }
 }
 
 const reportEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -3285,7 +3406,9 @@ function ownsApiRequest(request) {
   return Boolean(request.requestorId && request.requestorId === state.authUser?.id);
 }
 
-function editReturnedApiRequest(request) {
+async function editReturnedApiRequest(request) {
+  await loadRequestReferenceData();
+  if (!state.masterData["cost-centers"]?.length) return;
   const draft = {
     id: `RETURNED-${request.backendId.slice(0, 8).toUpperCase()}`,
     backendId: request.backendId,
@@ -3301,6 +3424,8 @@ function editReturnedApiRequest(request) {
     budgeted: request.budgeted,
     liquidationAdvanceAmount: Number(request.typeData?.liquidation_advance_amount) || 0,
     purpose: request.purpose,
+    fields: request.typeData?.fields || { purpose: request.purpose, vendor_external_id: request.vendorExternalId || "", department_cost_center_id: request.typeData?.department_cost_center_id || "" },
+    documents: request.typeData?.documents || {},
     lineItems: request.lines.map((line) => apiLineToPrototype(request.type, line)),
     controls: [],
   };
@@ -3573,6 +3698,9 @@ function compressActionGroups() {
   const groups = [...document.querySelectorAll(".request-submit-actions, .approval-actions, .finance-decision-actions, .report-action-buttons, .preview-actions, .draft-row-actions")];
   const update = group => {
     const existing = group.querySelector(":scope > .compressed-actions");
+    const wasOpen = existing && !existing.querySelector(".compressed-actions-menu").hidden;
+    // Keep action nodes stable between pointer down and click while the menu is open.
+    if (wasOpen) return;
     if (existing) {
       const actions = [...existing.querySelector(".compressed-actions-menu").children];
       existing.remove();
@@ -3587,10 +3715,10 @@ function compressActionGroups() {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.textContent = "Actions ▾";
-    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-expanded", String(Boolean(wasOpen)));
     const menu = document.createElement("div");
     menu.className = "compressed-actions-menu";
-    menu.hidden = true;
+    menu.hidden = !wasOpen;
     menu.append(...actions);
     wrapper.append(toggle, menu);
     group.append(wrapper);
@@ -3614,6 +3742,16 @@ function compressActionGroups() {
 }
 
 function render() {
+  const vendorForm = document.querySelector("[data-vendor-create]");
+  if (vendorForm && !state.vendorSaving) state.vendorDraft = { ...state.vendorDraft, ...Object.fromEntries(new FormData(vendorForm)), is_active: vendorForm.elements.is_active.checked };
+
+  const openLineDialog = document.querySelector("[data-finance-line-review] .finance-line-decision-modal[open]");
+  const lineDecisionDraft = openLineDialog ? {
+    lineId: openLineDialog.closest("form").dataset.financeLineReview,
+    decision: openLineDialog.querySelector('[name="decision"]').value,
+    reason: openLineDialog.querySelector('[name="reason"]').value,
+    physical: openLineDialog.querySelector('[name="physical_original_received"]')?.checked,
+  } : null;
   const initialForm = document.querySelector("[data-initial-finance-form]");
   if (initialForm && state.authUser) state.financeInitialValues = Object.fromEntries(new FormData(initialForm));
   const businessForm = document.querySelector("[data-finance-business-review]");
@@ -3640,6 +3778,15 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell(views[state.tab]());
+  if (lineDecisionDraft) queueMicrotask(() => {
+    const dialog = document.querySelector(`[data-finance-line-review="${CSS.escape(lineDecisionDraft.lineId)}"] .finance-line-decision-modal`);
+    if (!dialog) return;
+    dialog.querySelector('[name="decision"]').value = lineDecisionDraft.decision;
+    dialog.querySelector('[name="reason"]').value = lineDecisionDraft.reason;
+    const physical = dialog.querySelector('[name="physical_original_received"]'); if (physical) physical.checked = lineDecisionDraft.physical;
+    dialog.querySelector('[name="decision"]').dispatchEvent(new Event("change"));
+    if (!dialog.open) dialog.showModal();
+  });
   bindWorkflowExceptions();
   document.querySelectorAll("[data-approval-input-key]").forEach((input) => input.addEventListener("input", () => {
     const key = input.dataset.approvalInputKey;
@@ -3807,7 +3954,7 @@ function render() {
   bindRequirementRules();
   if (state.tab === "requestSettings" && !state.requestSettingsLoading && (!state.requestNumbering || !state.reimbursementBatchSetting || !state.financePolicySetting || !state.financeSetup) && !state.requestSettingsError) queueMicrotask(loadRequestSettings);
   bindRequestSettings();
-  if (masterDataConfig[state.tab] && !state.masterDataLoading && !(state.masterData[masterDataConfig[state.tab].resource]) && !state.masterDataError) queueMicrotask(() => loadMasterData(state.tab));
+  if (masterDataConfig[state.tab] && !state.masterDataLoading && (!state.masterData[masterDataConfig[state.tab].resource] || state.tab === "vendors" && !state.vendorDirectoryLoaded) && !state.masterDataError) queueMicrotask(() => loadMasterData(state.tab));
   if (state.tab === "request" && !state.masterDataLoading && (state.procurementPOs === null || ["cost-centers", "vendors", "chart-of-accounts", "currencies", "payment-methods"].some((resource) => !state.masterData[resource])) && !state.masterDataError) queueMicrotask(loadRequestReferenceData);
   if (state.tab === "uploads" && state.authStatus === "authenticated") {
     const candidate = backendDocumentCandidates().find((item) => item.id === state.uploadId) || backendDocumentCandidates()[0];
@@ -4180,6 +4327,8 @@ function render() {
   document.querySelector("[data-close-tracker]")?.addEventListener("click", () => navigate("/tracker"));
   document.querySelectorAll("[data-type]").forEach((button) => button.addEventListener("click", () => navigate(`/requests/new/${button.dataset.type}`)));
   document.querySelectorAll("[data-select-request-type]").forEach((button) => button.addEventListener("click", () => {
+    draftUploadBuffers.delete(`new:${button.dataset.selectRequestType}`);
+    draftFileRemovals.delete(`new:${button.dataset.selectRequestType}`);
     state = { ...state, activeDraftId: null, draftDirty: false, requestTypeSelection: false, requestFieldBuffer: {}, requestDocumentBuffer: {} };
     navigate(`/requests/new/${button.dataset.selectRequestType}`);
   }));
@@ -4191,13 +4340,15 @@ function render() {
   document.querySelector("[data-leave-request-backdrop]")?.addEventListener("click", (event) => {
     if (event.target === event.currentTarget) setState({ leaveRequestTarget: null });
   });
-  document.querySelector("[data-save-and-leave]")?.addEventListener("click", () => {
+  document.querySelector("[data-save-and-leave]")?.addEventListener("click", async () => {
     const target = state.leaveRequestTarget;
-    saveDraft({ silent: true });
+    if (!await saveDraft({ silent: true })) return;
     state.leaveRequestTarget = null;
     navigate(target || "/requests");
   });
   document.querySelector("[data-discard-and-leave]")?.addEventListener("click", () => {
+    draftUploadBuffers.delete(draftUploadScope());
+    draftFileRemovals.delete(draftUploadScope());
     const target = state.leaveRequestTarget;
     state = { ...state, activeDraftId: null, draftDirty: false, leaveRequestTarget: null };
     navigate(target || "/requests");
@@ -4211,9 +4362,9 @@ function render() {
     navigate(`/requests/new/${state.draftType}`);
   });
   document.querySelector("[data-save-draft]")?.addEventListener("click", () => saveDraft());
-  document.querySelector("[data-submit-current]")?.addEventListener("click", () => {
-    saveDraft({ silent: true });
-    submitSavedDraft(state.activeDraftId);
+  document.querySelector("[data-submit-current]")?.addEventListener("click", async () => {
+    const draft = await saveDraft({ silent: true });
+    if (draft) await submitSavedDraft(draft.id);
   });
   document.querySelectorAll("[data-continue-draft]").forEach((button) => button.addEventListener("click", () => openDraft(button.dataset.continueDraft)));
   document.querySelectorAll("[data-submit-draft]").forEach((button) => button.addEventListener("click", () => submitSavedDraft(button.dataset.submitDraft)));
@@ -4343,6 +4494,7 @@ function render() {
         }
       }
       state.financeValidation[request.backendId] = await dataSource.reviewFinanceLine(request.backendId, form.dataset.financeLineReview, validation.request_version, decision, reason, Boolean(form.elements.physical_original_received?.checked), state.csrfToken);
+      form.querySelector(".finance-line-decision-modal")?.close();
       render();
     } catch (error) { button.disabled = false; showErrorToast(error.message || "The line review could not be saved."); }
   }));
@@ -4519,11 +4671,13 @@ function render() {
       try {
         const method = `${action}PaymentRequest`;
         const updated = await dataSource[method](request.backendId, request.backendVersion, note, state.csrfToken);
+        const draftDestination = updated?.requestor_id === state.authUser?.id ? "/requests/drafts" : "/dashboard";
+        if (updated?.status === "draft") navigate(draftDestination);
         await loadApiPaymentRequests();
         const displayId = updated?.request_number || request.id;
         state.selectedId = displayId;
         state.toast = successToast(`The request was ${action === "resubmit" ? "resubmitted" : `${action}ed`} successfully.`, "Request updated");
-        navigate(updated?.status === "draft" ? "/requests/drafts" : `/requests/${displayId}`);
+        navigate(updated?.status === "draft" ? draftDestination : `/requests/${displayId}`);
       } catch (error) {
         showErrorToast(error.message || `The request could not be ${action}ed.`, "Request update failed");
       }
@@ -4652,6 +4806,7 @@ function render() {
     state.requestDocumentBuffer = { ...state.requestDocumentBuffer, ...captureDraftDocuments() };
     setState({ cashAdvanceOptions: null, cashAdvanceOptionsError: "" });
   });
+  document.querySelector("[data-retry-request-references]")?.addEventListener("click", () => loadRequestReferenceData());
   document.querySelectorAll("[data-line-card]").forEach((card) => card.addEventListener("toggle", () => {
     if (card.open) expandedLineIndex = Number(card.dataset.lineCard);
   }));
@@ -4660,6 +4815,7 @@ function render() {
     const value = input.type === "file" ? [...(input.files || [])].map((file) => file.name).slice(0, 20) : input.value;
     updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, value);
     if (input.type === "file") {
+      rememberDraftFiles(input);
       const filename = input.closest(".line-card-attachments")?.querySelector(".line-upload-filename");
       renderSelectedFiles(input, value);
     }
@@ -4667,7 +4823,10 @@ function render() {
   document.querySelectorAll("[data-request-document]").forEach((input) => input.addEventListener("change", () => {
     const names = [...(input.files || [])].map((file) => file.name);
     state.requestDocumentBuffer[input.dataset.requestDocument] = names;
+    rememberDraftFiles(input);
+    state.draftDirty = true;
     renderSelectedFiles(input, names);
+    refreshValidationPreview();
   }));
   document.querySelectorAll('[data-line-row][type="file"], [data-request-document]').forEach((input) => {
     const names = input.hasAttribute("data-line-row")
@@ -4697,7 +4856,9 @@ function render() {
     const trackDraftChange = () => {
       state.draftDirty = true;
       window.clearTimeout(draftAutosaveTimer);
-      draftAutosaveTimer = window.setTimeout(() => saveDraft({ silent: true }), 2000);
+      draftAutosaveTimer = window.setTimeout(() => {
+        if (state.tab === "request" && state.requestMode === "new" && state.draftDirty && document.querySelector(".request-form-panel")) void saveDraft({ silent: true });
+      }, 2000);
     };
     draftForm.addEventListener("input", trackDraftChange);
     draftForm.addEventListener("change", trackDraftChange);
@@ -4744,7 +4905,7 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "Escape" && state.actionPrompt) setState({ actionPrompt: null });
   else if (event.key === "Escape" && state.notificationsOpen) setState({ notificationsOpen: false });
   else if (event.key === "Escape" && state.identityEdit) setState({ identityEdit: null });
-  else if (event.key === "Escape" && (state.vendorView || state.vendorCreating)) setState({vendorView: null, vendorCreating: false});
+  else if (event.key === "Escape" && !state.vendorSaving && (state.vendorView || state.vendorCreating)) setState({vendorView: null, vendorCreating: false});
   else if (event.key === "Escape" && state.masterDataEdit) closeMasterDataModal();
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
   else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);

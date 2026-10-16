@@ -95,7 +95,7 @@ PERMISSIONS = {
     "master_data.read": "Read active master data",
     "master_data.manage": "Create and maintain master data",
     "vendors.read": "Search external vendor reference data",
-    "vendors.manage": "Create and edit vendor records",
+    "vendors.manage": "Create, edit, deactivate and delete vendor records",
     "procurement.read": "Read eligible purchase orders from Procurement",
     "accounts.read": "Read the chart of accounts",
     "accounts.manage": "Create and maintain the chart of accounts",
@@ -130,6 +130,7 @@ for role_code in ("department_head", "finance_associate", "finance_manager", "co
 ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
 ROLE_PERMISSIONS["finance_associate"].add("vendors.manage")
 ROLE_PERMISSIONS["finance_manager"] |= {
+    "vendors.manage",
     "workflow.exceptions.manage",
     "master_data.read",
     "master_data.manage",

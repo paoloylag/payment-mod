@@ -153,8 +153,8 @@ export function createDataSource() {
     updateMasterData(resource, id, payload, csrfToken) {
       return masterDataRequest(`${resource}/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
-    deleteMasterData(resource, id, csrfToken) {
-      return masterDataRequest(`${resource}/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } });
+    deleteMasterData(resource, id, csrfToken, version = null) {
+      return masterDataRequest(`${resource}/${encodeURIComponent(id)}${version == null ? "" : `?version=${version}`}`, { method: "DELETE", headers: { "X-CSRF-Token": csrfToken } });
     },
     createPaymentRequest(payload, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);
