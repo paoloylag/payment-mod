@@ -18,7 +18,7 @@ Current Phase 05–07 closeout: [development and Finance acceptance](phase-05-07
 | 05 | Confirmed approval and exception scope implemented and validated | Finance business acceptance. SLA/escalation deferred. |
 | 06 | All-type Finance configuration/accounting/vouchers and replacement links implemented | Actual Finance setup activation and business acceptance. |
 | 07 | All-type multiple payment lines, authorization, pickup, release, clearing, exceptions and Finance queue implemented | Finance acceptance. Fund returns and post-release reversals deferred; detailed reporting is Phase 08. |
-| 08 | Foundation started — transactional workflow outbox | Confirm recipients/templates and reporting definitions before delivery or dashboards. |
+| 08 | Workflow/payment notification inbox and local worker implemented 2026-10-20 | Reporting definitions, dashboards/exports, remaining event coverage and production delivery acceptance. |
 | 09 | Not started | Approve providers, identity contracts, owners, and production controls before activation. |
 
 The status above reflects development through 2026-10-13 and accepted local limitations. A release cannot inherit an

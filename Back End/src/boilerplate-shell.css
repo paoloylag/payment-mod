@@ -3,7 +3,14 @@
 /* LifeOS tenant-boilerplate shell override.
    Loaded after the existing prototype styles to preserve payment screens. */
 :root {
-  --bg: #f6f7f8;
+  --brand-maroon: #690f0d;
+  --brand-ivory: #f2e8dc;
+  --brand-silver: #c9c9c9;
+  --brand-steel: #969696;
+  --brand-burgundy: #4b1211;
+  --brand-khaki: #cc9a71;
+  --brand-sand: #e2cfb3;
+  --bg: color-mix(in srgb, var(--brand-ivory) 38%, #ffffff);
   --page: var(--bg);
   --panel: #fff;
   --panel-strong: #fbfcfd;
@@ -28,18 +35,19 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #111318;
+  --bg: #000000;
   --page: var(--bg);
-  --panel: #191d25;
-  --panel-strong: #202632;
-  --ink: #f8fafc;
+  --panel: #1d0909;
+  --panel-strong: var(--brand-burgundy);
+  --ink: #ffffff;
   --text: var(--ink);
-  --muted: #a5adba;
+  --muted: var(--brand-silver);
   --line: rgba(248, 250, 252, .14);
-  --primary: #d45a5e;
-  --primary-dark: #a72d31;
-  --accent: #2c2424;
-  --accent-strong: #443335;
+  --primary: #eaa7a0;
+  --primary-dark: #eaa7a0;
+  --maroon: var(--brand-crimson);
+  --accent: var(--brand-burgundy);
+  --accent-strong: #5d2523;
 }
 
 body { color: var(--text); background: var(--bg); }
@@ -2102,7 +2110,7 @@ dialog.finance-upload-modal > header .close-icon-button { flex: 0 0 42px; margin
 
 /* Preserve the original sign-in palette independently of app card colors. */
 :root:not([data-theme="dark"]) .signed-out {
-  --bg: #f6f7f8;
+  --bg: color-mix(in srgb, var(--brand-ivory) 38%, #ffffff);
   --panel: #fff;
   --panel-strong: #fbfcfd;
   --ink: #17191f;
@@ -2226,3 +2234,119 @@ button, input, select, textarea, dialog { font-family: var(--font-body); }
 @media (min-width: 1100px) {
   .finance-initial-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
+
+/* Tenant boilerplate bc8fffb: restyle existing controls without changing workflow layout. */
+:root { --focus-ring: var(--brand-crimson); }
+:root[data-theme="dark"] { --focus-ring: var(--brand-khaki); }
+:root[data-theme="dark"] .topbar h2 { color: var(--brand-ivory); }
+:root[data-theme="dark"] .app-shell main .shell-search { background: var(--panel-strong); }
+:root[data-theme="dark"] :is(.guide-search > div, .guide-card, .guide-stage-list article) {
+  border-color: var(--line);
+  background: var(--panel);
+}
+:root[data-theme="dark"] .app-shell main .finance-validation-completion {
+  background: var(--panel-strong);
+}
+:root[data-theme="dark"] :is(input, select, textarea) {
+  background-color: var(--panel-strong);
+  color: var(--text);
+}
+:root[data-theme="dark"] :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+:root[data-theme="dark"] input:is(:disabled, [readonly]) {
+  background-color: var(--panel);
+  color: var(--muted);
+}
+:root[data-theme="dark"] :is(.report-actions, .request-control-bar, .request-routing-card,
+  .workflow-summary, .field-grid.reimbursement-fields, .line-attachment-notice, .approval-page-intro,
+  .document-file-row, .document-file-row.uploaded, .document-file-row.missing,
+  .validation-choice-grid fieldset, .tax-summary > div, .approval-start-card, .all-role-actions,
+  .all-role-action-grid article, .payment-operation-panel, .system-validation-record,
+  .attachment-preview-notice, .po-system-notice, .cash-return-instructions, .liquidation-summary,
+  .cash-advance-policy, .workflow-step, .route-box, .report-band, .workflow-summary-stages > div,
+  .duplicate-match-details div, .upload-row) {
+  border-color: var(--line);
+  background: var(--panel-strong);
+  color: var(--text);
+}
+:root[data-theme="dark"] th { background: var(--panel-strong); }
+:root[data-theme="dark"] tr:hover td { background-color: color-mix(in srgb, var(--brand-khaki) 12%, var(--panel)); }
+
+:is(.identity-form-panel, .identity-modal, .finance-tax-panel, .request-form-panel, .conversation-form, .login-form)
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+  border-radius: var(--radius);
+  border-color: var(--line);
+  background-color: var(--panel-strong);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select { min-height: 42px; }
+:is(input, select, textarea):focus-visible {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring) 18%, transparent);
+}
+input:is([type="checkbox"], [type="radio"]) { accent-color: var(--brand-crimson); }
+
+.app-shell main button, .signed-out button, .primary-button, .secondary-button, .confirmation-button {
+  min-height: 42px;
+}
+.app-shell main :is(.request-filter-toolbar, .identity-form-actions) button,
+.conversation-toggle, .conversation-entry, .conversation-mention-menu {
+  border-radius: var(--radius);
+}
+.status-pill { max-width: 100%; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+:is(.identity-modal, .correction-modal, .finance-upload-modal, .stored-document-preview)::backdrop {
+  background: rgba(75, 18, 17, .48);
+}
+:is(.identity-modal, .correction-modal, .finance-upload-modal, .stored-document-preview) {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+}
+.conversation-form textarea { border-color: var(--line); background: var(--panel-strong); color: var(--text); }
+.conversation-event-tag {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand-khaki) 22%, var(--panel));
+}
+.app-shell main .document-upload-button {
+  border-radius: var(--radius);
+  min-height: 42px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell main button, .signed-out button { transition: none; }
+  .app-shell main button:hover:not(:disabled), .signed-out button:hover:not(:disabled) { transform: none; }
+}
+/* Restore the pre-alignment login palette independently of the application theme. */
+.signed-out {
+  --bg: #f6f7f8;
+  --panel: #fff;
+  --panel-strong: #fbfcfd;
+  --ink: #17191f;
+  --text: #17191f;
+  --muted: #626a76;
+  --line: rgba(23, 25, 31, .13);
+  --primary: #9e1d20;
+  --primary-dark: #690f0d;
+  --maroon: var(--primary);
+  --maroon-strong: color-mix(in srgb, var(--maroon) 78%, #420907);
+}
+:root[data-theme="dark"] .signed-out {
+  --bg: #111318;
+  --panel: #191d25;
+  --panel-strong: #202632;
+  --ink: #f8fafc;
+  --text: var(--ink);
+  --muted: #a5adba;
+  --line: rgba(248, 250, 252, .14);
+  --primary: #d45a5e;
+  --primary-dark: #a72d31;
+  --maroon: var(--primary);
+  --maroon-strong: color-mix(in srgb, var(--maroon) 78%, #420907);
+}
+
+/* Existing bell inbox: independent read controls and bounded pagination. */
+.notification-row { min-width: 0; border-bottom: 1px solid var(--line); }
+.app-shell main .notification-read-toggle { margin: 0 12px 8px; min-height: 42px; }
+.notification-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; }
+.notification-pagination span { color: var(--muted); font-size: 12px; }
+/* Size the bell panel against its header, including the viewport scrollbar. */
+.app-shell main .notification-panel { width: min(380px, calc(100% - 28px)); }

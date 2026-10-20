@@ -75,6 +75,9 @@ def save_line_event(db, request, actor, instruction, payload, key, state, result
     )
     db.add(row)
     db.flush()
+    from ..outbox import record_payment_notification
+
+    record_payment_notification(db, instruction, row)
     audit(
         db,
         actor_id=actor.id,

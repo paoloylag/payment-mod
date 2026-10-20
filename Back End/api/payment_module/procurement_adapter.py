@@ -144,7 +144,10 @@ def normalize_purchase_order(payload: dict) -> dict:
 class MockProcurementAdapter:
     def list(self, search: str = "", eligible_only: bool = True) -> list[dict]:
         needle = search.casefold().strip()
-        items = [normalize_purchase_order(payload) for payload in SAMPLE_PURCHASE_ORDERS]
+        from .config import get_settings
+
+        samples = SAMPLE_PURCHASE_ORDERS if get_settings().app_env in {"local", "test"} else ()
+        items = [normalize_purchase_order(payload) for payload in samples]
         return [
             item for item in items
             if (not eligible_only or item["paymentEligible"])

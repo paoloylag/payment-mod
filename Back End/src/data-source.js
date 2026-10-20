@@ -14,7 +14,7 @@ export function createDataSource() {
       ...options,
       headers: { Accept: "application/json", ...(options.headers || {}) },
     }); } catch (cause) {
-      throw new Error("Unable to reach the payment server. Check that this page is open at http://127.0.0.1:5175, then retry.", { cause });
+      throw new Error("Unable to reach the payment server. Check your connection and try again.", { cause });
     }
     const payload = response.status === 204 ? null : await response.json().catch(() => null);
     if (!response.ok) {
@@ -199,13 +199,19 @@ export function createDataSource() {
         body: JSON.stringify({ body, mention_user_ids: mentionUserIds }),
       });
     },
-    getNotifications() {
+    getNotifications(page = 1) {
       if (mode === "mock") return Promise.resolve({ unread_count: 0, items: [] });
-      return apiRequest("/api/v1/notifications");
+      return apiRequest(`/api/v1/notifications?page=${page}&page_size=20`);
     },
     markNotificationRead(id, csrfToken) {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest(`/api/v1/notifications/${id}/read`, {
+        method: "POST", headers: { "X-CSRF-Token": csrfToken },
+      });
+    },
+    markNotificationUnread(id, csrfToken) {
+      if (mode === "mock") return Promise.resolve(null);
+      return apiRequest(`/api/v1/notifications/${id}/unread`, {
         method: "POST", headers: { "X-CSRF-Token": csrfToken },
       });
     },

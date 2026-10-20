@@ -18,3 +18,4 @@ tmp/
 release-artifacts/
 outputs/playwright-report/
 outputs/playwright-results/
+deploy/deployment.env

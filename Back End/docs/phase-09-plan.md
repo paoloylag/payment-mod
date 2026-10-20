@@ -2,8 +2,10 @@
 
 Date prepared: 2026-08-28  
 Last updated: 2026-09-25
-Status: Not started  
+Status: Local deployment preparation started 2026-10-19; infrastructure and production acceptance pending
 Depends on: Phases 00–08
+
+Current preparation and launch gates: [production preparation](production-preparation.md).
 
 ## Objective
 

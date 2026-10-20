@@ -101,7 +101,10 @@ class MockVendorAdapter:
 
     def list(self, search: str = "", active_only: bool = True) -> list[dict]:
         needle = search.casefold().strip()
-        payloads = {payload["id"]: payload for payload in SAMPLE_VENDOR_PAYLOADS}
+        from .config import get_settings
+
+        samples = SAMPLE_VENDOR_PAYLOADS if get_settings().app_env in {"local", "test"} else ()
+        payloads = {payload["id"]: payload for payload in samples}
         if self.db is not None:
             from sqlalchemy import select
 

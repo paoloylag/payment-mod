@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import get_settings
 from .errors import install_exception_handlers
@@ -42,11 +43,15 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version=settings.app_version,
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url=f"{settings.api_prefix}/openapi.json",
+        docs_url="/docs" if settings.app_env in {"local", "test"} else None,
+        redoc_url="/redoc" if settings.app_env in {"local", "test"} else None,
+        openapi_url=f"{settings.api_prefix}/openapi.json" if settings.app_env in {"local", "test"} else None,
     )
     application.add_middleware(RequestContextMiddleware)
+    application.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[host.strip() for host in settings.trusted_hosts.split(",") if host.strip()],
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

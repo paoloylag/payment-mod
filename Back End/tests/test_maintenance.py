@@ -19,6 +19,18 @@ def cleanup_settings(**overrides) -> Settings:
         "session_idle_minutes": 60,
     }
     values.update(overrides)
+    if values["app_env"] in {"staging", "production"}:
+        values.update(
+            session_cookie_secure=True,
+            development_demo_password=None,
+            trusted_hosts="payment.example.invalid",
+            cors_origins="https://payment.example.invalid",
+            database_url="postgresql+psycopg://app:secret@database.example.invalid/payments?sslmode=verify-full",
+            s3_endpoint_url=None,
+            s3_access_key_id=None,
+            s3_secret_access_key=None,
+            s3_server_side_encryption="AES256",
+        )
     return Settings(**values)
 
 

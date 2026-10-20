@@ -1,7 +1,12 @@
 .git
 .env
+.env.*
 .venv
 node_modules
 dist
 tmp
 __pycache__
+deploy/deployment.env
+outputs
+test-results
+playwright-report

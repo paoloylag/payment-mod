@@ -1,12 +1,21 @@
 # Phase 08 — Notifications, Dashboards, and Reports
 
 Date prepared: 2026-08-28  
-Status: Foundation started — transactional workflow outbox added 2026-10-11
+Status: Workflow/payment notification increment implemented 2026-10-20; reporting and full Phase 08 acceptance pending
 Depends on: Phases 03–07 transactional data
 
 ## Outbox foundation — 2026-10-11
 
 Workflow events now create a pending `notification_outbox_events` record in the same database transaction. The source workflow event is unique, and the outbox payload contains only routing references needed for later processing. A retry with the same idempotency key does not create a second event; a stale decision creates none. Migration `20261011_0017` adds the table and pending-work index. Recipient rules, templates, delivery jobs, workers, and live email remain to be developed after the notification matrix is approved.
+
+## Current increment — 2026-10-20
+
+The owner confirmed current-stage reviewers for new tasks, and the requestor/responsible Finance role for
+returns, declines, final approval and payment updates. Workflow and payment notification recipients are
+snapshotted transactionally. A database worker produces in-app messages and optional protected local email
+previews, with deduplication, attempt history and bounded retries. The existing bell supports read/unread,
+pagination, safe links and error recovery. Historical events without recipient snapshots are not backfilled.
+See [notification operations](phase-08-notifications.md) for coverage, verification and remaining scope.
 
 ## Objective
 

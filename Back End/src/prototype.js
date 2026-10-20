@@ -773,7 +773,7 @@ function bindLogin() {
     try {
       const session = await dataSource.login(form.get("email"), form.get("password"));
       const persona = personaForRoles(session.user.roles);
-      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false };
+      state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsPage: 1, notificationsOpen: false };
       await loadApiPaymentRequests();
       navigate("/dashboard");
     } catch (error) {
@@ -2765,7 +2765,7 @@ async function loadNotifications() {
   const wasLoaded = state.notificationsLoaded;
   let changed = !wasLoaded;
   try {
-    const next = await dataSource.getNotifications();
+    const next = await dataSource.getNotifications(state.notificationsPage || 1);
     changed = changed || JSON.stringify(next) !== JSON.stringify(state.notifications) || Boolean(state.notificationsError);
     state.notifications = next;
     state.notificationsError = "";
@@ -2776,7 +2776,7 @@ async function loadNotifications() {
 function notificationPanel() {
   if (!state.notificationsOpen) return "";
   const items = state.notifications.items || [];
-  return `<section class="notification-panel" aria-label="Mention notifications"><div class="notification-panel-header"><div><strong>Notifications</strong><small>${state.notifications.unread_count} unread</small></div><button type="button" data-close-notifications aria-label="Close notifications" class="close-icon-button">${closeIcon}</button></div>${state.notificationsLoading ? `<p class="notification-empty">Loading…</p>` : state.notificationsError ? `<div class="notification-empty" role="alert"><p>${escapeHtml(state.notificationsError)}</p><button type="button" data-retry-notifications>Try again</button></div>` : items.length ? `<div class="notification-list">${items.map((item) => `<button type="button" class="notification-item ${item.read_at ? "" : "unread"}" data-open-notification="${escapeHtml(item.id)}"><span class="notification-item-title">Mentioned you</span><span class="notification-item-request">${escapeHtml(item.request.request_number || "Payment request")}</span><span class="notification-item-preview">${escapeHtml(item.preview)}</span><time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></button>`).join("")}</div>` : `<p class="notification-empty">No mentions yet.</p>`}</section>`;
+  return `<section class="notification-panel" aria-label="Request notifications"><div class="notification-panel-header"><div><strong>Notifications</strong><small>${state.notifications.unread_count} unread</small></div><button type="button" data-close-notifications aria-label="Close notifications" class="close-icon-button">${closeIcon}</button></div>${state.notificationsLoading ? `<p class="notification-empty">Loading…</p>` : state.notificationsError ? `<div class="notification-empty" role="alert"><p>${escapeHtml(state.notificationsError)}</p><button type="button" data-retry-notifications>Try again</button></div>` : items.length ? `<div class="notification-list">${items.map((item) => `<article class="notification-row"><button type="button" class="notification-item ${item.read_at ? "" : "unread"}" data-open-notification="${escapeHtml(item.id)}"><span class="notification-item-title">${escapeHtml(item.title || "Mentioned you")}</span><span class="notification-item-request">${escapeHtml(item.request.request_number || "Payment request")}</span><span class="notification-item-preview">${escapeHtml(item.preview)}</span><time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></button><button type="button" class="text-button notification-read-toggle" data-notification-read-toggle="${escapeHtml(item.id)}">Mark ${item.read_at ? "unread" : "read"}</button></article>`).join("")}</div><div class="notification-pagination"><button type="button" data-notification-page="-1" ${(state.notifications.page || 1) <= 1 ? "disabled" : ""}>Previous</button><span>Page ${state.notifications.page || 1}</span><button type="button" data-notification-page="1" ${(state.notifications.page || 1) * (state.notifications.page_size || 50) >= (state.notifications.total || items.length) ? "disabled" : ""}>Next</button></div>` : `<p class="notification-empty">No notifications yet.</p>`}</section>`;
 }
 
 function allRolesActionPanel(request) {
@@ -3833,6 +3833,20 @@ function render() {
   });
   document.querySelector("[data-close-notifications]")?.addEventListener("click", () => setState({ notificationsOpen: false }));
   document.querySelector("[data-retry-notifications]")?.addEventListener("click", loadNotifications);
+  document.querySelectorAll("[data-notification-page]").forEach(button => button.addEventListener("click", () => {
+    state.notificationsPage = Math.max(1, (state.notifications.page || 1) + Number(button.dataset.notificationPage));
+    loadNotifications();
+  }));
+  document.querySelectorAll("[data-notification-read-toggle]").forEach(button => button.addEventListener("click", async () => {
+    const item = state.notifications.items.find(entry => entry.id === button.dataset.notificationReadToggle);
+    if (!item) return;
+    button.disabled = true;
+    try {
+      await (item.read_at ? dataSource.markNotificationUnread(item.id, state.csrfToken) : dataSource.markNotificationRead(item.id, state.csrfToken));
+      await loadNotifications();
+    } catch (error) { showErrorToast(error.message || "Could not update notification."); }
+    finally { if (button.isConnected) button.disabled = false; }
+  }));
   document.querySelectorAll("[data-open-notification]").forEach((button) => button.addEventListener("click", async () => {
     const item = state.notifications.items.find((entry) => entry.id === button.dataset.openNotification);
     if (!item) return;
@@ -4028,7 +4042,7 @@ function render() {
   });
   document.querySelector("[data-logout]")?.addEventListener("click", async () => {
     await dataSource.logout(state.csrfToken).catch(() => undefined);
-    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, financeInitialMode: false, financeInitialValues: {}, financeBusinessDrafts: {}, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {}, conversationDraftBody: {}, conversationDraftMentions: {}, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsOpen: false });
+    setState({ authStatus: "unauthenticated", authUser: null, csrfToken: null, authError: "", authSubmitting: false, financeInitialMode: false, financeInitialValues: {}, financeBusinessDrafts: {}, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, conversations: {}, conversationErrors: {}, conversationLoading: {}, conversationPosting: {}, conversationDraftBody: {}, conversationDraftMentions: {}, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsPage: 1, notificationsOpen: false });
   });
   document.querySelectorAll("[data-line-review-status]").forEach((select) => {
     const index = Number(select.dataset.lineReviewStatus);

@@ -32,7 +32,7 @@ from .identity import (
     UserRole,
 )
 from .master_data import ChartAccount, CostCenter, Currency, DocumentType, PaymentMethod, TaxCode, VendorRecord
-from .outbox import NotificationOutboxEvent
+from .outbox import NotificationAttempt, NotificationDelivery, NotificationOutboxEvent
 from .requests import (
     PaymentRequest,
     PaymentRequestLine,
@@ -83,6 +83,8 @@ __all__ = [
     "PaymentEvidence",
     "FundReturnEvent",
     "NotificationOutboxEvent",
+    "NotificationDelivery",
+    "NotificationAttempt",
     "PaymentRequest",
     "RequestConversationMessage",
     "RequestMentionNotification",

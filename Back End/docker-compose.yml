@@ -4,7 +4,7 @@ services:
   app:
     build:
       context: .
-    environment:
+    environment: &local_app_environment
       APP_ENV: local
       APP_NAME: Payment Module API
       APP_VERSION: 0.1.0
@@ -39,6 +39,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  notification-worker:
+    image: payment-module-app
+    profiles: [notifications]
+    command: [python, -m, payment_module.notification_worker, --loop, --development-mailbox]
+    environment: *local_app_environment
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
