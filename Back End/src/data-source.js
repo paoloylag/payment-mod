@@ -160,6 +160,17 @@ export function createDataSource() {
       if (mode === "mock") return Promise.resolve(null);
       return apiRequest("/api/v1/requests", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }, body: JSON.stringify(payload) });
     },
+    getRequestReport(filters = {}, exportAll = true) {
+      const params = new URLSearchParams({ export: String(exportAll) });
+      const mappings = { voucher: "search", department: "department", type: "request_type", status: "status",
+        minAmount: "min_amount", maxAmount: "max_amount", sortBy: "sort_by", sortDirection: "sort_direction",
+        dateFrom: "date_from", dateTo: "date_to" };
+      Object.entries(mappings).forEach(([source, target]) => {
+        const value = filters[source];
+        if (value !== undefined && value !== "" && value !== "all") params.set(target, value);
+      });
+      return apiRequest(`/api/v1/reports/requests?${params}`);
+    },
     async listPaymentRequests(filters = {}) {
       if (mode === "mock") return null;
       const params = new URLSearchParams({ page: "1", page_size: "100" });

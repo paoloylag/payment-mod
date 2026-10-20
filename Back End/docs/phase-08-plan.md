@@ -1,7 +1,7 @@
 # Phase 08 — Notifications, Dashboards, and Reports
 
 Date prepared: 2026-08-28  
-Status: Workflow/payment notification increment implemented 2026-10-20; reporting and full Phase 08 acceptance pending
+Status: Notifications and bounded request reports/exports implemented 2026-10-20; dashboard aggregates and financial reports pending
 Depends on: Phases 03–07 transactional data
 
 ## Outbox foundation — 2026-10-11
@@ -16,6 +16,10 @@ snapshotted transactionally. A database worker produces in-app messages and opti
 previews, with deduplication, attempt history and bounded retries. The existing bell supports read/unread,
 pagination, safe links and error recovery. Historical events without recipient snapshots are not backfilled.
 See [notification operations](phase-08-notifications.md) for coverage, verification and remaining scope.
+
+Request report increment: the existing Excel/print controls now use a visibility-scoped, repeatable-read
+server snapshot with exact per-currency gross totals, current status labels, safe text and a 5,000-candidate cap.
+See [request reports](phase-08-request-reports.md) for definitions, limits and remaining dashboard work.
 
 ## Objective
 

@@ -691,7 +691,7 @@ When backend development resumes:
 | 05 — Workflow and approvals | In progress — preview only | `docs/phase-05-plan.md` (read-only provisional route preview exists; approver assignment and approval decisions are not persisted) |
 | 06 — Finance validation and vouchers | Not started | `docs/phase-06-plan.md` |
 | 07 — Payment execution | Not started | `docs/phase-07-plan.md` |
-| 08 — Notifications, dashboards, and reports | Workflow/payment inbox and local worker implemented 2026-10-20; reports pending | `docs/phase-08-plan.md` |
+| 08 — Notifications, dashboards, and reports | Workflow/payment inbox and bounded request reports/exports implemented 2026-10-20; dashboard/financial reports pending | `docs/phase-08-plan.md` |
 | 09 — Administration and integrations | Not started | `docs/phase-09-plan.md` |
 
 Allowed status values are `Not started`, `In progress`, `Ready for validation`, `Validated`, and `Blocked`. Do not mark a phase `Validated` without recording the test/build commands, validation date, reviewer, and any accepted limitations.

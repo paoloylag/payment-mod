@@ -207,24 +207,21 @@ def serialize(
     }
 
 
-def serialize_many(db: Session, items: list[PaymentRequest], workflow_states: dict | None = None) -> list[dict]:
+def serialize_many(
+    db: Session, items: list[PaymentRequest], workflow_states: dict | None = None,
+    workflow_records: dict | None = None,
+) -> list[dict]:
     if not items:
         return []
     payment_summaries = request_payment_summaries(db, [item.id for item in items])
     requestor_ids = {item.requestor_id for item in items}
     department_ids = {item.department_id for item in items}
     request_ids = {item.id for item in items}
-    workflow_states = (
-        workflow_states
-        if workflow_states is not None
-        else dict(
-            db.execute(
-                select(WorkflowInstance.request_id, WorkflowInstance.state).where(
-                    WorkflowInstance.request_id.in_(request_ids)
-                )
-            ).all()
-        )
-    )
+    workflows = workflow_records if workflow_records is not None else {
+        row.request_id: row for row in db.scalars(select(WorkflowInstance).where(
+            WorkflowInstance.request_id.in_(request_ids)))}
+    workflow_states = workflow_states if workflow_states is not None else {
+        request_id: workflow.state for request_id, workflow in workflows.items()}
     requestors = {item.id: item for item in db.scalars(select(User).where(User.id.in_(requestor_ids)))}
     departments = {item.id: item for item in db.scalars(select(Department).where(Department.id.in_(department_ids)))}
     lines_by_request: dict[UUID, list[PaymentRequestLine]] = {request_id: [] for request_id in request_ids}
@@ -234,18 +231,16 @@ def serialize_many(db: Session, items: list[PaymentRequest], workflow_states: di
         .order_by(PaymentRequestLine.request_id, PaymentRequestLine.position)
     ):
         lines_by_request[line.request_id].append(line)
-    return [
-        serialize(
-            db,
-            item,
-            requestors=requestors,
-            departments=departments,
-            lines_by_request=lines_by_request,
-            payment_summaries=payment_summaries,
-            workflow_states=workflow_states,
-        )
-        for item in items
-    ]
+    from ..reporting import request_display
+
+    result = []
+    for item in items:
+        data = serialize(db, item, requestors=requestors, departments=departments,
+                         lines_by_request=lines_by_request, payment_summaries=payment_summaries,
+                         workflow_states=workflow_states)
+        data.update(request_display(item, workflows.get(item.id), payment_summaries.get(item.id, {})))
+        result.append(data)
+    return result
 
 
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
@@ -872,13 +867,14 @@ def list_payment_requests(
     response.headers["X-Page"] = str(page)
     response.headers["X-Page-Size"] = str(page_size)
     rows = db.execute(
-        query.add_columns(WorkflowInstance.state)
+        query.add_columns(WorkflowInstance)
         .outerjoin(WorkflowInstance, WorkflowInstance.request_id == PaymentRequest.id)
         .order_by(order, PaymentRequest.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
-    return serialize_many(db, [row[0] for row in rows], {row[0].id: row[1] for row in rows})
+    return serialize_many(db, [row[0] for row in rows],
+                          workflow_records={row[0].id: row[1] for row in rows if row[1] is not None})
 
 
 @router.get("/cash-advance-options")

@@ -1197,14 +1197,14 @@ function apiRequestToPrototype(item) {
   const statusMap = { submitted: ["Department Approval", 3], returned: ["Returned for Information", 2], declined: ["Declined", 2], cancelled: ["Cancelled", 2], archived: ["Archived", 15], draft: ["Draft Request", 1] };
   const [defaultStatus, defaultStep] = statusMap[item.status] || [item.status, 2];
   const currentStep = Number(item.type_data?.demo_current_step) || defaultStep;
-  const status = (item.type_data?.demo_display_status || defaultStatus).replace("Payment Preparation", "Payment Preparation").replace("Signatory Approval", "Signatory Approval");
+  const status = (item.display_status || item.type_data?.demo_display_status || defaultStatus).replace("Payment Preparation", "Payment Preparation").replace("Signatory Approval", "Signatory Approval");
   return {
     id: item.request_number || `DRAFT-${item.id.slice(0, 8).toUpperCase()}`, voucherNumber: item.voucher_number || "", backendId: item.id,
     backendVersion: item.version, backendStatus: item.status, approvalState: item.approval_state, paymentSummary: item.payment_summary, type: item.request_type,
     requestor: item.requestor_name, requestorId: item.requestor_id, department: item.department_name,
     vendor: item.payee_name || item.lines?.find((line) => line.vendor_name)?.vendor_name || "To Be Confirmed",
     amount: Number(item.gross_amount) || 0, budgeted: item.type_data?.budgeted !== false,
-    status, currentStep, submitted: item.submitted_at?.slice(0, 10) || item.created_at.slice(0, 10),
+    status, currentStep: item.approval_state === "approved" ? 9 : ({department_head:3,finance_associate:4,finance_manager:5,coo:7,president:8,board_member:8.5}[item.workflow_stage_role] || currentStep), submitted: item.submitted_at?.slice(0, 10) || item.created_at.slice(0, 10),
     returned: item.status === "returned" ? item.updated_at.slice(0, 10) : "", resubmitted: "",
     documents: item.lines?.reduce((count, line) => count + (line.attachment_refs?.length || 0), 0) || 0,
     missing: 0, currency: item.currency_code, unlocked: item.status === "returned", audit: [], lines: item.lines || [],
@@ -1267,7 +1267,7 @@ async function loadApiPaymentRequests(filters = null) {
     if (workflow && ["active", "information_requested"].includes(workflow.state)) {
       const stage = workflow.route.stages[workflow.current_stage];
       request.currentStep = stageSteps[workflow.assignment_role || stage.role] || request.currentStep;
-      request.status = workflow.state === "information_requested" ? `Information Requested by ${stage.role === "board_member" ? "Board" : stage.role === "president" ? "President" : "COO"}` : stage.purpose;
+      request.status = item.display_status || (workflow.state === "information_requested" ? `Information Requested by ${stage.role === "board_member" ? "Board" : stage.role === "president" ? "President" : "COO"}` : stage.purpose);
     }
     return request;
   });
@@ -2816,7 +2816,7 @@ function dashboardFilters(visibleRequests = requests) {
   const departmentOptions = [...new Set(visibleRequests.map((r) => r.department))].sort();
   const financeView = ["all", "financeAssociate", "financeManager"].includes(state.persona);
   const activeCount = [filters.department !== "all", filters.status !== "all", filters.type !== "all", filters.minAmount !== "", filters.maxAmount !== ""].filter(Boolean).length;
-  return `<section class="panel dashboard-filter-panel"><div class="request-filter-toolbar"><label class="request-filter-search"><span class="sr-only">Search voucher number</span><input data-dashboard-filter="voucher" type="search" placeholder="Search voucher number" value="${filters.voucher}"></label><button type="button" class="request-filter-toggle" data-toggle-request-filters aria-expanded="${Boolean(state.requestFiltersExpanded)}" aria-controls="requestAdvancedFilters">☰ Filter${activeCount ? ` (${activeCount})` : ""}</button><div class="request-filter-sort">    <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
+  return `<section class="panel dashboard-filter-panel"><div class="request-filter-toolbar"><label class="request-filter-search"><span class="sr-only">Search requests, vouchers or payees</span><input data-dashboard-filter="voucher" type="search" placeholder="Search requests, vouchers or payees" value="${filters.voucher}"></label><button type="button" class="request-filter-toggle" data-toggle-request-filters aria-expanded="${Boolean(state.requestFiltersExpanded)}" aria-controls="requestAdvancedFilters">☰ Filter${activeCount ? ` (${activeCount})` : ""}</button><div class="request-filter-sort">    <label>Sort By<select data-dashboard-filter="sortBy"><option value="submitted" ${filters.sortBy === "submitted" ? "selected" : ""}>Submitted Date</option><option value="voucher" ${filters.sortBy === "voucher" ? "selected" : ""}>Voucher Number</option><option value="type" ${filters.sortBy === "type" ? "selected" : ""}>Type</option><option value="status" ${filters.sortBy === "status" ? "selected" : ""}>Status</option><option value="amount" ${filters.sortBy === "amount" ? "selected" : ""}>Amount</option></select></label>
     <label>Order<select data-dashboard-filter="sortDirection"><option value="asc" ${filters.sortDirection === "asc" ? "selected" : ""}>Ascending</option><option value="desc" ${filters.sortDirection === "desc" ? "selected" : ""}>Descending</option></select></label>
 </div><button type="button" class="clear-filter-button" data-clear-filters="true">Clear Filters</button></div><div class="dashboard-filters dashboard-filters-primary">
     ${financeView ? `<label>Department<select data-dashboard-filter="department"><option value="all">All Departments</option>${departmentOptions.map((department) => `<option value="${department}" ${filters.department === department ? "selected" : ""}>${department}</option>`).join("")}</select></label>` : ""}
@@ -2824,13 +2824,13 @@ function dashboardFilters(visibleRequests = requests) {
   </div><div id="requestAdvancedFilters" class="advanced-filter-options" ${state.requestFiltersExpanded ? "" : "hidden"}><div class="dashboard-filters dashboard-filters-advanced"><label>Type<select data-dashboard-filter="type"><option value="all">All Types</option>${Object.entries(paymentTypes).map(([id, type]) => `<option value="${id}" ${filters.type === id ? "selected" : ""}>${type.label}</option>`).join("")}</select></label>
     <label>Minimum Amount<input data-dashboard-filter="minAmount" type="number" min="0" placeholder="0" value="${filters.minAmount}"></label>
     <label>Maximum Amount<input data-dashboard-filter="maxAmount" type="number" min="0" placeholder="No limit" value="${filters.maxAmount}"></label>
-  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Generate a report using the active filters above.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="xlsx">Export Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</div></section>`;
+  </div>${financeView ? `<div class="report-actions"><div class="report-actions-copy"><span class="eyebrow">Department Transaction Report</span><p>Export all matching permitted requests using the active filters. Gross totals stay separate by currency.</p></div><div class="report-action-buttons"><button type="button" class="report-button report-button-secondary" data-export-report="xlsx">Export Excel</button><button type="button" class="report-button primary-button" data-print-report="true">Print / Save PDF</button></div></div>` : ""}</div></section>`;
 }
 
 function reportRows() {
   const filters = state.dashboardFilters;
   return personaRequests().filter((r) => {
-    const voucherMatch = (r.voucherNumber || "").toLowerCase().includes(filters.voucher.trim().toLowerCase());
+    const voucherMatch = [r.id, r.voucherNumber, r.vendor, r.purpose].some(value => String(value || "").toLowerCase().includes(filters.voucher.trim().toLowerCase()));
     const departmentMatch = filters.department === "all" || r.department === filters.department;
     const typeMatch = filters.type === "all" || r.type === filters.type;
     const statusMatch = filters.status === "all" || r.status === filters.status;
@@ -2840,41 +2840,57 @@ function reportRows() {
   });
 }
 
+// Strings stay strings in workbooks; guard spreadsheet formula prefixes and preserve long decimals.
+const reportCellText = value => /^[\s\u0000-\u001f]*[=+@-]/.test(String(value ?? "")) ? "'" + String(value) : String(value ?? "");
+const reportMoneyCell = value => String(value).replace(/[^0-9]/g, "").replace(/^0+/, "").length <= 15 ? Number(value) : String(value);
+async function authoritativeReport() {
+  if (dataSource.mode === "mock") {
+    const report = paymentReportData(reportRows());
+    report.rows = report.rows.map((row, index) => ({ ...row, rawAmount: String(reportRows()[index].amount), agingDays: agingDays(reportRows()[index]) }));
+    return report;
+  }
+  const snapshot = await dataSource.getRequestReport({ ...state.dashboardFilters });
+  return {
+    reportNumber: snapshot.report_number, title: "Payment Request Gross Transaction Report",
+    generatedAt: new Date(snapshot.generated_at).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "long", timeStyle: "short" }),
+    generatedBy: snapshot.generated_by, department: snapshot.filters.department || "All Departments",
+    filters: Object.entries(snapshot.filters).filter(([,value]) => value !== null && value !== "").map(([key,value]) => `${key.replaceAll("_", " ")}: ${value}`),
+    totals: Object.entries(snapshot.summary.currency_totals).map(([currency,amount]) => ({currency, amount, formatted: `${currency} ${amount}`})),
+    rows: snapshot.items.map(row => ({...row, rawAmount: row.amount, amount: `${row.currency} ${row.amount}`, agingDays: row.aging_days,
+      aging: row.aging_days === null ? "Not submitted" : `${row.aging_days} days` })),
+  };
+}
 async function downloadDepartmentReport() {
-  const XLSX = await import("xlsx");
-  const columns = ["Request Number", "Submitted", "Department", "Requestor", "Payee", "Type", "Currency", "Amount", "Status", "Current Owner", "Aging Days"];
-  const rows = reportRows().map((r) => [r.id, r.submitted, r.department, r.requestor, r.vendor, paymentTypes[r.type].label, r.currency || "PHP", r.amount, r.status, steps.find(([id]) => id === r.currentStep)?.[2] || "System", agingDays(r)]);
-  const report = paymentReportData(reportRows());
-  const summaryRows = [
-    ["Department Transaction Report"],
-    ["Report Number", report.reportNumber],
-    ["Department", report.department],
-    ["Generated", report.generatedAt],
-    ["Generated By", report.generatedBy],
-    ["Transactions", rows.length],
-    ["Applied Filters", report.filters.join(" | ") || "All request types and statuses"],
-    [],
-    ["Currency", "Total"],
-    ...report.totals.map((total) => [total.currency, total.amount]),
-  ];
-  const workbook = XLSX.utils.book_new();
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
-  const transactionSheet = XLSX.utils.aoa_to_sheet([columns, ...rows]);
-  summarySheet["!cols"] = [{ wch: 24 }, { wch: 48 }];
-  transactionSheet["!cols"] = [14, 13, 18, 22, 24, 20, 10, 15, 24, 22, 12].map((wch) => ({ wch }));
-  transactionSheet["!autofilter"] = { ref: `A1:K${Math.max(rows.length + 1, 1)}` };
-  for (let rowIndex = 2; rowIndex <= rows.length + 1; rowIndex += 1) {
-    if (transactionSheet[`H${rowIndex}`]) transactionSheet[`H${rowIndex}`].z = "#,##0.00";
-    if (transactionSheet[`K${rowIndex}`]) transactionSheet[`K${rowIndex}`].z = "0";
-  }
-  for (let rowIndex = 10; rowIndex <= summaryRows.length; rowIndex += 1) {
-    if (summarySheet[`B${rowIndex}`]) summarySheet[`B${rowIndex}`].z = "#,##0.00";
-  }
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
-  XLSX.utils.book_append_sheet(workbook, transactionSheet, "Transactions");
-  workbook.Props = { Title: "Department Transaction Report", Subject: report.department, Author: report.generatedBy, CreatedDate: new Date() };
-  const departmentSlug = state.dashboardFilters.department === "all" ? "all-departments" : state.dashboardFilters.department.toLowerCase().replaceAll(" ", "-").replaceAll("&", "and");
-  XLSX.writeFile(workbook, `payment-requests-${departmentSlug}-${new Date().toISOString().slice(0, 10)}.xlsx`, { compression: true });
+  if (state.reportBusy) return;
+  state.reportBusy = true;
+  const buttons = [...document.querySelectorAll("[data-export-report], [data-print-report]")]; buttons.forEach(button => button.disabled = true);
+  try {
+    const report = await authoritativeReport();
+    const XLSX = await import("xlsx");
+    const columns = ["Request Number", "Submitted", "Department", "Requestor", "Payee", "Type", "Currency", "Gross Amount", "Status", "Current Owner", "Elapsed Days"];
+    const rows = report.rows.map(row => [row.id, row.submitted, row.department, row.requestor, row.payee, row.type,
+      row.currency, reportMoneyCell(row.rawAmount), row.status, row.owner, row.agingDays]);
+    const summaryRows = [[report.title], ["Report Number", report.reportNumber], ["Department", report.department],
+      ["Generated (Asia/Manila)", report.generatedAt], ["Generated By", report.generatedBy], ["Transactions", rows.length],
+      ["Applied Filters", report.filters.join(" | ") || "All request types and statuses"],
+      ["Amount basis", "Gross request amounts; not net voucher due or settled payments"],
+      ["Aging basis", "Elapsed days since submission; not SLA overdue"], [], ["Currency", "Gross Total"],
+      ...report.totals.map(total => [total.currency, reportMoneyCell(total.amount)])];
+    const safeRows = records => records.map(row => row.map(value => typeof value === "string" ? reportCellText(value) : value));
+    const workbook = XLSX.utils.book_new();
+    const summarySheet = XLSX.utils.aoa_to_sheet(safeRows(summaryRows));
+    const transactionSheet = XLSX.utils.aoa_to_sheet(safeRows([columns, ...rows]));
+    summarySheet["!cols"] = [{wch:28},{wch:80}];
+    transactionSheet["!cols"] = [22,14,24,24,28,24,10,20,32,24,14].map(wch=>({wch}));
+    transactionSheet["!autofilter"] = {ref:`A1:K${Math.max(rows.length+1,1)}`};
+    for (let index=2;index<=rows.length+1;index++) {
+      if(transactionSheet[`H${index}`]?.t === "n")transactionSheet[`H${index}`].z = "#,##0.0000";
+    }
+    XLSX.utils.book_append_sheet(workbook,summarySheet,"Summary"); XLSX.utils.book_append_sheet(workbook,transactionSheet,"Transactions");
+    workbook.Props = {Title:report.title,Author:report.generatedBy,CreatedDate:new Date()};
+    XLSX.writeFile(workbook,`${report.reportNumber}.xlsx`,{compression:true});
+  } catch(error) { showErrorToast(error.message || "The report could not be generated.", "Report unavailable"); }
+  finally { state.reportBusy = false; buttons.forEach(button => {if(button.isConnected)button.disabled=false;}); }
 }
 
 function apiDraftPayload(draft) {
@@ -3029,18 +3045,22 @@ function paymentReportData(rows) {
 
 function paymentReportTemplate(data) {
   const cells = data.rows.length ? data.rows.map((row) => `<tr><td><strong>${reportEscape(row.id)}</strong><small>${reportEscape(row.type)}</small></td><td>${reportEscape(row.submitted)}</td><td>${reportEscape(row.department)}</td><td>${reportEscape(row.requestor)}</td><td>${reportEscape(row.payee)}</td><td class="amount">${reportEscape(row.amount)}</td><td>${reportEscape(row.status)}</td><td>${reportEscape(row.owner)}</td><td>${reportEscape(row.aging)}</td></tr>`).join("") : `<tr><td colspan="9" class="empty">No transactions match the selected filters.</td></tr>`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${reportEscape(data.title)}</title><style>@page{size:auto;margin:12mm}*{box-sizing:border-box}body{margin:0;color:#1f2933;font:11px Arial,sans-serif}.report-header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #9e1d20;padding-bottom:12px}.brand{display:flex;align-items:center;gap:10px}.mark{display:grid;width:38px;height:38px;place-items:center;border-radius:6px;color:#fff;background:#9e1d20;font-weight:700}.report-header h1{margin:0;font-size:20px}.report-header p,.meta span,.filters,.footer{color:#5c6670}.meta{text-align:right}.meta strong,.meta span{display:block}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.summary div{border:1px solid #d9e0e5;border-radius:5px;padding:9px}.summary span,.totals span{display:block;color:#5c6670;font-size:9px;text-transform:uppercase}.summary strong,.totals strong{display:block;margin-top:3px}.filters{margin:0 0 12px;padding:8px 10px;background:#f7f3ee}.totals{display:flex;gap:8px;margin-bottom:12px}.totals div{min-width:140px;border-left:3px solid #9e1d20;padding:5px 9px;background:#faf7f7}table{width:100%;border-collapse:collapse;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid}th,td{border:1px solid #d9e0e5;padding:6px;text-align:left;vertical-align:top}th{color:#5c6670;background:#f2e8dc;font-size:8px;text-transform:uppercase}td{font-size:9px}td small{display:block;margin-top:2px;color:#5c6670}.amount{text-align:right;white-space:nowrap}.empty{text-align:center;padding:24px}.footer{display:flex;justify-content:space-between;margin-top:12px;border-top:1px solid #d9e0e5;padding-top:8px;font-size:9px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><header class="report-header"><div class="brand"><span class="mark">AP</span><div><h1>${reportEscape(data.title)}</h1><p>Automated Payment System</p></div></div><div class="meta"><strong>${reportEscape(data.reportNumber)}</strong><span>Generated ${reportEscape(data.generatedAt)}</span></div></header><section class="summary"><div><span>Department</span><strong>${reportEscape(data.department)}</strong></div><div><span>Transactions</span><strong>${data.rows.length}</strong></div><div><span>Generated By</span><strong>${reportEscape(data.generatedBy)}</strong></div></section><p class="filters"><strong>Applied Filters:</strong> ${data.filters.length ? data.filters.map(reportEscape).join(" · ") : "All request types and statuses"}</p><section class="totals">${data.totals.length ? data.totals.map((total) => `<div><span>${reportEscape(total.currency)} Total</span><strong>${reportEscape(total.formatted)}</strong></div>`).join("") : `<div><span>Report Total</span><strong>No transactions</strong></div>`}</section><table><thead><tr><th>Request</th><th>Submitted</th><th>Department</th><th>Requestor</th><th>Payee</th><th>Amount</th><th>Status</th><th>Current Owner</th><th>Aging</th></tr></thead><tbody>${cells}</tbody></table><footer class="footer"><span>${reportEscape(data.reportNumber)} · System Generated</span><span>For internal reference</span></footer><script>window.onload=()=>window.print()<\/script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${reportEscape(data.title)}</title><style>@page{size:auto;margin:12mm}*{box-sizing:border-box}body{margin:0;color:#1f2933;font:11px Arial,sans-serif}.report-header{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #9e1d20;padding-bottom:12px}.brand{display:flex;align-items:center;gap:10px}.mark{display:grid;width:38px;height:38px;place-items:center;border-radius:6px;color:#fff;background:#9e1d20;font-weight:700}.report-header h1{margin:0;font-size:20px}.report-header p,.meta span,.filters,.footer{color:#5c6670}.meta{text-align:right}.meta strong,.meta span{display:block}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.summary div{border:1px solid #d9e0e5;border-radius:5px;padding:9px}.summary span,.totals span{display:block;color:#5c6670;font-size:9px;text-transform:uppercase}.summary strong,.totals strong{display:block;margin-top:3px}.filters{margin:0 0 12px;padding:8px 10px;background:#f7f3ee}.totals{display:flex;gap:8px;margin-bottom:12px}.totals div{min-width:140px;border-left:3px solid #9e1d20;padding:5px 9px;background:#faf7f7}table{width:100%;border-collapse:collapse;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid}th,td{border:1px solid #d9e0e5;padding:6px;text-align:left;vertical-align:top}th{color:#5c6670;background:#f2e8dc;font-size:8px;text-transform:uppercase}td{font-size:9px}td small{display:block;margin-top:2px;color:#5c6670}.amount{text-align:right;white-space:nowrap}.empty{text-align:center;padding:24px}.footer{display:flex;justify-content:space-between;margin-top:12px;border-top:1px solid #d9e0e5;padding-top:8px;font-size:9px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><header class="report-header"><div class="brand"><span class="mark">AP</span><div><h1>${reportEscape(data.title)}</h1><p>Automated Payment System</p></div></div><div class="meta"><strong>${reportEscape(data.reportNumber)}</strong><span>Generated ${reportEscape(data.generatedAt)}</span></div></header><section class="summary"><div><span>Department</span><strong>${reportEscape(data.department)}</strong></div><div><span>Transactions</span><strong>${data.rows.length}</strong></div><div><span>Generated By</span><strong>${reportEscape(data.generatedBy)}</strong></div></section><p class="filters"><strong>Applied Filters:</strong> ${data.filters.length ? data.filters.map(reportEscape).join(" · ") : "All request types and statuses"}</p><section class="totals">${data.totals.length ? data.totals.map((total) => `<div><span>${reportEscape(total.currency)} Total</span><strong>${reportEscape(total.formatted)}</strong></div>`).join("") : `<div><span>Report Total</span><strong>No transactions</strong></div>`}</section><table><thead><tr><th>Request</th><th>Submitted</th><th>Department</th><th>Requestor</th><th>Payee</th><th>Gross Amount</th><th>Status</th><th>Current Owner</th><th>Elapsed Days</th></tr></thead><tbody>${cells}</tbody></table><footer class="footer"><span>${reportEscape(data.reportNumber)} · System Generated</span><span>For internal reference</span></footer><script>window.onload=()=>window.print()<\/script></body></html>`;
 }
 
-function printDepartmentReport() {
-  const report = window.open("", "_blank");
-  if (!report) return;
-  report.opener = null;
-  report.document.write(paymentReportTemplate(paymentReportData(reportRows())));
-  report.document.querySelectorAll("th:nth-child(8), td:nth-child(8)").forEach((cell) => cell.remove());
-  const emptyCell = report.document.querySelector("td.empty");
-  if (emptyCell) emptyCell.colSpan = 8;
-  report.document.close();
+async function printDepartmentReport() {
+  if (state.reportBusy) return;
+  const reportWindow = window.open("", "_blank");
+  if (!reportWindow) { showErrorToast("Allow the report window to open, then try again."); return; }
+  reportWindow.opener = null;
+  reportWindow.document.body.textContent = "Preparing report…";
+  state.reportBusy = true;
+  const buttons = [...document.querySelectorAll("[data-export-report], [data-print-report]")]; buttons.forEach(button => button.disabled = true);
+  try {
+    const snapshot = await authoritativeReport();
+    reportWindow.document.open(); reportWindow.document.write(paymentReportTemplate(snapshot)); reportWindow.document.close();
+  } catch (error) { reportWindow.close(); showErrorToast(error.message || "The report could not be generated.", "Report unavailable"); }
+  finally { state.reportBusy = false; buttons.forEach(button=>{if(button.isConnected)button.disabled=false;}); }
 }
 
 function workflow(currentStep) {
