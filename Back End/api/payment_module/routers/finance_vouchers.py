@@ -33,6 +33,7 @@ from ..models import (
     WorkflowEvent,
     WorkflowInstance,
 )
+from ..outbox import record_finance_notification
 from ..payment_execution import (
     execution_view,
     latest_line_event,
@@ -498,6 +499,7 @@ def record_event(db, request, actor, item, voucher, payload, key, action, result
     )
     db.add(row)
     db.flush()
+    record_finance_notification(db, item, "voucher", action, row.id, actor.id)
     audit(
         db,
         actor_id=actor.id,

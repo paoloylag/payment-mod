@@ -60,3 +60,7 @@ The print and Excel actions independently request current snapshots, so their ti
 Authoritative dashboard aggregates and global-search scope; paid/unclaimed-check reconciliation; outstanding
 advance/return/recovery reports; official aging buckets; broader report-volume/permission benchmarks and operational acceptance.
 SLA reminders/escalation remain deferred. Production email remains Phase 09 activation work.
+
+## Update — 2026-10-30
+
+Server dashboard snapshots, Finance payment/advance/return/recovery reports, unclaimed check counts/amounts and descriptive elapsed-time buckets are now implemented. See `phase-08-finance-reconciliation.md` for definitions, limits and local acceptance evidence. Production-scale benchmarks and historical/asynchronous reporting remain separate release work.

@@ -11,6 +11,7 @@ from .logging import configure_logging
 from .middleware import RequestContextMiddleware
 from .routers.auth import router as auth_router
 from .routers.conversation import router as conversation_router
+from .routers.dashboard import router as dashboard_router
 from .routers.documents import router as documents_router
 from .routers.finance_accounting import router as finance_accounting_router
 from .routers.finance_operations import router as finance_operations_router
@@ -18,6 +19,7 @@ from .routers.finance_setup import router as finance_setup_router
 from .routers.finance_tax import router as finance_tax_router
 from .routers.finance_validation import router as finance_validation_router
 from .routers.finance_vouchers import router as finance_vouchers_router
+from .routers.financial_reports import router as financial_reports_router
 from .routers.fund_returns import router as fund_returns_router
 from .routers.identity import router as identity_router
 from .routers.master_data import router as master_data_router
@@ -77,6 +79,8 @@ def create_app() -> FastAPI:
     application.include_router(fund_returns_router)
     application.include_router(requests_router)
     application.include_router(reports_router)
+    application.include_router(dashboard_router)
+    application.include_router(financial_reports_router)
     application.include_router(conversation_router)
     application.include_router(notifications_router)
     application.include_router(request_settings_router)

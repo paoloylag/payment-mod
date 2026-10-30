@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap");
+@import url("./fonts.css");
 
 /* LifeOS tenant-boilerplate shell override.
    Loaded after the existing prototype styles to preserve payment screens. */
@@ -2350,3 +2350,19 @@ input:is([type="checkbox"], [type="radio"]) { accent-color: var(--brand-crimson)
 .notification-pagination span { color: var(--muted); font-size: 12px; }
 /* Size the bell panel against its header, including the viewport scrollbar. */
 .app-shell main .notification-panel { width: min(380px, calc(100% - 28px)); }
+
+/* Finance reconciliation extends existing panels, forms and scrollable tables. */
+.financial-report-panel { min-width: 0; }
+.financial-report-panel form, .financial-report-panel > p, .financial-report-panel > details, .financial-report-panel > [role="alert"] { margin: 16px; }
+.financial-report-panel td { max-width: 280px; overflow-wrap: anywhere; }
+.financial-report-panel .metric-detail-actions { flex-wrap: wrap; }
+.financial-report-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 16px; margin: 16px; }
+.financial-report-totals section { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.financial-report-totals dl { margin: 0; }
+.financial-report-totals dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.financial-report-totals dd { margin: 0; overflow-wrap: anywhere; }
+
+.financial-report-panel .table-wrap { max-width: 100%; overflow-x: auto; }
+.financial-report-panel table { min-width: 1200px; }
+.financial-report-panel th { white-space: nowrap; }
+.financial-report-panel [data-finance-report-request] { min-width: 140px; white-space: nowrap; }

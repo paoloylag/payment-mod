@@ -21,7 +21,15 @@ with SessionLocal.begin() as db:
   try{
     await page.goto('/#/login');await page.locator('[data-demo-login]').selectOption('finance.associate@payment.local');
     await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page).toHaveURL(/#\/dashboard$/);
+    await page.locator('[data-metric="value"]').click();
+    await expect(page.locator('[data-metric-request^="GEN-2026-88"]')).toHaveCount(125);
+    for(const width of [375,768,1440]){
+      await page.setViewportSize({width,height:900});
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
+    }
+    await page.locator('[data-close-metric]').click();
     await page.locator('[data-dashboard-filter="voucher"]').fill('Phase08Report');
+    await expect(page.locator('tr[data-request^="GEN-2026-88"]')).toHaveCount(125);
     await page.locator('[data-toggle-request-filters]').click();
     await expect(page.locator('[data-export-report]')).toBeVisible();
     const downloadEvent=page.waitForEvent('download');await page.locator('[data-export-report]').click();

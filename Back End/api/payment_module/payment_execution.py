@@ -180,6 +180,7 @@ def balance_summary(voucher, rows, states, latest, fund_return=None):
         "available": str(due - reserved),
         "state": state,
         "count": len(rows),
+        "unclaimed_check_count": sum(states[row.id] == "ready_for_pickup" for row in rows) if state != "voided" else 0,
         "recovered": str(recovered),
         "fund_return_expected": returned["expected"],
         "fund_return_verified": returned["verified"],

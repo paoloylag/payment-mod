@@ -2,6 +2,7 @@ import { vendorDirectory } from "./vendor-ui.js";
 import { closeIcon, uploadIcon } from "./icons.js";
 import { accountingBody } from "./finance-accounting-ui.js";
 import { financeOperationsBody } from "./finance-operations-ui.js";
+import { financeReportsBody, exportFinanceReport, printFinanceReport } from "./finance-reports-ui.js";
 import { initialSetupBody, initialSetupSteps, businessAcceptanceBody } from "./finance-initial-setup-ui.js";
 import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
@@ -245,6 +246,8 @@ let expandedLineIndex = 0;
 let state = {
   financeInitialMode: false, financeInitialStep: 0, financeInitialValues: {},
   financeBusinessDrafts: {},
+  dashboardSnapshot: null, dashboardSnapshotOwner: null,
+  financeReport: null, financeReportOwner: null, financeReportFilters: {kind:"payments"}, financeReportApplied: null, financeReportError: "", financeReportLoading: false, financeReportBusy: false, financeReportSequence: 0,
   financeQueue: null, financeQueueOwner: null, financeQueueFilters: {}, financeQueueError: "", financeQueueLoading: false,
   theme: localStorage.getItem("payment-module-theme") || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   mobileNavOpen: false,
@@ -304,6 +307,8 @@ let state = {
   financeTaxErrors: {},
   financeTaxDrafts: {},
   financeTaxRetries: {},
+  financeTaxSaving: {},
+  financeAccountingSequence: {},
   financeAccounting: {},
   financeAccountingLoading: {},
   financeAccountingErrors: {},
@@ -1238,8 +1243,14 @@ function apiRequestToDraft(item) {
 }
 
 async function loadApiPaymentRequests(filters = null) {
-  const items = await dataSource.listPaymentRequests(filters || {});
+  let items = await dataSource.listPaymentRequests(filters || {});
   if (!items) return false;
+  const dashboardSnapshot = filters ? null : await dataSource.getDashboardSnapshot();
+  if (dashboardSnapshot) {
+    const loaded = new Map(items.filter(item=>item.status!=="draft").map(item=>[item.id,item]));
+    if(loaded.size!==Object.keys(dashboardSnapshot.requests).length || Object.entries(dashboardSnapshot.requests).some(([id,item])=>loaded.get(id)?.version!==item.version))throw new Error("Requests changed while loading. Refresh to load the current dashboard.");
+    items=items.map(item=>({...item,...dashboardSnapshot.requests[item.id]}));
+  }
   let workflowQueue = [];
   let workflowQueueError = "";
   try { workflowQueue = await dataSource.listWorkflowQueue(); }
@@ -1278,6 +1289,7 @@ async function loadApiPaymentRequests(filters = null) {
     drafts: filters ? state.drafts : items.filter((item) => item.status === "draft").map(apiRequestToDraft),
     selectedId: submitted.some((item) => item.id === state.selectedId) ? state.selectedId : submitted[0]?.id || null,
     requestsError: "",
+    dashboardSnapshot, dashboardSnapshotOwner: state.authUser?.id,
     workflowQueue,
     paymentQueue,
     workflowQueueError,
@@ -2511,6 +2523,8 @@ function bindFinanceTax() {
     form.addEventListener("change", () => { state.financeTaxDrafts[key] = values(); });
     form.addEventListener("submit", async event => {
       event.preventDefault();
+      if (state.financeTaxSaving[key]) return;
+      state.financeTaxSaving[key] = true;
       const tax = state.financeTax[key];
       const payload = { ...values(), request_version: tax.request_version, version: tax.version };
       const signature = JSON.stringify(payload), prior = state.financeTaxRetries[key];
@@ -2519,6 +2533,7 @@ function bindFinanceTax() {
       state.financeTaxDrafts[key] = values();
       const button = form.querySelector('[type="submit"]');
       button.disabled = true;
+      render();
       try {
         await dataSource.saveFinanceTax(r.backendId, payload, state.csrfToken, retry.key);
         delete state.financeTaxDrafts[key]; delete state.financeTaxRetries[key];
@@ -2530,24 +2545,29 @@ function bindFinanceTax() {
         state.financeTaxErrors[key] = error.message;
         form.querySelector("[data-tax-error]").textContent = error.message;
         button.disabled = false;
-      }
+      } finally { state.financeTaxSaving[key] = false; render(); }
     });
   });
 }
 
 async function loadFinanceAccounting(r, force = false) {
   const key = financeTaxKey(r);
-  if (state.financeAccountingLoading[key] || (!force && (state.financeAccounting[key] || state.financeAccountingErrors[key]))) return;
+  if (!force && (state.financeAccountingLoading[key] || state.financeAccounting[key] || state.financeAccountingErrors[key])) return;
+  const sequence = (state.financeAccountingSequence[key] || 0) + 1;
+  state.financeAccountingSequence[key] = sequence;
   state.financeAccountingLoading[key] = true;
   state.financeAccountingErrors[key] = "";
-  try { state.financeAccounting[key] = await dataSource.getFinanceAccounting(r.backendId); }
-  catch (error) { state.financeAccountingErrors[key] = error.message; }
-  finally { state.financeAccountingLoading[key] = false; render(); }
+  try {
+    const data = await dataSource.getFinanceAccounting(r.backendId);
+    if (state.financeAccountingSequence[key] === sequence) state.financeAccounting[key] = data;
+  } catch (error) { if (state.financeAccountingSequence[key] === sequence) state.financeAccountingErrors[key] = error.message; }
+  finally { if (state.financeAccountingSequence[key] === sequence) { state.financeAccountingLoading[key] = false; render(); } }
 }
 
 function financeAccountingPanel(r) {
   if (!r.backendId || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
   const key = financeTaxKey(r), data = state.financeAccounting[key], error = state.financeAccountingErrors[key];
+  if (state.financeTaxSaving[key]) return `<section class="finance-tax-panel" aria-label="Updating request accounting"><h3>Accounting workbench</h3><p role="status">Updating accounting from the saved Finance calculation…</p></section>`;
   const body = data ? accountingBody(r, data, state.financeAccountingDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-accounting>Retry accounting</button>` : '<p role="status">Loading accounting…</p>';
   return `<section class="finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request accounting" : "Request accounting"}"><h3>Accounting workbench</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
 }
@@ -3073,24 +3093,29 @@ function dashboard() {
   const visibleRequests = personaRequests();
   if (!visibleRequests.length) return `<section class="content-grid"><div class="metric-row"><div class="metric green"><span>Pending Approval</span><strong>0</strong></div><div class="metric blue"><span>Open Request Value</span><strong>${money(0)}</strong></div><div class="metric amber"><span>Returned</span><strong>0</strong></div><div class="metric red"><span>Unclaimed Checks</span><strong>0</strong></div></div>${dashboardFilters(visibleRequests)}<section class="panel empty-state"><h3>No payment requests yet</h3><p>Create a request or adjust the current filters when records become available.</p><button type="button" class="primary-button" data-tab="request">Create Request</button></section></section>`;
   const selected = visibleRequests.find((r) => r.id === state.selectedId) || visibleRequests[0] || requests[0];
-  const total = visibleRequests.reduce((sum, r) => sum + r.amount, 0);
-  const visibleCurrencies = [...new Set(visibleRequests.map((r) => r.currency || "PHP"))];
-  const totalDisplay = visibleCurrencies.length === 1 ? money(total, visibleCurrencies[0]) : `${visibleCurrencies.length} currencies`;
+  const snapshot = state.authStatus === "authenticated" && state.dashboardSnapshotOwner === state.authUser?.id ? state.dashboardSnapshot : null;
+  const openRequests = visibleRequests.filter(r => snapshot ? snapshot.membership.open.includes(r.backendId) : r.backendId
+    ? ["submitted", "returned"].includes(r.backendStatus) && !["cleared", "funds_returned", "settled_no_payment"].includes(r.paymentSummary?.state)
+    : ![14, 15].includes(r.currentStep) && !["Declined", "Cancelled", "Archived"].includes(r.status));
+  const currencyTotals = new Map();
+  for (const request of openRequests) currencyTotals.set(request.currency || "PHP", (currencyTotals.get(request.currency || "PHP") || 0) + request.amount);
+  const totalDisplay = (snapshot ? Object.entries(snapshot.currency_totals).map(([currency,amount])=>[currency,Number(amount)]) : [...currencyTotals]).sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => money(amount, currency)).join(" · ") || money(0);
   if (state.dashboardRequestId) {
     const dashboardRequest = visibleRequests.find((request) => request.id === state.dashboardRequestId);
     if (!dashboardRequest) return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><section class="panel empty-persona-view"><h3>Request Not Available</h3><p>This request is not visible to the selected persona.</p></section></section>`;
     return `<section class="metric-detail-view dashboard-request-detail"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-dashboard-detail>← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Full Request Details</span><h3>${dashboardRequest.id}</h3><p>${paymentTypes[dashboardRequest.type].label} · ${dashboardRequest.department} · ${requestMoney(dashboardRequest)}</p></div></div>${allRolesActionPanel(dashboardRequest)}${detail(dashboardRequest, true)}</section>`;
   }
-  const pendingRequests = state.authStatus === "authenticated" && !["requestor", "all"].includes(state.persona)
+  const pendingRequests = snapshot ? visibleRequests.filter(r=>snapshot.membership.pending.includes(r.backendId)) : state.authStatus === "authenticated" && !["requestor", "all"].includes(state.persona)
     ? visibleRequests.filter((r) => state.workflowQueue.some((entry) => entry.request_id === r.backendId) || state.persona === "authorizedSignatory" && state.paymentQueue.some(entry => entry.request_id === r.backendId && entry.pending))
     : state.persona === "requestor"
-    ? visibleRequests.filter((r) => ![1, 2, 15].includes(r.currentStep))
+    ? visibleRequests.filter((r) => r.backendId ? r.backendStatus === "submitted" && ["active", "information_requested"].includes(r.approvalState) : [3, 4, 5, 7, 8, 8.5].includes(r.currentStep))
     : visibleRequests.filter((r) => [3, 4, 5, 7, 8, 8.5].includes(r.currentStep));
-  const returnedRequests = visibleRequests.filter((r) => r.status.includes("Returned"));
-  const unclaimedRequests = visibleRequests.filter((r) => r.currentStep === 12);
+  const returnedRequests = visibleRequests.filter((r) => snapshot ? snapshot.membership.returned.includes(r.backendId) : r.status.includes("Returned"));
+  const unclaimedRequests = visibleRequests.filter((r) => snapshot ? snapshot.membership.unclaimed.includes(r.backendId) : r.backendId ? (r.paymentSummary?.unclaimed_check_count || 0) > 0 : r.currentStep === 12);
+  const unclaimedCount = snapshot ? snapshot.unclaimed_check_count : unclaimedRequests.reduce((count, r) => count + (r.backendId ? r.paymentSummary.unclaimed_check_count : 1), 0);
   const filters = state.dashboardFilters;
   const filteredRequests = visibleRequests.filter((r) => {
-    const voucherMatch = r.id.toLowerCase().includes(filters.voucher.trim().toLowerCase());
+    const voucherMatch = [r.id, r.voucherNumber, r.vendor, r.purpose].some(value => String(value || "").toLowerCase().includes(filters.voucher.trim().toLowerCase()));
     const typeMatch = filters.type === "all" || r.type === filters.type;
     const departmentMatch = filters.department === "all" || r.department === filters.department;
     const statusMatch = filters.status === "all" || r.status === filters.status;
@@ -3110,18 +3135,18 @@ function dashboard() {
   });
   const metricViews = {
     pending: { title: "Pending Approvals", description: "Requests currently waiting for a reviewer or approver.", rows: pendingRequests, total: `${pendingRequests.length} requests` },
-    value: { title: "Open Request Value", description: "All active payment requests visible to this persona.", rows: visibleRequests, total: totalDisplay },
+    value: { title: "Open Request Value", description: "Gross request value for submitted or returned requests, excluding cleared payments, verified fund returns and settled liquidations. Amounts are separate by currency; this is not an unpaid balance.", rows: openRequests, total: totalDisplay },
     returned: { title: "Returned Requests", description: "Requests sent back for corrections or additional information.", rows: returnedRequests, total: `${returnedRequests.length} requests` },
-    unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedRequests.length} checks` },
+    unclaimed: { title: "Unclaimed Checks", description: "Checks available for release but not yet claimed by the payee.", rows: unclaimedRequests, total: `${unclaimedCount} checks across ${unclaimedRequests.length} requests` },
   };
   if (state.dashboardMetric) {
     const view = metricViews[state.dashboardMetric];
-    return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${money(r.amount)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
+    return `<section class="metric-detail-view"><div class="metric-detail-actions"><button type="button" class="back-button" data-close-metric="true">← Back to Dashboard</button></div><div class="metric-detail-header"><div><span class="eyebrow">Dashboard Detail</span><h3>${view.title}</h3><p>${view.description}</p></div><strong>${view.total}</strong></div><section class="panel"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Type</th><th>Requestor</th><th>Department</th><th>Amount</th><th>Status</th></tr></thead><tbody>${view.rows.length ? view.rows.map((r) => `<tr data-metric-request="${r.id}"><td>${r.id}</td><td>${paymentTypes[r.type].label}</td><td>${r.requestor}</td><td>${r.department}</td><td>${requestMoney(r)}</td><td>${statusPill(r.status)}</td></tr>`).join("") : `<tr><td colspan="6" class="empty-state">No matching requests right now.</td></tr>`}</tbody></table></div></section></section>`;
   }
   const workflowModal = state.dashboardWorkflow ? `<div class="workflow-modal-backdrop" data-workflow-modal="true"><section class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-modal-title"><div class="workflow-modal-header"><div><span class="eyebrow">Request Workflow</span><h3 id="workflow-modal-title">${selected.id}</h3><p>Complete approval and processing trail for this payment request.</p></div><button type="button" class="close-icon-button workflow-modal-close" data-close-workflow="true" aria-label="Close full workflow">${closeIcon}</button></div><div class="workflow-modal-body">${workflow(selected.currentStep)}</div></section></div>` : "";
   const pendingLabel = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   return `<section class="content-grid">
-    <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${totalDisplay}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedRequests.length}</strong><small>View Checks →</small></button></div>
+    <div class="metric-row"><button type="button" class="metric green" data-metric="pending"><span>Pending Approval</span><strong>${pendingRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric blue" data-metric="value"><span>Open Request Value</span><strong>${totalDisplay}</strong><small>View Breakdown →</small></button><button type="button" class="metric amber" data-metric="returned"><span>Returned</span><strong>${returnedRequests.length}</strong><small>View Requests →</small></button><button type="button" class="metric red" data-metric="unclaimed"><span>Unclaimed Checks</span><strong>${unclaimedCount}</strong><small>View Checks →</small></button></div>
     ${dashboardFilters(visibleRequests)}<div class="two-column">${requestTable(filteredRequests, true)}${dashboardRequestPreview(selected)}</div>${workflowModal}
   </section>`;
 }
@@ -3536,6 +3561,48 @@ async function loadFinanceQueue(filters = state.financeQueueFilters) {
   finally { state.financeQueueLoading = false; render(); }
 }
 
+async function loadFinanceReport(filters = state.financeReportFilters) {
+  const owner=state.authUser?.id, sequence=++state.financeReportSequence;
+  state.financeReportLoading=true; state.financeReportError=""; state.financeReportFilters={...filters}; render();
+  try {
+    const data=await dataSource.getFinanceReport(filters);
+    if(state.authUser?.id===owner && sequence===state.financeReportSequence){state.financeReport=data;state.financeReportOwner=owner;state.financeReportApplied={...filters};}
+  } catch(error){if(state.authUser?.id===owner && sequence===state.financeReportSequence)state.financeReportError=error.message;}
+  finally {if(sequence===state.financeReportSequence){state.financeReportLoading=false;render();}}
+}
+function financeReportPanel() {
+  if(dataSource.mode==="mock" || !["financeAssociate","financeManager"].includes(state.persona))return "";
+  const data=state.financeReportOwner===state.authUser?.id?state.financeReport:null;
+  return financeReportsBody(data,state.financeReportFilters,state.financeReportError,state.financeReportLoading,state.financeReportBusy,escapeHtml,money);
+}
+async function financeReportOutput(print=false) {
+  if(state.financeReportBusy)return;
+  const popup=print?window.open("","_blank"):null;
+  if(print&&!popup){showErrorToast("Allow pop-ups to print this report.","Print unavailable");return;}
+  const owner=state.authUser?.id, filters={...(state.financeReportApplied || state.financeReportFilters)};
+  state.financeReportBusy=true;render();
+  try {
+    const data=await dataSource.getFinanceReport(filters,true);
+    if(state.authUser?.id!==owner){popup?.close();return;}
+    if(print)printFinanceReport(popup,data,escapeHtml);else await exportFinanceReport(data,reportCellText,reportMoneyCell);
+  } catch(error){popup?.close();showErrorToast(error.message,"Finance report unavailable");}
+  finally{state.financeReportBusy=false;render();}
+}
+function bindFinanceReports() {
+  const form=document.querySelector("[data-finance-report-filters]");
+  form?.addEventListener("input",event=>{if(event.target.name)state.financeReportFilters[event.target.name]=event.target.value;});
+  form?.addEventListener("change",event=>{
+    if(event.target.name)state.financeReportFilters[event.target.name]=event.target.value;
+    if(event.target.name==="kind"){state.financeReportFilters.state="";state.financeReport=null;state.financeReportApplied=null;render();}
+  });
+  form?.addEventListener("submit",event=>{event.preventDefault();loadFinanceReport({...Object.fromEntries(new FormData(event.currentTarget)),page:1});});
+  document.querySelector("[data-finance-report-retry]")?.addEventListener("click",()=>loadFinanceReport());
+  document.querySelectorAll("[data-finance-report-page]").forEach(button=>button.addEventListener("click",()=>loadFinanceReport({...state.financeReportApplied,page:button.dataset.financeReportPage})));
+  document.querySelectorAll("[data-finance-report-request]").forEach(button=>button.addEventListener("click",()=>{state.requestReturnRoute="/tracker";navigate(`/requests/${encodeURIComponent(button.dataset.financeReportRequest)}`);}));
+  document.querySelector("[data-finance-report-export]")?.addEventListener("click",()=>financeReportOutput());
+  document.querySelector("[data-finance-report-print]")?.addEventListener("click",()=>financeReportOutput(true));
+}
+
 function financeQueuePanel() {
   if (dataSource.mode === "mock" || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
   const data = state.financeQueueOwner === state.authUser?.id ? state.financeQueue : null;
@@ -3565,7 +3632,7 @@ function tracker() {
     const label = released ? "Released" : request.pickupAvailableAt ? "Available for Pickup" : request.currentStep === 11 ? "Awaiting Signatory Approval" : request.currentStep === 10 ? "Payment Preparation" : "Pending Release";
     return `<span class="tracker-status-text ${released || request.pickupAvailableAt ? "complete" : "pending"}">${label}</span>`;
   };
-  return `${financeQueuePanel()}<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${r.backendId ? escapeHtml(({ approved: "Approved", active: "Pending", information_requested: "Information requested", declined: "Declined", returned: "Returned", cancelled: "Cancelled" })[r.approvalState] || "Not started") : i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
+  return `${financeReportPanel()}${financeQueuePanel()}<section class="panel"><div class="panel-header"><h3>Request Tracker</h3></div><div class="table-wrap responsive-request-table tracker-table"><table><thead><tr><th>Voucher</th><th>Submitted</th><th>Returned</th><th>Resubmitted</th><th>Approval</th><th>Payment Status</th></tr></thead><tbody>${visibleRequests.map((r, i) => `<tr data-tracker-request="${r.id}"><td data-label="Request"><strong>${r.id}</strong></td><td data-label="Submitted">${r.submitted}</td><td data-label="Returned">${r.returned || "-"}</td><td data-label="Resubmitted">${r.resubmitted || "-"}</td><td data-label="Approval">${r.backendId ? escapeHtml(({ approved: "Approved", active: "Pending", information_requested: "Information requested", declined: "Declined", returned: "Returned", cancelled: "Cancelled" })[r.approvalState] || "Not started") : i === 0 ? "Pending" : "2026-06-24"}</td><td data-label="Payment Status">${paymentStatus(r)}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
 
 function documentUploads() {
@@ -4004,6 +4071,7 @@ function render() {
   bindFinanceAccounting();
   bindFinanceVouchers();
   bindFinanceQueue();
+  bindFinanceReports();
   const pendingMetricLabel = document.querySelector('[data-metric="pending"] span');
   if (pendingMetricLabel) pendingMetricLabel.textContent = state.persona === "requestor" ? "Awaiting Approval" : ["departmentHead", "financeManager", "coo", "president", "boardMember", "authorizedSignatory"].includes(state.persona) ? "Awaiting My Approval" : state.persona === "financeAssociate" ? "Awaiting Validation" : "Pending Approval";
   document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {

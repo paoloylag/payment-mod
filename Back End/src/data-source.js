@@ -183,7 +183,19 @@ export function createDataSource() {
         const value = filters[source];
         if (value !== undefined && value !== "" && value !== "all") params.set(target, value);
       });
-      try { return await apiRequest(`/api/v1/requests?${params}`); }
+      try {
+        const items = [], seen = new Set();
+        for (let page = 1; ; page += 1) {
+          params.set("page", String(page));
+          const batch = await apiRequest(`/api/v1/requests?${params}`);
+          for (const item of batch) {
+            if (seen.has(item.id)) throw new Error("Requests changed while loading. Refresh to load a complete dashboard.");
+            seen.add(item.id);
+            items.push(item);
+          }
+          if (batch.length < 100) return items;
+        }
+      }
       catch (error) { if (mode === "hybrid") return null; throw error; }
     },
     listOwnCashAdvances() {
@@ -240,6 +252,10 @@ export function createDataSource() {
     getFinanceTax(id) { return apiRequest(`/api/v1/finance-tax/${id}`); },
     getFinanceAccounting(id) { return apiRequest(`/api/v1/finance-accounting/${id}`); },
     getFinanceVoucher(id) { return apiRequest(`/api/v1/finance-vouchers/${id}`); },
+    getDashboardSnapshot() { return apiRequest("/api/v1/reports/dashboard"); },
+    getFinanceReport(filters = {}, exportAll = false) {
+      return apiRequest(`/api/v1/reports/finance?${new URLSearchParams({...Object.fromEntries(Object.entries(filters).filter(([,value])=>value!=="")), export:String(exportAll)})}`);
+    },
     getFinanceOperations(filters = {}) { return apiRequest(`/api/v1/finance-operations?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== ""))}`); },
     getVoucherPrint(id) { return apiRequest(`/api/v1/finance-vouchers/${id}/print-data`); },
     listPaymentAuthorizations() { return mode === "mock" ? Promise.resolve([]) : apiRequest("/api/v1/finance-vouchers/queue"); },

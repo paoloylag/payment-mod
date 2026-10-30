@@ -18,6 +18,7 @@ from ..finance_readiness import effective, finance_date
 from ..finance_tax import latest_snapshot
 from ..finance_validation import validation_summary
 from ..models import ChartAccount, FinanceJournalSnapshot, FinanceVoucherDraft, PaymentRequest, User, WorkflowInstance
+from ..outbox import record_finance_notification
 from ..security import current_user
 from .conversation import participant
 from .finance_tax import editable
@@ -331,6 +332,7 @@ def prepare_voucher(
     )
     db.add(row)
     db.flush()
+    record_finance_notification(db, item, "voucher", "prepared", row.id, actor.id)
     audit(
         db,
         actor_id=actor.id,

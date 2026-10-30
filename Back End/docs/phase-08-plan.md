@@ -1,7 +1,7 @@
 # Phase 08 — Notifications, Dashboards, and Reports
 
 Date prepared: 2026-08-28  
-Status: Notifications and bounded request reports/exports implemented 2026-10-20; dashboard aggregates and financial reports pending
+Status: Local Finance notifications, server dashboard snapshots and reconciliation reports implemented 2026-10-30; Finance acceptance and production activation remain separate
 Depends on: Phases 03–07 transactional data
 
 ## Outbox foundation — 2026-10-11
@@ -115,3 +115,18 @@ Deliver durable notifications and role-scoped operational reporting that reconci
 ## Exclusions
 
 Production email and enterprise monitoring connections remain disabled until Phase 09 approval.
+
+## Dashboard completeness increment — 2026-10-20
+
+The dashboard now loads all permitted request pages before publishing a replacement, keeps per-currency open gross amounts separate, and counts persisted ready-for-pickup check lines. See `phase-08-dashboard.md` for definitions and concurrency limits. Shared table pagination and request navigation are retained. Server aggregation at large volume, payment/advance reconciliation reports, and official SLA aging definitions remain pending.
+
+## Finance acceptance increment — 2026-10-30
+
+- Added Finance-only payment, advance, fund return and payment recovery reports from repeatable-read snapshots, with exact separate currency totals across pages, applied filters, current-state definitions, bounded exports and payment-line traceability.
+- Added a server dashboard snapshot for card totals, actionable membership and persisted status/payment projections; no totals derive solely from the first request page.
+- Added transactional notifications for voucher preparation/certification, issuance/voiding and fund return receipt/verification/correction. Recovery rejections explicitly return the correction notification to Finance Associate. Legacy single-instruction authorization is covered.
+- Added existing-screen filters, request links, Excel/print, descriptive elapsed-time buckets and mobile scrollable report tables.
+- Fixed accounting refresh sequencing during tax saves and corrected outdated guide steps.
+- Local Finance setup remains blank and unactivated by owner direction. Finance configures it during the demo; no business acceptance is pre-recorded.
+
+See `finance-acceptance-demo.md` and `phase-08-finance-reconciliation.md`. LifeOS SSO and live procurement/ERP connections remain outside this local acceptance demo by owner confirmation. SLA deadlines/reminders/escalation remain deferred. External email and production activation are excluded. Large asynchronous exports, production-scale benchmarks, retention and provider monitoring remain production acceptance work, not represented as completed here.

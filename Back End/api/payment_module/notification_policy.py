@@ -2,7 +2,7 @@
 
 from sqlalchemy import select
 
-from .models import PaymentRequest, User, WorkflowAssignment, WorkflowInstance
+from .models import PaymentInstruction, PaymentRequest, User, WorkflowAssignment, WorkflowInstance
 from .workflow_assignments import base_eligible, current_assignment, effective_assignee, eligible_users
 from .workflow_visibility import reached_stages
 
@@ -55,17 +55,19 @@ def workflow_plan(db, event):
     return plan(db, item, recipients - {event.actor_user_id}, title)
 
 
-def payment_plan(db, item, instruction, state, actor_id):
+def payment_plan(db, item, instruction, state, actor_id, recovery_rejected=False):
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     if state == "prepared":
         recipients = {instruction.signatory_user_id}
     else:
         finance = finance_recipients(db, item, instance)
         reached = {stage["role"] for stage in reached_stages(db, instance)} if instance else set()
-        if state in {"released", "recovery_pending"} and "finance_manager" in reached:
+        if not recovery_rejected and state in {"released", "recovery_pending"} and "finance_manager" in reached:
             finance = reviewers(db, item, instance, "finance_manager")
         recipients = {item.requestor_id} | finance
     title = "Payment authorization needed" if state == "prepared" else "Payment " + state.replace("_", " ")
+    if recovery_rejected:
+        title = "Payment recovery requires correction"
     return plan(db, item, recipients - {actor_id}, title)
 
 
@@ -83,3 +85,33 @@ def plan(db, item, recipients, title):
         "title": title,
         "preview": title + ". Open the request to review its current status.",
     }
+
+
+def finance_event_plan(db, item, family, state, actor_id):
+    if family == "voucher" and state in {"payment_prepared", "authorized"}:
+        instruction = db.scalar(
+            select(PaymentInstruction)
+            .where(PaymentInstruction.request_id == item.id)
+            .order_by(PaymentInstruction.created_at.desc())
+            .limit(1)
+        )
+        if instruction:
+            return payment_plan(
+                db, item, instruction, "prepared" if state == "payment_prepared" else "authorized", actor_id
+            )
+    instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
+    reached = {stage["role"] for stage in reached_stages(db, instance)} if instance else set()
+    manager_action = (family == "fund_return" and state == "recorded") or (family == "voucher" and state == "prepared")
+    role = "finance_manager" if manager_action else "finance_associate"
+    recipients = {item.requestor_id}
+    if role in reached:
+        recipients |= reviewers(db, item, instance, role)
+    titles = {
+        ("voucher", "prepared"): "Voucher certification needed",
+        ("voucher", "issued"): "Voucher issued and certified",
+        ("voucher", "voided"): "Voucher voided",
+        ("fund_return", "recorded"): "Fund return verification needed",
+        ("fund_return", "verified"): "Fund return verified",
+        ("fund_return", "rejected"): "Fund return requires correction",
+    }
+    return plan(db, item, recipients - {actor_id}, titles.get((family, state), "Finance status updated"))

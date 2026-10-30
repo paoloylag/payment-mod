@@ -166,7 +166,11 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     )
     assert action(client, request_id, second, "authorize", 1).status_code == 200
     assert action(client, request_id, second, "release", 2, {"evidence_id": receipt.json()["id"]}).status_code == 409
+    assert view(client, request_id)["summary"]["unclaimed_check_count"] == 0
     assert action(client, request_id, second, "pickup-ready", 2).status_code == 200
+    assert view(client, request_id)["summary"]["unclaimed_check_count"] == 1
+    request_view = client.get(f"/api/v1/requests/{request_id}").json()
+    assert request_view["payment_summary"]["unclaimed_check_count"] == 1
     second_receipt = evidence(client, request_id, second, "release").json()
     assert (
         action(
@@ -203,6 +207,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     assert action(client, request_id, second, "clear", 4, {"evidence_id": second_clear["id"]}).status_code == 200
     final = view(client, request_id)
     assert final["summary"]["state"] == "cleared" and float(final["summary"]["remaining"]) == 0
+    assert final["summary"]["unclaimed_check_count"] == 0
     assert not final["can_add"] and all(not row["can_fail"] for row in final["lines"])
     printable = client.get(f"/api/v1/finance-vouchers/{request_id}/print-data").json()
     assert len(printable["execution"]["lines"]) == 2

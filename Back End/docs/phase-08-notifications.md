@@ -75,3 +75,9 @@ opening a notification follows the normal request screen and marks it read. Conv
 - Mock-mode examples for the new notification scenarios. Current acceptance uses the isolated real API.
 
 SLA/overdue reminders and escalation remain owner-deferred. Existing elapsed-day aging is not an SLA definition.
+
+## Finance acceptance coverage — 2026-10-30
+
+Voucher draft preparation notifies reached Finance Manager for certification; issuance/certification and voiding notify the requestor and reached Finance Associate. A fund-return receipt notifies reached Finance Manager and requestor; verification/rejection notify reached Finance Associate and requestor. The actor is excluded, inactive/suspended recipients are excluded, and future approvers remain excluded. These records share the business transaction and unique source keys; a replay does not enqueue a duplicate. Rejected payment recovery is labelled as a correction, with Finance Associate as the Finance recipient. Legacy single-instruction authorization targets its assigned signatory.
+
+The earlier financial-report/dashboard pending entries above are superseded by the Finance acceptance increment. Production email, delivery preferences, retention/expiry and operational alerts remain outside local acceptance. Mock-mode notification examples are not the accepted local data mode.

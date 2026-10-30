@@ -24,8 +24,10 @@ from ..models import (
     FundReturnEvent,
     PaymentInstruction,
     PaymentLineEvent,
+    PaymentRequest,
     User,
 )
+from ..outbox import record_finance_notification
 from ..payment_execution import has_posted_liquidation, payment_summary
 from ..security import current_user
 from ..voucher_service import latest_voucher_event
@@ -87,6 +89,8 @@ def record(db, request, actor, voucher, version, key, signature, state, amount, 
     )
     db.add(row)
     db.flush()
+    item = db.get(PaymentRequest, voucher.request_id)
+    record_finance_notification(db, item, "fund_return", state, row.id, actor.id)
     audit(
         db,
         actor_id=actor.id,
