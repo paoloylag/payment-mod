@@ -19,3 +19,6 @@ release-artifacts/
 outputs/playwright-report/
 outputs/playwright-results/
 deploy/deployment.env
+
+# Generated local previews, logs, screenshots and test artifacts.
+/outputs/

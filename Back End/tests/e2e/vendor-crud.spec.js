@@ -46,14 +46,14 @@ test("Finance manages vendors through the UI with safe deletion, retries and res
     await form.locator('[name="informationStatus"]').selectOption("Information requested");
     await form.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("dialog")).toContainText("09171234567");
-    await page.keyboard.press("Escape"); await expect(row).toContainText("incomplete");
+    await page.keyboard.press("Escape"); await expect(row).toContainText("Incomplete");
     await row.getByRole("button", { name: "Edit", exact: true }).click();
     await form.locator('[name="informationStatus"]').selectOption("Information complete");
     await form.getByRole("button", { name: "Save changes" }).click(); await expect(page.getByRole("dialog", { name: "Vendor details" })).toBeVisible(); await page.keyboard.press("Escape");
-    await page.reload(); await expect(row).toContainText("active");
+    await page.reload(); await expect(row).toContainText("Active");
     await page.locator("[data-vendor-search]").fill(name); await expect(page.locator("[data-vendor-count]")).toHaveText("1 vendor");
     await row.getByRole("button", { name: "Deactivate", exact: true }).click();
-    await page.locator("[data-confirm-action-prompt]").click(); await expect(row).toContainText("inactive");
+    await page.locator("[data-confirm-action-prompt]").click(); await expect(row).toContainText("Inactive");
     await page.locator("[data-vendor-status]").selectOption("active"); await expect(row).toBeHidden();
     await page.goto("/#/requests/new/general");
     await expect(page.locator("[data-vendor-reference] option").first()).toBeAttached();
@@ -61,7 +61,7 @@ test("Finance manages vendors through the UI with safe deletion, retries and res
     await page.goto("/#/master-data/vendors"); await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await page.locator("[data-vendor-status]").selectOption("all"); await expect(row).toBeVisible();
     await row.getByRole("button", { name: "Reactivate", exact: true }).click(); await page.locator("[data-confirm-action-prompt]").click();
-    await expect(row).toContainText("active");
+    await expect(row).toContainText("Active");
     const reader = await ui("requestor");
     await expect(reader.locator("[data-new-vendor], [data-edit-vendor], [data-delete-vendor], [data-toggle-vendor]")).toHaveCount(0);
     await reader.locator(`[data-view-vendor="${created.id}"]`).click(); await expect(reader.getByRole("dialog")).toContainText("09171234567");

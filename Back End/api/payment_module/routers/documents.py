@@ -615,7 +615,7 @@ def create_requirement_rule(
     actor: User = Depends(current_user),
 ):
     _require(request, "documents.rules.manage")
-    if payload.request_type not in {"reimbursement", "cashAdvance", "liquidation", "poPayment", "general"}:
+    if payload.request_type not in {"reimbursement", "cashAdvance", "liquidation", "poPayment", "general", "pettyCash"}:
         raise HTTPException(422, "Unsupported request type")
     if payload.scope not in {"request", "line"} or not db.get(DocumentType, payload.document_type_id):
         raise HTTPException(422, "Invalid document rule")

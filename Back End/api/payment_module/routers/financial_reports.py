@@ -103,7 +103,7 @@ def finance_report(
     db.rollback()
     db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
     now = datetime.now(UTC)
-    query = visible_query(db, request, actor).where(PaymentRequest.status != "draft")
+    query = visible_query(db, request, actor).where(PaymentRequest.status != "draft", PaymentRequest.request_type != "pettyCash")
     if kind == "advances":
         query = query.where(PaymentRequest.request_type == "cashAdvance")
     else:

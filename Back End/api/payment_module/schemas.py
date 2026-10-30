@@ -14,6 +14,7 @@ class LoginRequest(BaseModel):
 
 
 class UserCreate(BaseModel):
+    role_ids: list[UUID] | None = None
     email: str = EmailField
     display_name: str = Field(min_length=1, max_length=160)
     password: str = Field(min_length=12, max_length=200)
@@ -22,6 +23,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    role_ids: list[UUID] | None = None
     email: str | None = Field(default=None, min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     display_name: str | None = Field(default=None, min_length=1, max_length=160)
     department_id: UUID | None = None
@@ -90,7 +92,7 @@ class PaymentRequestLineInput(BaseModel):
 
 
 class PaymentRequestCreate(BaseModel):
-    request_type: Literal["reimbursement", "cashAdvance", "liquidation", "poPayment", "general"]
+    request_type: Literal["reimbursement", "cashAdvance", "liquidation", "poPayment", "general", "pettyCash"]
     department_id: UUID
     payee_name: str = Field(default="", max_length=200)
     vendor_external_id: str | None = Field(default=None, max_length=160)

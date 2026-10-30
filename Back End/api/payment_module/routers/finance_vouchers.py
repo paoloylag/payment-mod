@@ -72,7 +72,7 @@ class ReplacementCommand(VoucherCommand):
 
 class InstructionCommand(VoucherCommand):
     method_id: UUID
-    signatory_user_id: UUID
+    signatory_user_id: UUID | None = None
     reference: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
 
@@ -160,6 +160,8 @@ def context(db, request, actor, request_id, lock=False):
     assigned = "authorized_signatory" in roles and assigned_instruction(db, item.id, actor.id)
     if "vouchers.read" not in codes or not (finance or assigned):
         raise HTTPException(404, "Voucher not found")
+    if item is not None and item.request_type == "pettyCash":
+        raise HTTPException(409, "Petty Cash ends at Finance Associate approval; accounting, vouchers and payments do not apply")
     voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == item.id))
     return item, voucher, roles, codes
 
@@ -269,16 +271,7 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
         "can_prepare_payment": bool(
             mutation_allowed and state == "issued" and "finance_associate" in roles and "payments.prepare" in codes
         ),
-        "can_authorize": bool(
-            mutation_allowed
-            and state == "payment_prepared"
-            and instruction
-            and instruction.signatory_user_id == actor.id
-            and "authorized_signatory" in roles
-            and "payments.authorize" in codes
-            and instruction.preparer_user_id != actor.id
-            and voucher.actor_user_id != actor.id
-        ),
+        "can_authorize": False,
         "can_print": bool(issuer),
         "payment_instruction": instruction.result if instruction else None,
         "methods": [
@@ -286,9 +279,7 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
             for method in db.scalars(select(PaymentMethod).order_by(PaymentMethod.name))
             if effective(method, finance_date())
         ],
-        "signatories": [{"id": str(user.id), "name": user.display_name} for user in signatory_users(db, excluded)]
-        if "finance_associate" in roles
-        else [],
+        "signatories": [],
         "history": [
             event_view(row)
             for row in db.scalars(
@@ -304,25 +295,7 @@ def visible_view(db, request, actor, item, voucher, roles, codes):
 
 @router.get("/queue")
 def authorization_queue(request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)):
-    roles = actor_roles(db, actor)
-    if "authorized_signatory" not in roles or "payments.authorize" not in getattr(request.state, "permissions", set()):
-        return []
-    result = {}
-    for instruction in db.scalars(select(PaymentInstruction).where(PaymentInstruction.signatory_user_id == actor.id)):
-        latest = latest_voucher_event(db, instruction.voucher_id)
-        item = db.get(PaymentRequest, instruction.request_id)
-        if latest:
-            pending = line_state(db, instruction)[0] == "prepared" and item.status == "submitted"
-            previous = result.get(str(item.id))
-            result[str(item.id)] = {
-                "request_id": str(item.id),
-                "request_number": item.request_number,
-                "state": payment_summary(db, db.get(FinanceVoucherDraft, instruction.voucher_id))["state"],
-                "pending": pending or bool(previous and previous["pending"]),
-                "version": latest.version,
-                "instruction": instruction.result,
-            }
-    return list(result.values())
+    return []
 
 
 @router.get("/{request_id}")
@@ -669,23 +642,6 @@ def prepare_payment(
         "cash",
     }:
         raise HTTPException(422, "Select an active, effective payment method")
-    journal = latest_journal(db, item.id)
-    eligible = signatory_users(
-        db,
-        {
-            item.requestor_id,
-            actor.id,
-            voucher.actor_user_id,
-            latest.actor_user_id,
-            journal.actor_user_id,
-        },
-    )
-    signatory = next((user for user in eligible if user.id == payload.signatory_user_id), None)
-    if not signatory:
-        raise HTTPException(
-            422,
-            "Assign an active signatory who did not prepare, request, issue or post this voucher",
-        )
     due = Decimal(voucher.result["totals"]["amount_due"])
     if due <= 0:
         raise HTTPException(409, "A positive amount due is required for payment authorization")
@@ -696,8 +652,6 @@ def prepare_payment(
         "method": method.name,
         "method_id": str(method.id),
         "reference": payload.reference,
-        "signatory_user_id": str(signatory.id),
-        "signatory": signatory.display_name,
         "prepared_by": actor.display_name,
         "voucher_number": latest.result["voucher_number"],
     }
@@ -705,7 +659,7 @@ def prepare_payment(
         request_id=item.id,
         voucher_id=voucher.id,
         method_id=method.id,
-        signatory_user_id=signatory.id,
+        signatory_user_id=None,
         preparer_user_id=actor.id,
         reference=payload.reference,
         result=instruction_data,
@@ -728,7 +682,7 @@ def prepare_payment(
         {
             "voucher_number": latest.result["voucher_number"],
             "instruction": instruction_data,
-            "payment_authorization": "pending",
+            "payment_authorization": "not_required",
         },
     )
 
@@ -742,49 +696,7 @@ def authorize(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
-    item, voucher, latest, repeated = guard(
-        db,
-        request,
-        actor,
-        request_id,
-        payload,
-        idempotency_key,
-        "authorized",
-        "authorized_signatory",
-        "payments.authorize",
-    )
-    if repeated:
-        return event_view(latest)
-    instruction = assigned_instruction(db, item.id, actor.id)
-    if not latest or latest.state != "payment_prepared" or not instruction:
-        raise HTTPException(409, "Only the assigned pending payment instruction can be authorized")
-    if latest_line_event(db, instruction.id):
-        raise HTTPException(409, "Authorize each payment line individually")
-    if actor.id in {
-        item.requestor_id,
-        voucher.actor_user_id,
-        instruction.preparer_user_id,
-    }:
-        raise HTTPException(403, "The requestor or preparer cannot authorize this payment")
-    if not effective(db.get(PaymentMethod, instruction.method_id), finance_date()):
-        raise HTTPException(409, "Payment method is no longer active")
-    return record_event(
-        db,
-        request,
-        actor,
-        item,
-        voucher,
-        payload,
-        idempotency_key,
-        "authorized",
-        {
-            "voucher_number": instruction.result["voucher_number"],
-            "instruction": instruction.result,
-            "payment_authorization": "authorized",
-            "authorized_by": actor.display_name,
-            "payment_release": "pending",
-        },
-    )
+    raise HTTPException(410, "Signatory approval has been removed; Finance can release prepared payments")
 
 
 @router.post("/{request_id}/void")

@@ -136,7 +136,7 @@ def validation_summary(db: Session, item: PaymentRequest) -> dict:
             }
         )
     active = active_configuration(db)
-    if item.request_type == "general" or active and active.configuration.get("scope") == "all":
+    if item.request_type != "pettyCash" and (item.request_type == "general" or active and active.configuration.get("scope") == "all"):
         setting = db.scalar(select(SystemSetting).where(SystemSetting.key == "finance.setup.draft"))
         configured = bool(
             active_configuration(db)

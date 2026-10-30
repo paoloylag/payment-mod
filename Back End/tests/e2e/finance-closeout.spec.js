@@ -54,7 +54,7 @@ test("Finance links independently approved replacements and reconciles its filte
     await queue.getByRole("link", { name: fixture.replacement.request_number }).click();
     const mobileDrawer = page.locator('[data-toggle-conversation][aria-expanded="true"]'); if (await mobileDrawer.isVisible()) await mobileDrawer.click();
     const issue = panel.locator('[data-voucher-action="issue"]'); await issue.getByRole("textbox").fill("Certify independently approved replacement");
-    await issue.getByRole("button", { name: "Issue and certify voucher" }).click(); await expect(panel.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+    await issue.getByRole("button", { name: "Issue and certify voucher" }).click(); await expect(panel.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
     const print = await (await fixture.manager.context.get(`/api/v1/finance-vouchers/${fixture.replacement.id}/print-data`)).json();
     expect(print.replacement_links[0].original_request_number).toBe(fixture.original.request_number);
     const escape = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);

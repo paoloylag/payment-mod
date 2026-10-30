@@ -31,7 +31,7 @@ class PaymentRequest(Base):
     __tablename__ = "payment_requests"
     __table_args__ = (
         CheckConstraint(
-            "request_type IN ('reimbursement','cashAdvance','liquidation','poPayment','general')",
+            "request_type IN ('reimbursement','cashAdvance','liquidation','poPayment','general','pettyCash')",
             name="ck_payment_requests_type",
         ),
         CheckConstraint(

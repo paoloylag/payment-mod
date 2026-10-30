@@ -6,6 +6,7 @@ from payment_module.models import (
     ChartAccount,
     DocumentRequirementRule,
     DocumentType,
+    FinanceConfiguration,
     PaymentRequest,
     RequestConversationMessage,
     SystemSetting,
@@ -72,6 +73,10 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
                 assert item.voucher_number.startswith("VCH-")
         account_count = session.scalar(select(func.count()).select_from(ChartAccount))
         tax_count = session.scalar(select(func.count()).select_from(TaxCode))
+        finance_setup = session.scalar(select(FinanceConfiguration))
+        finance_setup_draft = session.scalar(
+            select(SystemSetting).where(SystemSetting.key == "finance.setup.draft")
+        )
         workflow_count = session.scalar(
             select(func.count())
             .select_from(WorkflowInstance)
@@ -85,8 +90,14 @@ def test_local_development_seed_covers_all_workflow_views_and_is_idempotent(monk
 
     assert len(demo_requests) == len(DEMO_REQUESTS)
     assert steps == {1, 2, 3, 4, 5, 7, 8, 8.5, 9, 10, 11, 12, 13, 14, 15}
-    assert account_count >= 5
+    assert account_count >= 9
     assert tax_count >= 3
+    assert finance_setup is not None
+    assert finance_setup.configuration["scope"] == "all"
+    assert finance_setup.configuration["vat_basis"] == "inclusive"
+    assert finance_setup.configuration["ewt_basis"] == "net_of_vat"
+    assert finance_setup.configuration["voucher"]["create_role"] == "finance_associate"
+    assert finance_setup_draft is not None
     assert workflow_count == sum(1 for row in DEMO_REQUESTS if row[3] >= 3)
     assert message_count == 72
 

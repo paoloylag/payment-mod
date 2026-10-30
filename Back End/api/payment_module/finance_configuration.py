@@ -121,6 +121,8 @@ def mapping_for_department(db, configuration, department_id, request_type="gener
 
 
 def required_configuration(db, request_type):
+    if request_type == "pettyCash":
+        return None
     lock_configuration(db, shared=True)
     configuration = active_configuration(db)
     if request_type != "general" and (not configuration or configuration.configuration.get("scope") != "all"):

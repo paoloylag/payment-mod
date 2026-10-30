@@ -33,6 +33,7 @@ PAYMENT_LABELS = {
     "cash_return_pending": "Cash Return Pending",
 }
 TYPE_LABELS = {
+    "pettyCash": "Petty Cash",
     "general": "General Payment",
     "reimbursement": "Reimbursement",
     "cashAdvance": "Cash Advance",
@@ -55,7 +56,7 @@ def request_display(item, workflow, payment):
                 else STAGE_LABELS.get(role, purpose)
             )
         elif workflow and workflow.state == "approved":
-            label = "Approved — Finance Processing"
+            label = "Approved" if item.request_type == "pettyCash" else "Approved — Finance Processing"
         if payment.get("state") in PAYMENT_LABELS:
             label = PAYMENT_LABELS[payment["state"]]
     return {"display_status": label, "workflow_stage_role": role, "workflow_stage_purpose": purpose}

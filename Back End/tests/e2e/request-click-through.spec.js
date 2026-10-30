@@ -203,7 +203,7 @@ test("UI creation, documents, six approvals, Finance return and executive inform
     await open(manager, item); const issue = manager.locator('[data-voucher-action="issue"]');
     await issue.locator('[name="reason"]').fill("Certify completed click-through voucher");
     await mutation(manager, `/finance-vouchers/${item.id}/issue`, () => issue.getByRole("button").click());
-    await manager.reload(); await expect(manager.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+    await manager.reload(); await expect(manager.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
     await manager.addInitScript(() => { window.print = () => {}; });
     await manager.locator("[data-finance-voucher]").getByRole("button", { name: "Print / Save PDF" }).click();
     await expect(manager.frameLocator("[data-voucher-print-frame]").locator("body")).toContainText(item.request_number);

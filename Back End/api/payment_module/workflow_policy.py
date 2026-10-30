@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-POLICY_VERSION = "prototype-2026-10-08-r4"
-SUPPORTED_REQUEST_TYPES = {"reimbursement", "cashAdvance", "liquidation", "poPayment", "general"}
+POLICY_VERSION = "confirmed-2026-10-30-r5"
+SUPPORTED_REQUEST_TYPES = {"reimbursement", "cashAdvance", "liquidation", "poPayment", "general", "pettyCash"}
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,8 @@ def route_for(
 ) -> ApprovalRoute:
     if request_type not in SUPPORTED_REQUEST_TYPES:
         raise PolicyCannotRoute("Unsupported request type")
+    if request_type == "pettyCash" and currency_code != "PHP":
+        raise PolicyCannotRoute("Petty Cash supports PHP only")
     if amount <= 0:
         raise PolicyCannotRoute("Approval amount must be greater than zero")
     if currency_code == "PHP":
@@ -56,7 +58,9 @@ def route_for(
         ApprovalStage("document_validation", "finance_associate", "Finance document validation"),
         ApprovalStage("budget_review", "finance_manager", "Budget and approval-route review"),
     ]
-    if request_type == "cashAdvance" or (budgeted and php_amount <= Decimal("100000")):
+    if request_type == "pettyCash":
+        stages = stages[:2]
+    elif request_type == "cashAdvance" or (budgeted and php_amount <= Decimal("100000")):
         stages[-1] = ApprovalStage("finance_manager_approval", "finance_manager", "Final payment approval")
     elif not budgeted and php_amount > Decimal("1000000"):
         stages.extend(

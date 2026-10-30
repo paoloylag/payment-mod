@@ -116,7 +116,7 @@ test("all request types use Finance defaults and individual payment authorizatio
       await expect(page.locator("[data-finance-accounting]")).toContainText("Prepared voucher draft");
       await managerPage.reload(); const issue = managerPage.locator('[data-voucher-action="issue"]');
       await issue.locator('[name="reason"]').fill("Certify this voucher"); await issue.getByRole("button").click();
-      await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+      await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
       const details = await (await manager.context.get(`/api/v1/finance-vouchers/${item.id}`)).json();
       if (isLiquidation) expect(Number(details.voucher.totals.amount_due)).toBe(120);
       await page.reload(); await page.getByText("Add payment line items", { exact: true }).click();
@@ -126,12 +126,12 @@ test("all request types use Finance defaults and individual payment authorizatio
       await payment.locator('[name="signatory_user_id"]').selectOption(await payment.locator('[name="signatory_user_id"] option').nth(1).getAttribute("value"));
       await payment.locator('[name="reference"]').fill(`ALL-${crypto.randomUUID().slice(0, 12)}`);
       await payment.locator('[name="reason"]').fill("Prepare individual authorization"); await payment.getByRole("button", { name: "Prepare payment line items" }).click();
-      await expect(page.locator("[data-voucher-state]")).toHaveText("Awaiting assigned signatory");
+      await expect(page.locator("[data-voucher-state]")).toHaveText("Awaiting Assigned Signatory");
       await signatoryPage.goto(`/#/requests/${item.request_number}`);
       await signatoryPage.getByText("Authorize payment line", { exact: true }).first().click();
       const authorization = signatoryPage.locator('[data-payment-action="authorize"]');
       await authorization.locator('[name="reason"]').fill("Authorize this payment line"); await authorization.getByRole("button").click();
-      await expect(signatoryPage.locator("[data-voucher-state]")).toHaveText("Payment authorized · Release pending");
+      await expect(signatoryPage.locator("[data-voucher-state]")).toHaveText("Payment Authorized · Release Pending");
       const record = async (target, actionName, title) => {
         await target.reload(); await target.getByText(title, { exact: true }).first().click();
         const form = target.locator(`[data-payment-action="${actionName}"]`);
@@ -142,7 +142,7 @@ test("all request types use Finance defaults and individual payment authorizatio
         await form.getByRole("button", { name: title, exact: true }).click(); await expect(form).toHaveCount(0);
       };
       await record(page, "release", "Record payment release"); await record(managerPage, "clear", "Confirm payment clearing");
-      await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Payment cleared");
+      await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Payment Cleared");
       if (isAdvance) advance = item;
       if (isLiquidation) {
         await managerPage.addInitScript(() => { window.print = () => {}; });

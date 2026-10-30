@@ -53,3 +53,16 @@ def record_finance_notification(db, item, family, state, event_id, actor_id):
             payload={"request_id": str(item.id), "notification": finance_event_plan(db, item, family, state, actor_id)},
         )
     )
+
+
+def record_mention_notification(db, item, message, author, recipients):
+    if not recipients:
+        return
+    from .mention_email import VERSION
+    db.add(NotificationOutboxEvent(source_key=f"mention:{message.id}", aggregate_id=item.id,
+        event_type="conversation.mentioned", payload={"request_id": str(item.id),
+            "request_number": item.request_number or str(item.id), "message_id": str(message.id),
+            "author_name": author.display_name, "message_body": message.body,
+            "notification": {"version": VERSION, "kind": "conversation_mention",
+                "recipient_ids": sorted(str(user_id) for user_id in recipients),
+                "title": f"{author.display_name} Tagged You", "preview": message.body[:160]}}))

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     app_env: Literal["local", "test", "staging", "production"] = "local"
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
+    notification_app_url: str = "https://payment.life.edu.ph"
     database_url: str = "postgresql+psycopg://payment_module:payment_module@127.0.0.1:5434/payment_module"
     database_timezone: str = "Asia/Manila"
     cors_origins: str = (

@@ -7,6 +7,7 @@ services:
     environment: &local_app_environment
       APP_ENV: local
       APP_NAME: Payment Module API
+      NOTIFICATION_APP_URL: ${PAYMENT_NOTIFICATION_APP_URL:-http://127.0.0.1:5181}
       APP_VERSION: 0.1.0
       API_PREFIX: /api/v1
       LOG_LEVEL: INFO
@@ -74,8 +75,8 @@ services:
       MINIO_ROOT_USER: payment-module-local
       MINIO_ROOT_PASSWORD: payment-module-local-secret
     ports:
-      - "127.0.0.1:59000:9000"
-      - "127.0.0.1:59001:9001"
+      - "127.0.0.1:${PAYMENT_MINIO_PORT:-59200}:9000"
+      - "127.0.0.1:${PAYMENT_MINIO_CONSOLE_PORT:-59201}:9001"
     volumes:
       - payment-module-minio:/data
 

@@ -64,6 +64,8 @@ def context(db, request, actor, request_id, lock=False):
         or not roles.intersection({"finance_associate", "finance_manager"})
     ):
         raise HTTPException(404, "Finance request not found")
+    if item is not None and item.request_type == "pettyCash":
+        raise HTTPException(409, "Petty Cash ends at Finance Associate approval; accounting, vouchers and payments do not apply")
     query = select(WorkflowInstance).where(WorkflowInstance.request_id == item.id)
     instance = db.scalar(query.with_for_update() if lock else query)
     return item, instance, roles

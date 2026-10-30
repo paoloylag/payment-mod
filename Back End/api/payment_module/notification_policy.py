@@ -58,14 +58,14 @@ def workflow_plan(db, event):
 def payment_plan(db, item, instruction, state, actor_id, recovery_rejected=False):
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     if state == "prepared":
-        recipients = {instruction.signatory_user_id}
+        recipients = finance_recipients(db, item, instance)
     else:
         finance = finance_recipients(db, item, instance)
         reached = {stage["role"] for stage in reached_stages(db, instance)} if instance else set()
         if not recovery_rejected and state in {"released", "recovery_pending"} and "finance_manager" in reached:
             finance = reviewers(db, item, instance, "finance_manager")
         recipients = {item.requestor_id} | finance
-    title = "Payment authorization needed" if state == "prepared" else "Payment " + state.replace("_", " ")
+    title = "Payment ready for Finance release" if state == "prepared" else "Payment " + state.replace("_", " ")
     if recovery_rejected:
         title = "Payment recovery requires correction"
     return plan(db, item, recipients - {actor_id}, title)

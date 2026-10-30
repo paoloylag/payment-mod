@@ -176,9 +176,9 @@ test("all six approval roles approve and issue a voucher", async ({ browser }) =
     const issue = managerPage.locator('[data-voucher-action="issue"]');
     await issue.locator('[name="reason"]').fill("Certify after all six approval roles");
     await issue.getByRole("button", { name: "Issue and certify voucher" }).click();
-    await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+    await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
     await managerPage.reload();
-    await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+    await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
     const result = await (await manager.context.get(`/api/v1/finance-vouchers/${item.id}`)).json();
     writeFileSync("outputs/full-route-voucher-result.json", JSON.stringify({request_number:item.request_number, approvals:approvalLog, voucher:result}, null, 2));
     await managerPage.locator("[data-finance-voucher]").screenshot({path:"outputs/full-route-issued-voucher.png"});

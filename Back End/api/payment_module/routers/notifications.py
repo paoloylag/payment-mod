@@ -187,3 +187,17 @@ def mark_notification_unread(
     entry.read_at = None
     db.commit()
     return {"id": str(entry.id), "read_at": None}
+
+
+@router.get("/email-previews")
+def email_previews(request: Request, page: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    from ..config import get_settings
+    if get_settings().app_env not in {"local", "test"}:
+        raise HTTPException(404, "Email previews are unavailable")
+    accessible = visible_query(db, request, actor).with_only_columns(PaymentRequest.id)
+    entries = db.scalars(select(NotificationDelivery).where(NotificationDelivery.recipient_user_id == actor.id,
+        NotificationDelivery.channel == "development_email", NotificationDelivery.request_id.in_(accessible))
+        .order_by(NotificationDelivery.created_at.desc(), NotificationDelivery.id.desc()).offset((page - 1) * 25).limit(25)).all()
+    return {"page": page, "items": [{"id": str(entry.id), "request_id": str(entry.request_id),
+        "created_at": entry.created_at.isoformat(), **entry.content} for entry in entries]}

@@ -41,7 +41,7 @@ test("fund return and recovery views handle long text at mobile, tablet and desk
     await associate.setViewportSize({ width: 390, height: 900 });
     await returned.screenshot({ path: "outputs/fund-return-mobile.png" });
     await receipt.getByRole("button", { name: "Record full fund return", exact: true }).click();
-    await expect(returned.locator("[data-fund-return-state]")).toContainText("verification pending");
+    await expect(returned.locator("[data-fund-return-state]")).toContainText("Verification Pending");
     await manager.goto(`/#/requests/${fixture.liquidation.request_number}`);
     const review = manager.locator("[data-fund-return]");
     await review.locator("summary").filter({ hasText: /^Verify full fund return$/ }).click();
@@ -67,7 +67,7 @@ test("fund return and recovery views handle long text at mobile, tablet and desk
     const dismiss = associate.getByRole("button", { name: "Dismiss message" }); if (await dismiss.isVisible()) await dismiss.click();
     await recoveryCard.screenshot({ path: "outputs/payment-recovery-mobile.png" });
     await recovery.getByRole("button", { name: "Record full payment recovery", exact: true }).click();
-    await expect(recoveryCard.locator("[data-payment-state]")).toContainText("Manager review pending");
+    await expect(recoveryCard.locator("[data-payment-state]")).toContainText("Manager Review Pending");
     await manager.goto(`/#/requests/${fixture.general.request_number}`);
     const card = manager.locator(`[data-payment-card="${fixture.payment}"]`);
     await card.locator("summary").filter({ hasText: /^Confirm post-release reversal$/ }).click();

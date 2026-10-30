@@ -1,5 +1,7 @@
 """Phase 05 provisional approval queue and decisions."""
 
+import hashlib
+
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
@@ -30,6 +32,7 @@ from ..security import current_user
 from ..workflow_assignments import assignment_allows, assignment_view, exception_controls
 from ..workflow_assignments import current_assignment as named_assignment
 from ..workflow_policy import PolicyCannotRoute, route_for
+from ..cost_center_approvals import department_participant
 from ..workflow_service import close_workflow, start_workflow
 from .requests import serialize_many, visible_query
 
@@ -37,6 +40,7 @@ router = APIRouter(prefix="/api/v1/workflow", tags=["workflow"])
 
 
 class ApprovalDecision(BaseModel):
+    on_behalf: bool = False
     version: int = Field(ge=1)
     note: str = Field(default="", max_length=2000)
     php_per_unit: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=8)
@@ -65,8 +69,20 @@ def can_review(request: Request, actor: User, item: PaymentRequest, stage: dict,
         "workflow.review" in getattr(request.state, "permissions", set())
         and stage["role"] in roles
         and actor.id != item.requestor_id
-        and (stage["role"] != "department_head" or actor.department_id == item.department_id)
+        and (stage["role"] != "department_head" or department_participant(object_session(item), item, actor))
         and assignment_allows(object_session(item), item, actor)
+    )
+
+
+def can_override_approval(request: Request, actor: User, item: PaymentRequest, instance: WorkflowInstance, roles: set[str]) -> bool:
+    return (
+        "workflow.review" in getattr(request.state, "permissions", set())
+        and "finance_manager" in roles
+        and actor.id != item.requestor_id
+        and item.status == "submitted"
+        and instance.state == "active"
+        and instance.current_stage is not None
+        and instance.route_snapshot["stages"][instance.current_stage]["role"] != "finance_manager"
     )
 
 
@@ -260,6 +276,7 @@ def workflow_detail(
         **view(instance),
         "current_assignment": current_assignment,
         "exception_controls": exception_controls(db, request, actor, item, instance),
+        "can_approve_on_behalf": can_override_approval(request, actor, item, instance, roles),
         "events": [
             {
                 "action": e.action,
@@ -285,6 +302,9 @@ def approve_stage(
     db: Session = Depends(get_db),
     actor: User = Depends(current_user),
 ):
+    signature = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
+    if payload.on_behalf and not payload.note.strip():
+        raise HTTPException(422, "An unavailability reason is required for approval on behalf")
     if not idempotency_key.strip():
         raise HTTPException(422, "Idempotency-Key is required")
     # Lock the request first, matching the ordering used by submission/cancellation.
@@ -299,6 +319,9 @@ def approve_stage(
     if existing:
         if existing.request_id != request_id:
             raise HTTPException(409, "Idempotency key belongs to another request")
+        if payload.on_behalf or existing.result.get("on_behalf_signature"):
+            if existing.result.get("on_behalf_signature") != signature:
+                raise HTTPException(409, "Idempotency key belongs to another approval action")
         return existing.result
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id).with_for_update())
     if instance is None or item.status != "submitted" or instance.state != "active":
@@ -306,7 +329,10 @@ def approve_stage(
     if instance.version != payload.version:
         raise HTTPException(409, "Workflow changed; reload before deciding")
     stage = instance.route_snapshot["stages"][instance.current_stage]
-    if not can_review(request, actor, item, stage, actor_roles(db, actor)):
+    if payload.on_behalf:
+        if not can_override_approval(request, actor, item, instance, actor_roles(db, actor)):
+            raise HTTPException(403, "Only Finance Manager may approve on behalf of another current-stage approver")
+    elif not can_review(request, actor, item, stage, actor_roles(db, actor)):
         raise HTTPException(403, "This approval stage is not assigned to this reviewer")
     if stage["role"] == "finance_associate":
         summary = validation_summary(db, item)
@@ -374,20 +400,22 @@ def approve_stage(
             action="stage_approved",
             stage_index=completed,
             note=payload.note.strip(),
-            details={"stage": stage["code"], "assignment": completed_assignment},
+            details={"stage": stage["code"], "assignment": completed_assignment, "approved_on_behalf": payload.on_behalf, "on_behalf_role": stage["role"] if payload.on_behalf else None},
         ),
     )
     db.flush()
     result = view(instance)
+    if payload.on_behalf:
+        result["on_behalf_signature"] = signature
     audit(
         db,
         actor_id=actor.id,
-        action="workflow.stage_approved",
+        action="workflow.approved_on_behalf" if payload.on_behalf else "workflow.stage_approved",
         entity_type="workflow_instance",
         entity_id=instance.id,
         request_id=request.state.request_id,
         before={"stage_index": completed, "version": payload.version},
-        after={"state": instance.state, "current_stage": instance.current_stage, "version": instance.version},
+        after={"state": instance.state, "current_stage": instance.current_stage, "version": instance.version, "approved_on_behalf": payload.on_behalf, "on_behalf_role": stage["role"] if payload.on_behalf else None, "reason": payload.note.strip() if payload.on_behalf else None, "assignment": completed_assignment},
     )
     db.add(
         WorkflowCommand(request_id=request_id, actor_user_id=actor.id, idempotency_key=idempotency_key, result=result)

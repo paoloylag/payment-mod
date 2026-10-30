@@ -87,7 +87,7 @@ def work_queue(
         )
         if any(stage["role"] in finance_roles for stage in reached_stages(db, instance))
     ]
-    query = query.where(PaymentRequest.id.in_(reached_ids), PaymentRequest.requestor_id != actor.id)
+    query = query.where(PaymentRequest.request_type != "pettyCash", PaymentRequest.id.in_(reached_ids), PaymentRequest.requestor_id != actor.id)
     departments = [
         {"id": str(department_id), "name": name}
         for department_id, name in db.execute(

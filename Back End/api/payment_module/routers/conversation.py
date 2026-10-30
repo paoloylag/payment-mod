@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ..audit import audit
+from ..outbox import record_mention_notification
 from ..database import get_db
 from ..models import (
     PaymentInstruction,
@@ -24,6 +25,7 @@ from ..models import (
 from ..security import current_user, effective_permissions
 from ..voucher_service import assigned_instruction
 from ..workflow_visibility import reached_stages
+from ..cost_center_approvals import department_participant
 from .workflow import actor_roles
 
 router = APIRouter(prefix="/api/v1/requests", tags=["request conversation"])
@@ -51,7 +53,7 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
         .join(Role, Role.id == UserRole.role_id)
         .where(Role.code.in_(route_roles), User.is_active.is_(True), User.is_suspended.is_(False))
     ):
-        if user.id == item.requestor_id or role_code == "department_head" and user.department_id != item.department_id:
+        if user.id == item.requestor_id or role_code == "department_head" and not department_participant(db, item, user, instance):
             continue
         if "workflow.review" not in effective_permissions(db, user.id):
             continue
@@ -104,7 +106,7 @@ def participant(db: Session, request: Request, actor: User, item: PaymentRequest
     roles = actor_roles(db, actor)
     return any(
         stage.get("role") in roles
-        and (stage.get("role") != "department_head" or actor.department_id == item.department_id)
+        and (stage.get("role") != "department_head" or department_participant(db, item, actor, instance))
         for stage in reached_stages(db, instance)
     )
 
@@ -267,6 +269,7 @@ def post_conversation(
     for user_id in mentioned:
         db.add(RequestMentionNotification(request_id=item.id, message_id=message.id, recipient_user_id=user_id))
     db.flush()
+    record_mention_notification(db, item, message, actor, mentioned)
     audit(
         db,
         actor_id=actor.id,

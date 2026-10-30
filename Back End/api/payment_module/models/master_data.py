@@ -36,6 +36,7 @@ class ReferenceRecordMixin:
 
 
 class CostCenter(ReferenceRecordMixin, Base):
+    approver_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     __tablename__ = "cost_centers"
     __table_args__ = (
         UniqueConstraint("department_id", name="uq_cost_centers_department_id"),

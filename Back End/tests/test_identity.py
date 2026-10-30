@@ -286,3 +286,53 @@ def test_admin_crud_for_users_departments_roles_and_permissions(client) -> None:
         == 200
     )
     assert client.delete(f"/api/v1/permissions/{permission_id}", headers=headers).status_code == 204
+
+
+def test_user_roles_saved_atomically_with_profile(client):
+    seed()
+    csrf = login(client).json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf}
+    roles = client.get("/api/v1/roles").json()
+    selected = [row["id"] for row in roles[:2]]
+    email = f"roles-{uuid4()}@payment.local"
+    payload = {"email": email, "display_name": "Atomic roles", "password": PASSWORD, "role_ids": selected}
+    response = client.post("/api/v1/users", json=payload, headers=headers)
+    assert response.status_code == 201
+    user = response.json()
+    assert set(user["role_ids"]) == set(selected)
+    invalid = [str(uuid4())]
+    failed = client.patch(f"/api/v1/users/{user['id']}", json={"display_name": "Should roll back", "role_ids": invalid}, headers=headers)
+    assert failed.status_code == 422
+    stored = next(row for row in client.get("/api/v1/users").json() if row["id"] == user["id"])
+    assert stored["display_name"] == "Atomic roles"
+    assert set(stored["role_ids"]) == set(selected)
+    response = client.patch(f"/api/v1/users/{user['id']}", json={"role_ids": []}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["role_ids"] == []
+    payload["email"] = f"invalid-{uuid4()}@payment.local"
+    payload["role_ids"] = invalid
+    assert client.post("/api/v1/users", json=payload, headers=headers).status_code == 422
+    assert not any(row["email"] == payload["email"] for row in client.get("/api/v1/users").json())
+
+
+def test_user_profile_cannot_bypass_role_assignment_permission(client):
+    seed()
+    csrf = login(client).json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf}
+    users = client.get("/api/v1/users").json()
+    admin = next(row for row in users if row["email"] == "admin@payment.local")
+    target = next(row for row in users if row["email"] == "requestor@payment.local")
+    with SessionLocal.begin() as db:
+        permission = db.scalar(select(Permission).where(Permission.code == "roles.assign"))
+        override = UserPermissionOverride(user_id=admin["id"], permission_id=permission.id, is_allowed=False)
+        db.add(override)
+        db.flush()
+        override_id = override.id
+    try:
+        response = client.patch(f"/api/v1/users/{target['id']}", json={"role_ids": []}, headers=headers)
+        assert response.status_code == 403
+        stored = next(row for row in client.get("/api/v1/users").json() if row["id"] == target["id"])
+        assert stored["role_ids"] == target["role_ids"]
+    finally:
+        with SessionLocal.begin() as db:
+            db.delete(db.get(UserPermissionOverride, override_id))

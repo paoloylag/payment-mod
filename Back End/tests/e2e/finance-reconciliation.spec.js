@@ -38,17 +38,17 @@ test("Finance reconciliation follows verified returns, recoveries, exports and r
     await panel.locator("[data-finance-report-request]").click();await expect(page).toHaveURL(new RegExp(fixture.general.request_number));
     await page.goto("/#/tracker");
     await generate("advances",fixture.advance.request_number);
-    await expect(panel.locator("tbody")).toContainText("400.00");await expect(panel.locator("tbody")).toContainText("outstanding");
+    await expect(panel.locator("tbody")).toContainText("400.00");await expect(panel.locator("tbody")).toContainText("Outstanding");
     await fixture.upload(associate,`payments/${fixture.liquidation.id}/fund-return`,{request_version:String(fixture.liquidation.version),version:"0",amount:"400",recorded_on:"2026-10-15",reference:"FINANCE-ACCEPTANCE-RETURN",receiving_office:"Finance cash office",receiving_account_id:fixture.receivingAccount,reason:"Full unused balance received"});
-    await generate("advances",fixture.advance.request_number);await expect(panel.locator("tbody")).toContainText("outstanding");
+    await generate("advances",fixture.advance.request_number);await expect(panel.locator("tbody")).toContainText("Outstanding");
     await fixture.post(manager,`payments/${fixture.liquidation.id}/fund-return/verify`,{request_version:fixture.liquidation.version,version:1,reason:"Finance independently verified receipt"});
-    await generate("advances",fixture.advance.request_number);await expect(panel.locator("tbody")).toContainText("settled");
-    await generate("returns",fixture.liquidation.request_number);await expect(panel.locator("tbody")).toContainText("verified");
+    await generate("advances",fixture.advance.request_number);await expect(panel.locator("tbody")).toContainText("Settled");
+    await generate("returns",fixture.liquidation.request_number);await expect(panel.locator("tbody")).toContainText("Verified");
     const proof=await fixture.upload(associate,`payments/${fixture.general.id}/lines/${fixture.payment}/evidence/upload`,{kind:"recovery"});
     await fixture.post(associate,`payments/${fixture.general.id}/lines/${fixture.payment}/recover`,{request_version:fixture.general.version,version:3,reason:"Funds fully recovered",evidence_id:proof.id,recovered_amount:"1100",bank_name:"Cash office",recipient_name:"Payee",recorded_on:"2026-10-15"});
-    await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("pending");
+    await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("Pending");
     await fixture.post(manager,`payments/${fixture.general.id}/lines/${fixture.payment}/confirm-reversal`,{request_version:fixture.general.version,version:4,reason:"Full recovery independently verified"});
-    await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("verified");
+    await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("Verified");
     for(const width of [375,768,1440]){
       await page.setViewportSize({width,height:900});await panel.scrollIntoViewIfNeeded();
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();

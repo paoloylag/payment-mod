@@ -271,7 +271,10 @@ def test_material_correction_restarts_route_and_clears_assignments(client, revie
         instance = start_workflow(db, item, item.requestor_id)
         assert instance.current_stage == 0
         assert instance.route_snapshot["amount"] == "250000"
-        assert db.scalar(select(WorkflowAssignment).where(WorkflowAssignment.workflow_id == instance.id)) is None
+        assignments = list(db.scalars(select(WorkflowAssignment).where(WorkflowAssignment.workflow_id == instance.id)))
+        assert len(assignments) == 1
+        assert assignments[0].stage_index == 0
+        assert str(assignments[0].assigned_user_id) == instance.route_snapshot["department_approver_id"]
         assert (
             db.scalar(
                 select(WorkflowEvent).where(

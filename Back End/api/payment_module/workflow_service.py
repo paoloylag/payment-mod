@@ -7,6 +7,7 @@ from .models import Currency, PaymentRequest, WorkflowAssignment, WorkflowEvent,
 from .outbox import record_workflow_event
 from .workflow_assignments import assignment_view, current_assignment
 from .workflow_policy import route_for
+from .cost_center_approvals import routing_approver
 
 
 def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInstance:
@@ -14,6 +15,8 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id).with_for_update())
     if instance is not None and instance.state not in {"returned", "cancelled", "policy_pending"}:
         raise ValueError("An active approval route already exists")
+    previous_approver = instance.route_snapshot.get("department_approver_id") if instance else None
+    previous_center = instance.route_snapshot.get("cost_center_id") if instance else None
     previous_department = (
         instance.route_snapshot.get("department_id") if instance and instance.state == "returned" else None
     )
@@ -32,6 +35,9 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
         and previous_department == str(item.department_id)
         and not (returned_event.details or {}).get("material_correction")
     )
+    if item.request_type == "pettyCash" and item.currency_code != "PHP":
+        from .workflow_policy import PolicyCannotRoute
+        raise PolicyCannotRoute("Petty Cash supports PHP only")
     currency = db.get(Currency, item.currency_code)
     php_per_unit = currency.php_per_unit if currency else None
     # Foreign-currency routing is finalized by Finance Manager at processing time.
@@ -97,7 +103,16 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
         instance.state = state
         instance.current_stage = current
         instance.version += 1
+    center, approver = routing_approver(db, item)
+    if resume_finance and previous_approver:
+        snapshot = {**snapshot, "department_approver_id": previous_approver, "cost_center_id": previous_center}
+    if approver and "department_approver_id" not in snapshot:
+        snapshot = {**snapshot, "department_approver_id": str(approver.id), "cost_center_id": str(center.id)}
+    instance.route_snapshot = snapshot
     db.flush()
+    if snapshot.get("department_approver_id"):
+        db.add(WorkflowAssignment(workflow_id=instance.id, stage_index=0, kind="approval", assigned_user_id=snapshot["department_approver_id"]))
+        db.flush()
     record_workflow_event(
         db,
         WorkflowEvent(

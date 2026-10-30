@@ -32,7 +32,7 @@ from ..models import (
 )
 from ..payment_execution import event_view, evidence_view, execution_view, line_state, payment_summary, recovery_blocker
 from ..security import current_user
-from ..voucher_service import latest_voucher_event, signatory_users
+from ..voucher_service import latest_voucher_event
 from .documents import _prepare, _store_version, get_storage
 from .finance_vouchers import VoucherCommand, context, digest, guard, record_event
 from .finance_vouchers import event_view as voucher_event_view
@@ -44,7 +44,7 @@ class PaymentLine(BaseModel):
     model_config = ConfigDict(extra="forbid")
     amount: Decimal = Field(gt=0, max_digits=19, decimal_places=4)
     method_id: UUID
-    signatory_user_id: UUID
+    signatory_user_id: UUID | None = None
     reference: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
     label: str = Field(min_length=1, max_length=200)
     predecessor_id: UUID | None = None
@@ -151,14 +151,6 @@ def prepare_lines(
             FinanceVoucherEvent.voucher_id == voucher.id, FinanceVoucherEvent.state == "issued"
         )
     )
-    excluded = {
-        actor.id,
-        item.requestor_id,
-        voucher.actor_user_id,
-        issuer.actor_user_id,
-        latest_journal(db, item.id).actor_user_id,
-    }
-    eligible = {user.id: user for user in signatory_users(db, excluded)}
     sequence = (
         db.scalar(select(func.max(PaymentInstruction.sequence)).where(PaymentInstruction.voucher_id == voucher.id)) or 0
     )
@@ -169,9 +161,6 @@ def prepare_lines(
         method = db.get(PaymentMethod, line.method_id)
         if not effective(method, finance_date()) or method.category not in {"cash", "check", "bank_transfer"}:
             raise HTTPException(422, "Select an active, effective payment method")
-        signatory = eligible.get(line.signatory_user_id)
-        if not signatory:
-            raise HTTPException(422, "Select an eligible independent Authorized Signatory")
         if line.predecessor_id:
             predecessor = db.get(PaymentInstruction, line.predecessor_id)
             if (
@@ -193,8 +182,6 @@ def prepare_lines(
             "method_category": method.category,
             "reference": line.reference,
             "sequence": sequence,
-            "signatory_user_id": str(signatory.id),
-            "signatory": signatory.display_name,
             "prepared_by": actor.display_name,
             "voucher_number": issuer.voucher_number,
             "predecessor_id": str(line.predecessor_id) if line.predecessor_id else None,
@@ -204,7 +191,7 @@ def prepare_lines(
             request_id=item.id,
             sequence=sequence,
             method_id=method.id,
-            signatory_user_id=signatory.id,
+            signatory_user_id=None,
             preparer_user_id=actor.id,
             reference=line.reference,
             amount=line.amount,
@@ -301,8 +288,9 @@ def payment_action(
     item, voucher, instruction, roles, permissions, latest = action_context(
         db, request, actor, request_id, instruction_id
     )
+    if action == "authorize":
+        raise HTTPException(410, "Signatory approval has been removed; Finance can release prepared payments")
     policy = {
-        "authorize": ("authorized_signatory", "payments.authorize", "authorized"),
         "pickup-ready": ("finance_associate", "payments.release", "ready_for_pickup"),
         "release": ("finance_associate", "payments.release", "released"),
         "clear": ("finance_manager", "payments.clear", "cleared"),
@@ -315,11 +303,6 @@ def payment_action(
     role, permission, target = policy[action]
     if role not in roles or permission not in permissions or actor.id == item.requestor_id:
         raise HTTPException(403, f"Permission required: {permission}")
-    if action == "authorize" and (
-        instruction.signatory_user_id != actor.id
-        or actor.id in {instruction.preparer_user_id, voucher.actor_user_id, latest_journal(db, item.id).actor_user_id}
-    ):
-        raise HTTPException(403, "Only the assigned independent signatory may authorize this payment line")
     previous = db.scalar(
         select(PaymentLineEvent).where(
             PaymentLineEvent.instruction_id == instruction.id, PaymentLineEvent.command_key == idempotency_key
@@ -349,9 +332,8 @@ def payment_action(
     ):
         raise HTTPException(409, "Payment method changed; prepare a replacement payment")
     allowed = {
-        "authorize": state == "prepared",
-        "pickup-ready": state == "authorized" and method.category == "check",
-        "release": state == ("ready_for_pickup" if method.category == "check" else "authorized"),
+        "pickup-ready": state in {"prepared", "authorized"} and method.category == "check",
+        "release": state == "ready_for_pickup" if method.category == "check" else state in {"prepared", "authorized"},
         "clear": state == "released",
         "fail": state in {"prepared", "authorized", "ready_for_pickup"},
         "void": state in {"prepared", "authorized", "ready_for_pickup"},
@@ -494,7 +476,7 @@ def upload_evidence(
         or latest.state == "voided"
         or not (
             {
-                "release": state in {"authorized", "ready_for_pickup"},
+                "release": state in {"prepared", "authorized", "ready_for_pickup"},
                 "clearing": state == "released",
                 "recovery": state in {"released", "cleared"},
             }[kind]

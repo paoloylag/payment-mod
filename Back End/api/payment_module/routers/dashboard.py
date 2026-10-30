@@ -81,28 +81,7 @@ def dashboard_snapshot(request: Request, db: Session = Depends(get_db), actor: U
             )
         ).all()
     )
-    signatory_pending = {
-        row.request_id
-        for row in instructions
-        if "payments.authorize" in request.state.permissions
-        and "authorized_signatory" in roles
-        and row.voucher_id in vouchers
-        and actor.id
-        not in {
-            row.preparer_user_id,
-            vouchers[row.voucher_id].actor_user_id,
-            journal_actors.get(vouchers[row.voucher_id].journal_id),
-        }
-        and (
-            (events.get(row.id) and events[row.id].state == "prepared")
-            or (
-                not events.get(row.id)
-                and voucher_events.get(row.voucher_id)
-                and voucher_events[row.voucher_id].state == "payment_prepared"
-            )
-        )
-        and not (voucher_events.get(row.voucher_id) and voucher_events[row.voucher_id].state == "voided")
-    }
+    signatory_pending = set()
     totals = defaultdict(Decimal)
     membership = {"open": [], "pending": [], "returned": [], "unclaimed": []}
     updates = {}
@@ -118,7 +97,7 @@ def dashboard_snapshot(request: Request, db: Session = Depends(get_db), actor: U
             "approval_state": workflow.state if workflow else None,
             "version": item.version,
         }
-        if item.status in {"submitted", "returned"} and payment.get("state") not in {
+        if not (item.request_type == "pettyCash" and workflow and workflow.state == "approved") and item.status in {"submitted", "returned"} and payment.get("state") not in {
             "cleared",
             "funds_returned",
             "settled_no_payment",

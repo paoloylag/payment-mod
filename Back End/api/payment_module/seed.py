@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
@@ -13,6 +14,7 @@ from .models import (
     Department,
     DocumentRequirementRule,
     DocumentType,
+    FinanceConfiguration,
     PaymentMethod,
     PaymentRequest,
     PaymentRequestLine,
@@ -202,10 +204,10 @@ LEGACY_DEMO_NAMES = {
 }
 
 DOCUMENT_TYPES = (
-    ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general"], "soft"),
-    ("BILLING_SOA", "Billing / Quotation / SOA", ["poPayment", "general"], "soft"),
+    ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general", "pettyCash"], "soft"),
+    ("BILLING_SOA", "Billing / Quotation / SOA", ["poPayment", "general", "pettyCash"], "soft"),
     ("PROOF_PAYMENT", "Proof of Payment", ["reimbursement"], "soft"),
-    ("BIR_2303", "BIR 2303", ["poPayment", "general"], "soft"),
+    ("BIR_2303", "BIR 2303", ["poPayment", "general", "pettyCash"], "soft"),
     ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
     ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
     ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
@@ -231,6 +233,13 @@ DEMO_ACCOUNTS = (
     ("6300", "Professional Services", "External professional and contracted services"),
     ("6400", "Technology Equipment", "Computers, peripherals, and technology equipment"),
     ("6500", "Events and Training", "Events, training, and staff development"),
+)
+
+DEMO_FINANCE_ACCOUNTS = (
+    ("1160", "Input VAT", "Recoverable input VAT", "asset", "debit"),
+    ("1200", "Employee Cash Advances", "Outstanding employee cash advances", "asset", "debit"),
+    ("2100", "Accounts Payable", "Approved vendor and employee payables", "liability", "credit"),
+    ("2150", "EWT Payable", "Expanded withholding tax payable", "liability", "credit"),
 )
 
 DEMO_TAX_CODES = (
@@ -559,6 +568,105 @@ def stable_id(kind: str, code: str):
     return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
 
 
+def seed_local_finance_setup(session, user_ids=None) -> None:
+    """Activate complete development defaults without replacing an existing Finance policy."""
+    if session.scalar(select(FinanceConfiguration.id).limit(1)) is not None:
+        return
+
+    from .finance_configuration import reference
+    from .finance_tax import tax_details
+
+    tax = session.get(TaxCode, stable_id("tax-code", "VAT12-EWT2"))
+    expense = session.get(ChartAccount, stable_id("chart-account", "6100"))
+    input_vat = session.get(ChartAccount, stable_id("chart-account", "1160"))
+    advance = session.get(ChartAccount, stable_id("chart-account", "1200"))
+    payable = session.get(ChartAccount, stable_id("chart-account", "2100"))
+    ewt_payable = session.get(ChartAccount, stable_id("chart-account", "2150"))
+    if not all((tax, expense, input_vat, advance, payable, ewt_payable)):
+        raise ValueError("Development Finance setup references were not seeded")
+
+    effective_from = date(2026, 1, 1)
+    version = 1
+    tax_by_request_type = {request_type: str(tax.id) for request_type in DEMO_REQUEST_PREFIXES}
+    general_mapping = {
+        "debit_account_id": str(expense.id),
+        "credit_account_id": str(payable.id),
+        "input_vat_account_id": str(input_vat.id),
+        "ewt_payable_account_id": str(ewt_payable.id),
+    }
+    cash_advance_mapping = {
+        "debit_account_id": str(advance.id),
+        "credit_account_id": str(payable.id),
+        "input_vat_account_id": None,
+        "ewt_payable_account_id": None,
+    }
+    finance_manager_id = (user_ids or {}).get("finance_manager") or session.scalar(
+        select(User.id)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(Role.code == "finance_manager", User.is_active.is_(True))
+        .order_by(User.email)
+        .limit(1)
+    )
+    if finance_manager_id is None:
+        return
+    finance_manager = session.get(User, finance_manager_id)
+    config = {
+        "version": version,
+        "vat_basis": "inclusive",
+        "ewt_basis": "net_of_vat",
+        "rounding": "half_up",
+        "effective_date_basis": "submission",
+        "effective_from": effective_from.isoformat(),
+        "tax_by_request_type": tax_by_request_type,
+        "accounts_by_request_type": {
+            "general": general_mapping,
+            "cashAdvance": cash_advance_mapping,
+        },
+        "voucher": {
+            "prefix": "PV",
+            "reset_basis": "academic_year",
+            "certification_text": "Prepared by Finance and certified from the approved request and posted accounting.",
+            "create_role": "finance_associate",
+            "post_role": "finance_manager",
+            "void_role": "finance_manager",
+        },
+        "setup_scope": "system",
+        "activated_by": finance_manager.display_name,
+        "activation_expected_version": 0,
+        "scope": "all",
+        "debit": reference(expense),
+        "credit": reference(payable),
+        "default_tax_snapshot": tax_details(tax),
+    }
+    draft_config = {key: config[key] for key in (
+        "version", "vat_basis", "ewt_basis", "rounding", "effective_date_basis",
+        "effective_from", "tax_by_request_type", "accounts_by_request_type", "voucher", "setup_scope"
+    )}
+    setting = session.scalar(select(SystemSetting).where(SystemSetting.key == "finance.setup.draft"))
+    if setting is None:
+        session.add(
+            SystemSetting(
+                id=stable_id("system-setting", "finance.setup.draft"),
+                key="finance.setup.draft",
+                value=json.dumps(draft_config),
+            )
+        )
+    else:
+        setting.value = json.dumps(draft_config)
+    session.add(
+        FinanceConfiguration(
+            id=stable_id("finance-configuration", "development-v1"),
+            version=version,
+            effective_from=effective_from,
+            configuration=config,
+            reason="Development seed: activate complete Finance defaults for all request types.",
+            command_key="development-seed-finance-setup-v1",
+            actor_user_id=finance_manager.id,
+        )
+    )
+
+
 def seed_completed_demo_approval(session, item, seed_code, user_ids):
     """Reconstruct missing history for post-approval development fixtures only."""
     if not (item.type_data or {}).get("development_seed"):
@@ -761,6 +869,20 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                         normal_balance="debit",
                     )
                 )
+        for code, name, description, account_type, normal_balance in DEMO_FINANCE_ACCOUNTS:
+            account = session.scalar(select(ChartAccount).where(ChartAccount.code == code))
+            if account is None:
+                session.add(
+                    ChartAccount(
+                        id=stable_id("chart-account", code),
+                        code=code,
+                        name=name,
+                        description=description,
+                        account_type=account_type,
+                        is_posting=True,
+                        normal_balance=normal_balance,
+                    )
+                )
         for code, name, vat_classification, vat_rate, ewt_classification, ewt_rate in DEMO_TAX_CODES:
             tax_code = session.scalar(select(TaxCode).where(TaxCode.code == code))
             if tax_code is None:
@@ -890,8 +1012,8 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                             permission_id=stable_id("permission", permission_code),
                         )
                     )
+        user_ids = {}
         if settings.development_demo_password:
-            user_ids = {}
             for role_code, email, display_name, department_code in DEMO_USERS:
                 user_id = stable_id("user", email)
                 user_ids[role_code] = user_id
@@ -918,6 +1040,11 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 if existing_user_role is None:
                     session.add(UserRole(id=user_role_id, user_id=user_id, role_id=stable_id("role", role_code)))
             session.flush()
+            if settings.app_env == "test":
+                center = session.get(CostCenter, stable_id("cost-center", "MKTG"))
+                if center and center.approver_user_id is None:
+                    center.approver_user_id = user_ids["department_head"]
+                session.flush()
             if settings.app_env in {"local", "development"}:
                 marketing_cost_center_id = stable_id("cost-center", "MKTG")
                 account_ids = [stable_id("chart-account", code) for code, _, _ in DEMO_ACCOUNTS]
@@ -993,6 +1120,8 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                     line.currency_code = "PHP"
                     line.attachment_refs = [f"demo-{seed_code.lower()}.pdf"] if status != "draft" else []
                     seed_demo_approval(session, item, seed_code, current_step, user_ids)
+        if settings.app_env in {"local", "development"}:
+            seed_local_finance_setup(session, user_ids)
 
 
 if __name__ == "__main__":

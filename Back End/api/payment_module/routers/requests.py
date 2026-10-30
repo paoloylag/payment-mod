@@ -13,6 +13,8 @@ from ..audit import audit
 from ..config import get_settings
 from ..database import get_db
 from ..finance_configuration import active_configuration, apply_payload, apply_submission, request_coding, save_coding
+from ..cost_center_approvals import routing_approver, department_participant
+from ..workflow_assignments import assignment_allows
 from ..finance_readiness import effective, finance_date
 from ..models import (
     ChartAccount,
@@ -87,12 +89,14 @@ def visible_query(db: Session, request: Request, actor: User):
                 )
             )
     if "requests.read_department" in codes and actor.department_id:
-        visible.extend(
-            (
-                PaymentRequest.department_id == actor.department_id,
-                PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
-            )
+        mapped_requests = select(WorkflowInstance.request_id).where(
+            WorkflowInstance.route_snapshot["department_approver_id"].astext.is_not(None)
         )
+        visible.extend((
+            and_(PaymentRequest.department_id == actor.department_id, PaymentRequest.id.not_in(mapped_requests)),
+            and_(PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
+                 PaymentRequest.id.not_in(mapped_requests)),
+        ))
     if "workflow.review" in codes:
         role_codes = db.scalars(
             select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == actor.id)
@@ -102,7 +106,7 @@ def visible_query(db: Session, request: Request, actor: User):
                 select(WorkflowInstance).where(
                     WorkflowInstance.route_snapshot.contains({"stages": [{"role": role_code}]})
                 )
-            )
+            ).all()
             reached_request_ids = [
                 instance.request_id
                 for instance in candidate_routes
@@ -111,11 +115,9 @@ def visible_query(db: Session, request: Request, actor: User):
             if not reached_request_ids:
                 continue
             if role_code == "department_head":
-                visible.append(
-                    and_(
-                        PaymentRequest.department_id == actor.department_id, PaymentRequest.id.in_(reached_request_ids)
-                    )
-                )
+                scoped_ids = [instance.request_id for instance in candidate_routes
+                    if instance.request_id in reached_request_ids and department_participant(db, db.get(PaymentRequest, instance.request_id), actor, instance)]
+                visible.append(PaymentRequest.id.in_(scoped_ids))
             else:
                 visible.append(PaymentRequest.id.in_(reached_request_ids))
     return query.where(or_(*visible))
@@ -244,6 +246,8 @@ def serialize_many(
 
 
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
+    if payload.request_type == "pettyCash" and payload.currency_code != "PHP":
+        raise HTTPException(422, "Petty Cash supports PHP only")
     if payload.vendor_external_id:
         db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
         vendor = get_vendor_adapter(db).get(payload.vendor_external_id)
@@ -331,7 +335,7 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
         except Exception:
             return Decimal("0")
 
-    if item.request_type in {"reimbursement", "cashAdvance", "liquidation"}:
+    if item.request_type in {"reimbursement", "cashAdvance", "liquidation", "pettyCash"}:
         require(item.purpose.strip(), "purpose", "Event or payment purpose is required")
     require(lines, "lines", "At least one line item is required")
     require(item.gross_amount > 0, "gross_amount", "The request total must be greater than zero")
@@ -1286,11 +1290,13 @@ def submit_payment_request(
     item.status = "submitted"
     item.submitted_at = datetime.now(UTC)
     item.request_number = item.request_number or next_number(db)
-    item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
+    if item.request_type != "pettyCash":
+        item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     item.version += 1
     db.flush()
     save_coding(db, item, finance_configuration)
     try:
+        routing_approver(db, item, required=True)
         start_workflow(db, item, actor.id)
     except PolicyCannotRoute as error:
         raise HTTPException(422, str(error)) from error
@@ -1332,7 +1338,8 @@ def return_payment_request(
     if workflow and (
         workflow.state != "active"
         or workflow.current_stage != 0
-        or actor.department_id != item.department_id
+        or not department_participant(db, item, actor, workflow)
+        or not assignment_allows(db, item, actor)
         or not is_department_head
         or actor.id == item.requestor_id
     ):
@@ -1375,7 +1382,8 @@ def lifecycle_change(
     if target_status == "submitted":
         item.submitted_at = datetime.now(UTC)
         item.request_number = item.request_number or next_number(db)
-        item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
+        if item.request_type != "pettyCash":
+            item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
     db.add(
         PaymentRequestStatusHistory(
             request_id=item.id,
@@ -1491,6 +1499,7 @@ def resubmit_payment_request(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
     )
     try:
+        routing_approver(db, item, required=True)
         start_workflow(db, item, actor.id)
     except PolicyCannotRoute as error:
         raise HTTPException(422, str(error)) from error

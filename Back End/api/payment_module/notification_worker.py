@@ -22,7 +22,13 @@ def deliver(db, event, development_mailbox=False):
     if not plan:
         return "skipped"  # Historical events have no approved recipient snapshot; never guess or backfill.
 
-    channels = ["in_app"]
+    is_mention = plan.get("kind") == "conversation_mention"
+    channels = [] if is_mention else ["in_app"]
+    participants = None
+    if is_mention:
+        from .models import PaymentRequest
+        from .routers.conversation import participant_users
+        participants = {person["id"] for person in participant_users(db, db.get(PaymentRequest, event.aggregate_id))}
 
     if development_mailbox:
         if get_settings().app_env not in {"local", "test"}:
@@ -33,10 +39,14 @@ def deliver(db, event, development_mailbox=False):
     for recipient in plan["recipient_ids"]:
         user = db.get(User, UUID(recipient))
 
-        if not user or not user.is_active or user.is_suspended:
+        if not user or not user.is_active or user.is_suspended or (participants is not None and recipient not in participants):
             continue
 
         for channel in channels:
+            content = {"title": plan["title"], "preview": plan["preview"]}
+            if is_mention and channel == "development_email":
+                from .mention_email import mention_email
+                content.update(mention_email(event.payload, user))
             db.execute(
                 insert(NotificationDelivery)
                 .values(
@@ -46,7 +56,7 @@ def deliver(db, event, development_mailbox=False):
                     recipient_user_id=user.id,
                     channel=channel,
                     template_version=plan["version"],
-                    content={"title": plan["title"], "preview": plan["preview"]},
+                    content=content,
                 )
                 .on_conflict_do_nothing(constraint="uq_notification_delivery_recipient")
             )

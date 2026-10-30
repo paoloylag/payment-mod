@@ -390,6 +390,8 @@ def create_user(
     )
     db.add(user)
     db.flush()
+    if payload.role_ids is not None:
+        save_user_roles(db, user, payload.role_ids, actor, request)
     audit(
         db,
         actor_id=actor.id,
@@ -423,6 +425,9 @@ def update_user(
         "is_suspended": user.is_suspended,
     }
     changes = payload.model_dump(exclude_unset=True)
+    role_ids = changes.pop("role_ids", None)
+    if role_ids is not None:
+        save_user_roles(db, user, role_ids, actor, request)
     if "email" in changes:
         changes["email"] = changes["email"].lower().strip()
         if db.scalar(select(User).where(User.id != user.id, User.email == changes["email"])):
@@ -494,19 +499,11 @@ def delete_user(
     db.commit()
 
 
-@router.put("/users/{user_id}/roles")
-def assign_roles(
-    user_id: UUID,
-    payload: RoleAssignment,
-    request: Request,
-    actor: User = Depends(require_permission("roles.assign")),
-    db: Session = Depends(get_db),
-) -> dict:
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
+def save_user_roles(db: Session, user: User, role_ids: list[UUID], actor: User, request: Request) -> None:
+    if "roles.assign" not in getattr(request.state, "permissions", set()):
+        raise HTTPException(403, "Permission required: roles.assign")
     existing = set(db.scalars(select(UserRole.role_id).where(UserRole.user_id == user.id)))
-    requested = set(payload.role_ids)
+    requested = set(role_ids)
     if len(set(db.scalars(select(Role.id).where(Role.id.in_(requested))))) != len(requested):
         raise HTTPException(422, "One or more roles do not exist")
     db.execute(delete(UserRole).where(UserRole.user_id == user.id))
@@ -521,6 +518,20 @@ def assign_roles(
         before={"role_ids": sorted(map(str, existing))},
         after={"role_ids": sorted(map(str, requested))},
     )
+
+
+@router.put("/users/{user_id}/roles")
+def assign_roles(
+    user_id: UUID,
+    payload: RoleAssignment,
+    request: Request,
+    actor: User = Depends(require_permission("roles.assign")),
+    db: Session = Depends(get_db),
+) -> dict:
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    save_user_roles(db, user, payload.role_ids, actor, request)
     db.commit()
     return user_row(db, user)
 

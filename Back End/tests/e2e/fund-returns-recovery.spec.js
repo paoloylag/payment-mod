@@ -30,7 +30,7 @@ test("full fund returns and recovered payments require independent Finance verif
     await expect(receipt.locator('[name="reference"]')).toHaveValue("R".repeat(100));
     await associate.unroute("**/fund-return");
     await receipt.getByRole("button", { name: "Record full fund return", exact: true }).click();
-    await expect(returned.locator("[data-fund-return-state]")).toContainText("verification pending");
+    await expect(returned.locator("[data-fund-return-state]")).toContainText("Verification Pending");
     expect(Number((await fixture.get(`payments/${fixture.liquidation.id}`)).summary.fund_return_outstanding)).toBe(400);
     await manager.goto(`/#/requests/${fixture.liquidation.request_number}`);
     const review = manager.locator("[data-fund-return]");
@@ -41,10 +41,10 @@ test("full fund returns and recovered payments require independent Finance verif
     await verification.getByRole("button").click(); await expect(verification.getByRole("alert")).toContainText("Verification retry test");
     await manager.unroute("**/fund-return/verify");
     await verification.getByRole("button").focus(); await manager.keyboard.press("Enter");
-    await expect(review.locator("[data-fund-return-state]")).toHaveText("Full fund return verified");
+    await expect(review.locator("[data-fund-return-state]")).toHaveText("Full Fund Return Verified");
     await expect(review).toContainText("Verified receipt accounting");
     expect(Number((await fixture.get(`payments/${fixture.liquidation.id}`)).summary.fund_return_outstanding)).toBe(0);
-    await manager.reload(); await expect(manager.locator("[data-voucher-state]")).toHaveText("Full fund return verified");
+    await manager.reload(); await expect(manager.locator("[data-voucher-state]")).toHaveText("Full Fund Return Verified");
     const journal = await fixture.get(`finance-accounting/${fixture.general.id}`);
     expect(journal.saved.state).toBe("posted");
     await associate.goto(`/#/requests/${fixture.general.request_number}`);
@@ -61,7 +61,7 @@ test("full fund returns and recovered payments require independent Finance verif
     await expect(recovery.getByRole("alert")).toContainText("Recovery retry test");
     await associate.unroute("**/lines/*/recover");
     await recovery.getByRole("button", { name: "Record full payment recovery", exact: true }).click();
-    await expect(card.locator("[data-payment-state]")).toContainText("Manager review pending");
+    await expect(card.locator("[data-payment-state]")).toContainText("Manager Review Pending");
     expect(Number((await fixture.get(`payments/${fixture.general.id}`)).summary.available)).toBe(0);
     await manager.goto(`/#/requests/${fixture.general.request_number}`);
     const managerCard = manager.locator(`[data-payment-card="${fixture.payment}"]`);
@@ -69,7 +69,7 @@ test("full fund returns and recovered payments require independent Finance verif
     const confirm = managerCard.locator('[data-payment-action="confirm-reversal"]');
     await confirm.locator("textarea").fill("Recovery independently verified; replace payment");
     await confirm.getByRole("button").click();
-    await expect(managerCard.locator("[data-payment-state]")).toContainText("Full recovery verified");
+    await expect(managerCard.locator("[data-payment-state]")).toContainText("Full Recovery Verified");
     expect(Number((await fixture.get(`payments/${fixture.general.id}`)).summary.available)).toBe(1100);
     expect((await fixture.get(`finance-accounting/${fixture.general.id}`)).saved).toEqual(journal.saved);
     await associate.reload(); await associate.getByRole("button", { name: "Prepare replacement", exact: true }).click();
@@ -91,7 +91,7 @@ test("full fund returns and recovered payments require independent Finance verif
     await fixture.release(unspent, "500", "Unspent advance");
     await associate.goto(`/#/requests/${unspent.request_number}`);
     const fullReturn = associate.locator("[data-fund-return]");
-    await expect(fullReturn).toContainText("Optional full return");
+    await expect(fullReturn).toContainText("Optional Full Return");
     await fullReturn.locator("summary").filter({ hasText: /^Record full fund return$/ }).click();
     const fullForm = fullReturn.locator("form");
     await fullForm.getByRole("checkbox").check();
@@ -112,13 +112,13 @@ test("full fund returns and recovered payments require independent Finance verif
     const dismiss = associate.getByRole("button", { name: "Dismiss message" }); if (await dismiss.isVisible()) await dismiss.click();
     await fullReturn.screenshot({ path: "outputs/unused-advance-full-return-mobile.png" });
     await fullForm.getByRole("button", { name: "Record full fund return", exact: true }).click();
-    await expect(fullReturn.locator("[data-fund-return-state]")).toContainText("verification pending");
+    await expect(fullReturn.locator("[data-fund-return-state]")).toContainText("Verification Pending");
     await manager.goto(`/#/requests/${unspent.request_number}`);
     const fullReview = manager.locator("[data-fund-return]");
     await fullReview.locator("summary").filter({ hasText: /^Verify full fund return$/ }).click();
     await fullReview.locator('[data-fund-return-action="verify"] textarea').fill("Verified entire unused advance return");
     await fullReview.getByRole("button", { name: "Verify full fund return", exact: true }).click();
-    await expect(manager.locator("[data-voucher-state]")).toHaveText("Full fund return verified");
+    await expect(manager.locator("[data-voucher-state]")).toHaveText("Full Fund Return Verified");
     expect(errors).toEqual([]);
   } finally { for (const context of contexts) await context.close(); await fixture.dispose(); }
 });

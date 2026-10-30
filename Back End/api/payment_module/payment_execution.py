@@ -280,20 +280,16 @@ def execution_view(db, voucher, actor, roles, permissions):
                 "details": instruction.result,
                 "predecessor_id": str(instruction.predecessor_id) if instruction.predecessor_id else None,
                 "replacement_id": str(replacement) if replacement else None,
-                "can_authorize": issued
-                and state == "prepared"
-                and instruction.signatory_user_id == actor.id
-                and "authorized_signatory" in roles
-                and "payments.authorize" in permissions,
+                "can_authorize": False,
                 "can_pickup_ready": issued
-                and state == "authorized"
+                and state in {"prepared", "authorized"}
                 and method_category == "check"
                 and finance_associate
                 and "payments.release" in permissions,
                 "can_release": issued
                 and finance_associate
                 and "payments.release" in permissions
-                and (state == "ready_for_pickup" if method_category == "check" else state == "authorized"),
+                and (state == "ready_for_pickup" if method_category == "check" else state in {"prepared", "authorized"}),
                 "can_clear": issued and state == "released" and manager and "payments.clear" in permissions,
                 "can_fail": issued
                 and state in {"prepared", "authorized", "ready_for_pickup"}

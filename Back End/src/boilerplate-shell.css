@@ -659,6 +659,13 @@ select:disabled { cursor: not-allowed; opacity: .68; }
 }
 .auth-loading { width: 32px; height: 32px; margin: auto; border: 3px solid var(--line); border-top-color: var(--primary); border-radius: 50%; animation: auth-spin .8s linear infinite; }
 @keyframes auth-spin { to { transform: rotate(360deg); } }
+.session-restoring-panel { display: grid; width: min(520px, 100%); gap: 30px; border: 1px solid var(--line); border-radius: 8px; padding: clamp(22px, 5vw, 38px); background: var(--panel); box-shadow: var(--shadow); }
+.session-restoring-copy { display: flex; align-items: center; gap: 16px; }
+.session-loading-icon { position: relative; flex: 0 0 auto; width: 40px; height: 40px; border: 4px solid color-mix(in srgb, var(--primary) 18%, var(--line)); border-top-color: var(--primary); border-radius: 50%; animation: auth-spin .8s linear infinite; }
+.session-loading-icon::after { content: ""; position: absolute; inset: 8px; border: 2px solid transparent; border-bottom-color: color-mix(in srgb, var(--primary) 72%, var(--text)); border-radius: 50%; }
+.session-restoring-copy strong { display: block; color: var(--maroon-strong); font-size: 18px; }
+.session-restoring-copy p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) { .session-loading-icon { animation: none; } }
 .identity-page { display: grid; gap: 20px; padding: 24px; }
 .identity-heading h3 { margin: 5px 0; font-size: clamp(24px, 3vw, 34px); }
 .identity-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1339,6 +1346,14 @@ body:has(.guide-main) { overflow: visible; }
 .guide-card:not([open]) .guide-card-toggle::after { content: " +"; }
 .request-metadata { margin-bottom: 14px; }
 .request-metadata > summary { display: none; }
+.request-detail-groups { display: grid; gap: 16px; min-width: 0; }
+.request-detail-groups > * { min-width: 0; margin: 0; }
+.request-detail-groups .request-information-card { margin: 0; }
+.request-summary-card .request-metadata { margin: 0; }
+.request-summary-card .request-metadata > summary { display: flex; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.request-summary-card .request-metadata[open] > summary { margin-bottom: 14px; }
+.request-detail-groups .finance-tax-panel { margin-block: 0; }
+.request-detail-groups .request-control-bar { margin: 0; }
 .request-routing-card > summary { align-items: flex-start; }
 .routing-detail { margin-top: 12px; }
 .workflow-summary-content,
@@ -1666,7 +1681,7 @@ body:has(.guide-main) { overflow: visible; }
 .conversation-toggle:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 .conversation-expand { display: flex; flex-direction: column; justify-content: flex-start; gap: 10px; width: 48px; min-width: 48px; height: 100%; min-height: 160px; padding-top: 16px; border: 0; border-radius: 0; }
 .conversation-rail-label { writing-mode: vertical-rl; font-size: .85rem; font-weight: 700; letter-spacing: .03em; }
-.conversation-list { display: grid; align-content: start; gap: 12px; flex: 1; min-height: 0; margin: 18px 0 0; overflow-y: auto; overscroll-behavior: contain; }
+.conversation-list { display: grid; grid-auto-rows: max-content; align-content: start; gap: 12px; flex: 1; min-height: 0; margin: 18px 0 0; overflow-y: auto; overscroll-behavior: contain; }
 .conversation-entry { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .conversation-entry-header { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; }
 .conversation-entry-header strong { overflow-wrap: anywhere; }
@@ -2366,3 +2381,82 @@ input:is([type="checkbox"], [type="radio"]) { accent-color: var(--brand-crimson)
 .financial-report-panel table { min-width: 1200px; }
 .financial-report-panel th { white-space: nowrap; }
 .financial-report-panel [data-finance-report-request] { min-width: 140px; white-space: nowrap; }
+
+/* Arrow pagination retains shared button styling and touch targets. */
+.app-shell main button.pagination-arrow { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 8px; }
+.pagination-arrow > span { font-size: 20px; line-height: 1; }
+
+/* Only tagged participant names use crimson; message text keeps its normal color. */
+.conversation-entry > p { color: var(--text); }
+.conversation-entry .conversation-mention, .conversation-mention-chip { color: var(--primary); }
+
+/* Recipient-only mention emphasis remains visible after the notification is read. */
+.conversation-entry.is-mentioned { border-color: color-mix(in srgb, var(--primary) 50%, var(--line)); border-left: 3px solid var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--panel)); }
+.conversation-mention-badge { color: var(--primary); font-size: .75rem; font-weight: 600; }
+
+/* Notification inbox spacing: one readable card per entry. */
+.app-shell main .notification-panel .notification-panel-header { padding: 16px; }
+.app-shell main .notification-panel .notification-panel-header button { min-width: 44px; min-height: 44px; }
+.app-shell main .notification-panel .notification-list { padding: 12px; gap: 12px; }
+.app-shell main .notification-panel .notification-row { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.app-shell main .notification-panel button.notification-item { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 14px; border: 0; border-radius: 0; }
+.app-shell main .notification-panel .notification-item > * { grid-column: 1; grid-row: auto; text-align: left; }
+.app-shell main .notification-panel .notification-item-preview { line-height: 1.45; }
+.app-shell main .notification-panel .notification-item time { margin-top: 2px; }
+.app-shell main .notification-panel .notification-read-toggle { margin: 0 14px 14px; }
+.app-shell main .notification-panel .notification-pagination { padding: 12px 16px; border-top: 1px solid var(--line); }
+
+/* Separate message identity and metadata from the message body. */
+.conversation-entry { padding: 0; overflow: hidden; }
+.conversation-entry-header { padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--panel-strong); }
+.conversation-entry > p { margin: 0; padding: 14px; font-size: .875rem; line-height: 1.5; }
+.conversation-entry.is-mentioned .conversation-entry-header { background: color-mix(in srgb, var(--primary) 10%, var(--panel)); }
+
+.identity-user-roles { min-width: 0; display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.identity-user-roles p { margin: 0; color: var(--muted); font-size: .875rem; }
+.identity-user-roles .identity-checkbox { min-height: 42px; }
+.identity-modal .identity-user-roles input { width: 17px; flex: 0 0 17px; }
+
+.identity-list .cost-center-approver-row { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
+.cost-center-approver-row form { display: grid; min-width: 0; gap: 10px; }
+.cost-center-approver-row label { display: grid; min-width: 0; gap: 6px; }
+.cost-center-approver-row button { justify-self: start; }
+.cost-center-approver-row [data-center-error]:empty { display: none; }
+@media (min-width: 768px) { .identity-list .cost-center-approver-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); } }
+
+.tracker-filters-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-strong); }
+.tracker-filters-grid[hidden] { display: none; }
+.tracker-filters-grid label { display: grid; min-width: 0; gap: 6px; }
+.tracker-filters-grid :is(select,input) { width: 100%; min-width: 0; }
+.tracker-result-count { color: var(--muted); font-size: .8rem; }
+.app-shell main .tracker-table th button { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 4px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; font: inherit; text-transform: inherit; text-align: left; }
+.tracker-table th[aria-sort="ascending"], .tracker-table th[aria-sort="descending"] { color: var(--primary); }
+@media (min-width: 640px) { .tracker-filters-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (min-width: 1100px) { .tracker-filters-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+
+/* Shared route and service error pages. */
+.error-page { display: grid; min-height: clamp(420px, 68vh, 720px); place-items: center; padding: clamp(20px, 5vw, 64px); }
+.error-page-card.panel { width: min(100%, 680px); margin: 0; padding: clamp(28px, 5vw, 56px); overflow: hidden; border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); background: var(--panel); box-shadow: var(--shadow); text-align: center; }
+.error-page-status { margin-bottom: 12px; color: color-mix(in srgb, var(--primary) 20%, var(--muted)); font-family: "Crimson Pro", Georgia, serif; font-size: clamp(4.75rem, 15vw, 9rem); font-weight: 800; line-height: .8; letter-spacing: -.06em; }
+.error-page-card h3 { margin: 10px 0 12px; color: var(--text); font-family: "Crimson Pro", Georgia, serif; font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.05; }
+.error-page-message { margin: 0 auto; color: var(--text); font-size: clamp(1rem, 2vw, 1.125rem); line-height: 1.55; }
+.error-page-guidance { max-width: 52ch; margin: 10px auto 0; color: var(--muted); line-height: 1.55; }
+.error-page-reference { margin: 18px 0 0; color: var(--muted); font-size: .8rem; }
+.error-page-reference code { overflow-wrap: anywhere; }
+.error-page-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 26px; }
+.error-page-actions button { min-height: 44px; }
+.error-page-standalone { display: grid; min-height: 100dvh; place-items: center; padding: 0; }
+.error-page-standalone .error-page { width: 100%; min-height: 100dvh; }
+@media (max-width: 479px) {
+  .error-page { min-height: calc(100dvh - 148px); padding: 16px; }
+  .error-page-card { padding: 30px 20px; }
+  .error-page-actions { display: grid; }
+  .error-page-actions button { width: 100%; }
+}
+
+/* Desktop content can use the full width; mobile keeps its existing drawer. */
+@media (min-width: 1200px) {
+  .app-shell .topbar .hamburger-button { display: grid !important; width: 42px; min-width: 42px; height: 42px; padding: 0; place-items: center; }
+  .app-shell.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
+  .app-shell.sidebar-collapsed > .sidebar { display: none; }
+}

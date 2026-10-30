@@ -13,7 +13,7 @@ export async function checkVoucherLifecycle({ page, managerPage, item, admin, ui
   await expect(issue.locator('[name="reason"]')).toHaveValue("Finance certifies the posted voucher");
   await managerPage.unroute(`**/finance-vouchers/${item.id}/issue`);
   await issue.getByRole("button").focus(); await managerPage.keyboard.press("Enter");
-  await expect(managerPanel.locator("[data-voucher-state]")).toHaveText("Voucher issued");
+  await expect(managerPanel.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
 
   const signatoryPage = await ui("signatory@payment.local"); signatoryPage.on("pageerror", error => errors.push(error.message));
   await signatoryPage.goto("/#/approvals");
@@ -49,7 +49,7 @@ export async function checkVoucherLifecycle({ page, managerPage, item, admin, ui
     }
   }
   await instruction.getByRole("button", { name: "Prepare payment line items" }).click();
-  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Awaiting assigned signatory");
+  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Awaiting Assigned Signatory");
   await managerPage.reload();
   const failedCard = managerPanel.locator("[data-payment-card]").nth(1);
   await failedCard.getByText("Mark payment failed", { exact: true }).first().click();
@@ -84,7 +84,7 @@ export async function checkVoucherLifecycle({ page, managerPage, item, admin, ui
     await form.getByRole("button").focus(); await signatoryPage.keyboard.press("Enter");
     await expect(authorization).toHaveCount(1 - index);
   }
-  await expect(signatoryPanel.locator("[data-voucher-state]")).toHaveText("Payment authorized · Release pending");
+  await expect(signatoryPanel.locator("[data-voucher-state]")).toHaveText("Payment Authorized · Release Pending");
   await signatoryPage.reload();
   await expect(authorization).toHaveCount(0);
   await expect(signatoryPanel).toContainText("Sofia Bautista");
@@ -134,18 +134,18 @@ export async function checkVoucherLifecycle({ page, managerPage, item, admin, ui
     await expect(form).toHaveCount(0);
   };
   await record(cards.nth(0), "release", "Record payment release");
-  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Partially released");
+  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Partially Released");
   await record(cards.last(), "pickup-ready", "Mark ready for pickup");
   await record(cards.last(), "release", "Record payment release");
-  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Payment released · Clearing pending");
+  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Payment Released · Clearing Pending");
   await managerPage.reload();
   await expect(managerPanel.locator('[data-voucher-action="void"]')).toHaveCount(0);
   const managerCards = managerPanel.locator("[data-payment-card]");
   await record(managerCards.nth(0), "clear", "Confirm payment clearing");
   await record(managerCards.last(), "clear", "Confirm payment clearing");
-  await expect(managerPanel.locator("[data-voucher-state]")).toHaveText("Payment cleared");
+  await expect(managerPanel.locator("[data-voucher-state]")).toHaveText("Payment Cleared");
   await page.reload();
-  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Payment cleared");
+  await expect(financePanel.locator("[data-voucher-state]")).toHaveText("Payment Cleared");
   for (const width of [390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     const drawer = page.locator('[data-toggle-conversation][aria-expanded="true"]'); if (width < 1200 && await drawer.isVisible()) await drawer.click();
