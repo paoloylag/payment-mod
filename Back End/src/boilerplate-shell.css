@@ -2531,3 +2531,43 @@ input:is([type="checkbox"], [type="radio"]) { accent-color: var(--brand-crimson)
 }
 
 @media(max-width:420px) { .unified-request-page .metric-detail-header > .status-pill, .approval-review-page .metric-detail-header > .status-pill { justify-self:start; } }
+
+/* Compact review surfaces: existing cards, labelled values and shared controls. */
+.finance-readiness > .detail-list,
+.workflow-exception-body > .detail-list,
+.approval-override-panel > .detail-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 20px;
+  margin: 12px 0;
+}
+.finance-readiness .detail-list > div,
+.workflow-exception-body .detail-list > div,
+.approval-override-panel .detail-list > div { min-width: 0; }
+.finance-readiness .detail-list dt,
+.workflow-exception-body .detail-list dt,
+.approval-override-panel .detail-list dt { color: var(--muted); font-size: 12px; }
+.finance-readiness .detail-list dd,
+.workflow-exception-body .detail-list dd,
+.approval-override-panel .detail-list dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 14px; }
+.finance-readiness > details { margin-block: 12px; }
+.finance-readiness > details > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.finance-readiness > details > summary::before { content: "▸"; margin-right: 8px; }
+.finance-readiness > details[open] > summary::before { content: "▾"; }
+.app-shell main .finance-tax-panel > .panel-header { gap: 12px; flex-wrap: wrap; }
+.app-shell main .finance-tax-panel > .panel-header > div { min-width: 0; }
+.app-shell main .finance-tax-panel > .panel-header h3 { overflow-wrap: anywhere; }
+.conversation-entry-header { padding: 10px 12px; gap: 6px 12px; }
+.conversation-entry-header strong { font-size: 14px; line-height: 1.4; }
+.conversation-entry-header time { font-size: 12px; line-height: 1.4; }
+.app-shell main .notification-panel button.notification-item { padding: 12px 14px; gap: 6px; }
+@media (min-width: 640px) {
+  .finance-readiness > .detail-list,
+  .workflow-exception-body > .detail-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 639px) {
+  .finance-tax-panel > .detail-list,
+  .finance-tax-panel [data-payment-execution] > .detail-list { grid-template-columns: minmax(0, 1fr); }
+  .app-shell main .notification-panel .notification-read-toggle { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .app-shell main .notification-panel .notification-item-title { padding-right: 40px; }
+}

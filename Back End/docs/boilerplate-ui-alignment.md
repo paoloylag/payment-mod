@@ -87,3 +87,9 @@ At 320–420px, stack the request status beneath the request identity and stack 
 ## 2026-11-08: Preserve editing across navigation breakpoints
 
 Regression testing found a full page rerender at 1200px could replace active form controls. Navigation now updates its DOM, accessibility and inert state in place. Finance setup tests retain an unsaved voucher prefix across phone/tablet/desktop widths. This extends the existing persisted-navigation pattern; no new component is needed.
+
+## 2026-11-08: Concise Finance and administration surfaces
+
+Reused existing labelled detail lists, cards, shared controls and native disclosures. Activation now presents status, effective date, scope and blockers before account details; a short consequence note remains visible. Assignment controls show assigned and current reviewers as separate values. Removed redundant control instructions and technical vendor copy; corrected Petty Cash form guidance to match its voucher flow. Standardized message metadata spacing and retained touch-sized notification actions on phones. No new reusable component or variant introduced; existing app-only preview and checklist candidates remain unchanged.
+
+Validation: production build and diff whitespace checks passed. Six affected Chrome specifications passed across initial checks and targeted reruns: Finance setup, activation (including failed-save retry and account-rule disclosure), workflow exceptions, conversation mentions, Petty Cash and representative phone viewport layouts. Reviewed generated mobile activation, dark activation, mention and dark Petty Cash screenshots. Physical iOS Safari remains unverified. No new boilerplate gap was introduced.

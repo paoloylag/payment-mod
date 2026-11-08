@@ -57,7 +57,7 @@ test("Finance activates General setup and requests receive immutable account ass
     await expect(form.locator("textarea")).toHaveValue("Finance acceptance of General mapping");
     await manager.unroute("**/finance-setup/activate");
     await form.getByRole("button").focus(); await manager.keyboard.press("Enter");
-    await expect(section).toContainText("Active version");
+    await expect(section.locator("dd").filter({ hasText: /^Active · Version/ })).toBeVisible();
     await expect(form.getByRole("button")).toBeDisabled();
     const owner = await session("requestor@payment.local");
     const departments = await (await owner.context.get("/api/v1/departments")).json();
@@ -94,6 +94,11 @@ test("Finance activates General setup and requests receive immutable account ass
     await expect(page.locator(`input[readonly]`).filter({ visible: true }).first()).toBeVisible();
     await manager.setViewportSize({ width: 390, height: 900 });
     await section.screenshot({ path: "outputs/phase06-activation-mobile.png" });
+    await section.locator("summary").filter({ hasText: "Account rules" }).click();
+    await expect(section.getByText("Petty Cash: full approved amount, without tax deductions.")).toBeVisible();
+    await manager.locator("[data-theme-toggle]").click();
+    await section.screenshot({ path: "outputs/compact-activation-dark.png" });
+    expect(await section.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
   } finally {
     // This suite owns the disposable payment_module_e2e database. Restore activation state for other tests.
     execFileSync("docker", ["compose", "exec", "-T", "db", "psql", "-U", "payment_module", "-d", "payment_module_e2e", "-v", "ON_ERROR_STOP=1", "-c",
