@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, object_session
 from ..audit import audit
 from ..database import get_db
 from ..finance_validation import validation_summary
+from ..finance_section_visibility import finance_sections
 from ..models import (
     Currency,
     PaymentRequest,
@@ -275,6 +276,7 @@ def workflow_detail(
     return {
         **view(instance),
         "current_assignment": current_assignment,
+        "finance_sections": finance_sections(db, request, actor, item, instance, roles),
         "exception_controls": exception_controls(db, request, actor, item, instance),
         "can_approve_on_behalf": can_override_approval(request, actor, item, instance, roles),
         "events": [

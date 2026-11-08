@@ -1,5 +1,7 @@
 # Finance Orientation Findings
 
+Update 3 November 2026: Petty Cash is now supported separately for PHP requests below PHP 3,000, ending with Finance Associate approval and voucher creation without tax deductions. See [Petty Cash vouchers](petty-cash-vouchers.md). Earlier exclusions below are historical.
+
 Source: `C:\Users\Paolo Ylag\Downloads\Orientation from Finance Team.pdf`
 Source creation date: 2026-09-24
 Reviewed: 2026-09-25

@@ -10,7 +10,7 @@ from test_payment_requests import payload
 from test_workflow_approvals import login, accept_finance_line
 
 
-@pytest.mark.parametrize("amount,budgeted",[("500",True),("1250000",False)])
+@pytest.mark.parametrize("amount,budgeted",[("500",True),("2999.99",False)])
 def test_petty_cash_route_ends_with_finance_associate(amount,budgeted):
     route=route_for(request_type="pettyCash",budgeted=budgeted,amount=Decimal(amount),currency_code="PHP")
     assert [s.role for s in route.stages] == ["department_head","finance_associate"]
@@ -18,7 +18,7 @@ def test_petty_cash_route_ends_with_finance_associate(amount,budgeted):
         route_for(request_type="pettyCash",budgeted=True,amount=Decimal("500"),currency_code="USD",php_per_unit=Decimal("58"))
 
 
-def test_petty_cash_submission_approval_and_no_downstream_finance(client):
+def test_petty_cash_submission_approval_and_voucher(client):
     seed()
     headers=login(client,"requestor@payment.local")
     data=payload();data.update(request_type="pettyCash",purpose="Petty cash supplies")
@@ -30,6 +30,8 @@ def test_petty_cash_submission_approval_and_no_downstream_finance(client):
     submitted=client.post(f"/api/v1/requests/{request_id}/submit",json={"version":item["version"]},headers={**headers,"Idempotency-Key":str(uuid4())})
     assert submitted.status_code==200,submitted.text
     assert not submitted.json()["voucher_number"]
+    fa_early=login(client,"finance.associate@payment.local")
+    assert client.post(f"/api/v1/petty-cash-vouchers/{request_id}/issue",json={"request_version":submitted.json()["version"],"reason":"Too early"},headers={**fa_early,"Idempotency-Key":str(uuid4())}).status_code in {404,409}
     head=login(client,"department.head@payment.local")
     approved=client.post(f"/api/v1/workflow/{request_id}/approve",json={"version":1},headers={**head,"Idempotency-Key":str(uuid4())})
     assert approved.status_code==200,approved.text
@@ -44,12 +46,28 @@ def test_petty_cash_submission_approval_and_no_downstream_finance(client):
     assert not result["voucher_number"]
     listed=next(row for row in client.get("/api/v1/requests").json() if row["id"]==request_id)
     assert listed["display_status"]=="Approved"
+    voucher_url=f"/api/v1/petty-cash-vouchers/{request_id}"
+    view=client.get(voucher_url).json()
+    assert view["can_issue"] is True
+    body={"request_version":result["version"],"reason":"Petty cash approved"}
+    key=str(uuid4()); command_headers={**fa,"Idempotency-Key":key}
+    assert client.post(voucher_url+"/issue",json={**body,"request_version":999},headers=command_headers).status_code==409
+    issued=client.post(voucher_url+"/issue",json=body,headers=command_headers)
+    assert issued.status_code==200,issued.text
+    assert Decimal(issued.json()["amount_due"])==Decimal(str(result["gross_amount"]))
+    assert issued.json()["tax"]=="0.00"
+    assert issued.json()["voucher_number"].startswith("PCV-")
+    assert client.post(voucher_url+"/issue",json=body,headers=command_headers).json()==issued.json()
+    assert client.post(voucher_url+"/issue",json=body,headers={**fa,"Idempotency-Key":str(uuid4())}).status_code==409
+    assert client.get(voucher_url).json()["can_issue"] is False
+    assert client.get(f"/api/v1/requests/{request_id}").json()["voucher_number"]==issued.json()["voucher_number"]
     assert client.get(f"/api/v1/finance-tax/{request_id}").status_code==409
     assert client.get(f"/api/v1/finance-accounting/{request_id}").status_code==409
     assert client.get(f"/api/v1/finance-vouchers/{request_id}").status_code==409
     dashboard=client.get("/api/v1/reports/dashboard").json()
     assert request_id not in dashboard["membership"]["open"]
-    login(client,"finance.manager@payment.local")
+    manager=login(client,"finance.manager@payment.local")
+    assert client.post(voucher_url+"/issue",json=body,headers={**manager,"Idempotency-Key":str(uuid4())}).status_code in {403,404}
     report=client.get("/api/v1/reports/requests?request_type=pettyCash").json()
     assert any(row["request_id"]==request_id and row["status"]=="Approved" for row in report["items"])
     payments=client.get("/api/v1/reports/finance?kind=payments").json()
@@ -58,6 +76,8 @@ def test_petty_cash_submission_approval_and_no_downstream_finance(client):
         assert db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id==request_id)) is None
         assert db.scalar(select(FinanceJournalSnapshot).where(FinanceJournalSnapshot.request_id==request_id)) is None
     client.cookies.clear();headers=login(client,"requestor@payment.local")
+    assert client.post(voucher_url+"/issue",json=body,headers={**headers,"Idempotency-Key":str(uuid4())}).status_code==403
+    assert client.post(f"/api/v1/requests/{request_id}/cancel",json={"version":result["version"],"note":"Cancel issued voucher"},headers=headers).status_code==409
     data["currency_code"]="USD";data["lines"][0]["currency_code"]="USD"
     assert client.post("/api/v1/requests",json=data,headers=headers).status_code==422
 
@@ -86,3 +106,12 @@ def test_petty_cash_finance_rejection_and_return_resume(client,decision):
     login(client,"coo@payment.local")
     assert client.get(f"/api/v1/finance-accounting/{rid}").status_code==404
     assert client.get(f"/api/v1/finance-vouchers/{rid}").status_code==404
+
+
+@pytest.mark.parametrize("amount", ["3000", "3000.01", "1250000"])
+def test_petty_cash_limit(client, amount):
+    seed();headers=login(client,"requestor@payment.local");data=payload()
+    data.update(request_type="pettyCash",purpose="Limit check");data["lines"][0]["amount"]=amount
+    assert client.post("/api/v1/requests",json=data,headers=headers).status_code==422
+    with pytest.raises(PolicyCannotRoute):
+        route_for(request_type="pettyCash",budgeted=True,amount=Decimal(amount),currency_code="PHP")

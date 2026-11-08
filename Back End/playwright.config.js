@@ -13,7 +13,7 @@ export default defineConfig({
   globalTeardown: "./tests/e2e/global-teardown.js",
   use: {
     baseURL: "http://127.0.0.1:5178",
-    headless: false,
+    headless: process.env.PAYMENT_E2E_HEADLESS === "true",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

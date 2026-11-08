@@ -19,6 +19,7 @@ from .routers.finance_setup import router as finance_setup_router
 from .routers.finance_tax import router as finance_tax_router
 from .routers.finance_validation import router as finance_validation_router
 from .routers.finance_vouchers import router as finance_vouchers_router
+from .routers.petty_cash_vouchers import router as petty_cash_vouchers_router
 from .routers.financial_reports import router as financial_reports_router
 from .routers.fund_returns import router as fund_returns_router
 from .routers.identity import router as identity_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     application.include_router(finance_accounting_router)
     application.include_router(finance_operations_router)
     application.include_router(finance_vouchers_router)
+    application.include_router(petty_cash_vouchers_router)
     application.include_router(payment_execution_router)
     application.include_router(fund_returns_router)
     application.include_router(requests_router)

@@ -14,7 +14,7 @@ export function paymentExecutionBody(data, drafts, text, money) {
   const schedule = drafts.schedule || { lines: [{}] };
   const rows = schedule.lines || [{}];
   const preparation = execution.can_add ? `<details ${schedule.open ? "open" : ""} data-payment-schedule><summary>Add payment line items</summary><form class="identity-form" data-payment-action="prepare">
-    <p>Available to allocate: <strong>${amount(execution.summary.available)}</strong>. Each line requires separate authorization.</p>
+    <p>Available to allocate: <strong>${amount(execution.summary.available)}</strong>. Finance records release for each line.</p>
     ${rows.map((row, index) => `<fieldset data-payment-draft-line="${index}"><legend>Payment ${index + 1}${row.predecessor_id ? " · Replacement" : ""}</legend>
       ${input("label", "Payment description", row.label, 'required maxlength="200"')}
       ${input("amount", "Amount", row.amount, `type="number" step="${quantum}" min="${quantum}" required ${row.predecessor_id ? "readonly" : ""}`)}
@@ -37,7 +37,8 @@ export function paymentExecutionBody(data, drafts, text, money) {
       ${reason(draft)}<p role="alert" data-payment-error></p><button type="submit" class="${["fail", "void"].includes(action) ? "danger" : "primary-button"}">${title}</button></form></details>`;
   };
   return `<section data-payment-execution aria-label="Payment line items"><h4>Payment line items</h4>
-    <dl class="detail-list">${[["Allocated", "allocated"], ["Released (net of confirmed recoveries)", "released"], ["Cleared", "cleared"], ["Remaining to release", "remaining"], ["Verified payment recoveries", "recovered"]].map(([title, key]) => `<div><dt>${title}</dt><dd>${amount(execution.summary[key] || "0")}</dd></div>`).join("")}</dl>
+    <dl class="detail-list">${[["Released", "released"], ["Remaining to release", "remaining"]].map(([title, key]) => `<div><dt>${title}</dt><dd>${amount(execution.summary[key] || "0")}</dd></div>`).join("")}</dl>
+    <details><summary>Payment balance details</summary><dl class="detail-list">${[["Allocated", "allocated"], ["Cleared", "cleared"], ["Verified recoveries", "recovered"]].map(([title,key])=>`<div><dt>${title}</dt><dd>${amount(execution.summary[key] || "0")}</dd></div>`).join("")}</dl><p>Released totals exclude confirmed recoveries.</p></details>
     ${fundReturnBody(execution.fund_return, drafts, text, money, execution.summary.currency, data.return_accounts || [])}
     ${execution.lines.map(line => `<article class="payment-line-card" data-payment-card="${text(line.id)}"><h4>Payment ${line.sequence} · ${text(line.details.label || line.details.method)}</h4>
       <p><strong>${amount(line.amount)}</strong> · <span data-payment-state>${label(line.state)}</span></p>

@@ -42,6 +42,8 @@ def route_for(
         raise PolicyCannotRoute("Unsupported request type")
     if request_type == "pettyCash" and currency_code != "PHP":
         raise PolicyCannotRoute("Petty Cash supports PHP only")
+    if request_type == "pettyCash" and amount >= Decimal("3000"):
+        raise PolicyCannotRoute("Petty Cash must be below PHP 3,000")
     if amount <= 0:
         raise PolicyCannotRoute("Approval amount must be greater than zero")
     if currency_code == "PHP":

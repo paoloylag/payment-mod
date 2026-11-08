@@ -254,6 +254,8 @@ export function createDataSource() {
     },
     getFinanceTax(id) { return apiRequest(`/api/v1/finance-tax/${id}`); },
     getFinanceAccounting(id) { return apiRequest(`/api/v1/finance-accounting/${id}`); },
+    getPettyCashVoucher(id) { return apiRequest(`/api/v1/petty-cash-vouchers/${id}`); },
+    issuePettyCashVoucher(id, payload, csrfToken, key) { return apiRequest(`/api/v1/petty-cash-vouchers/${id}/issue`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken, "Idempotency-Key": key }, body: JSON.stringify(payload) }); },
     getFinanceVoucher(id) { return apiRequest(`/api/v1/finance-vouchers/${id}`); },
     getDashboardSnapshot() { return apiRequest("/api/v1/reports/dashboard"); },
     getFinanceReport(filters = {}, exportAll = false) {

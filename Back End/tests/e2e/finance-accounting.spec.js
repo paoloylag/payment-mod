@@ -97,10 +97,12 @@ test("Finance prepares, corrects and posts balanced accounting before preparing 
     const errors = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto(`/#/requests/${item.request_number}`);
     const ewt = page.getByRole("region", { name: "General request EWT" });
+    await ewt.locator('[data-finance-disclosure$=":tax-edit"] > summary').click();
     await ewt.locator('[name="reason"]').fill("Reviewed General EWT defaults");
     await ewt.getByRole("button", { name: "Save EWT and recalculate" }).click();
     await expect(page.getByText("EWT assignment saved", { exact: true })).toBeVisible();
     const panel = page.getByRole("region", { name: "General request accounting" });
+    await panel.locator('[data-finance-disclosure$=":accounting-edit"] > summary').click();
     const form = panel.locator('[data-accounting-action="draft"]');
     await expect(form).toBeVisible();
     await expect(panel.locator('[data-accounting-total="debit"]')).toContainText("2,240.00");
@@ -126,7 +128,7 @@ test("Finance prepares, corrects and posts balanced accounting before preparing 
     await form.locator("[data-accounting-entry]").first().selectOption(ids[4]);
     await form.locator('[name="reason"]').fill("Correct first expense account");
     await form.getByRole("button", { name: "Save accounting draft" }).click();
-    await expect(panel.getByText("Saved accounting draft 2", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Draft Saved", { exact: true })).toBeVisible();
     await page.reload();
     await expect(form.locator("[data-accounting-entry]").first()).toHaveValue(ids[4]);
     await approve(associate);
@@ -134,7 +136,7 @@ test("Finance prepares, corrects and posts balanced accounting before preparing 
     const managerPage = await ui("finance.manager@payment.local"); managerPage.on("pageerror", error => errors.push(error.message));
     await managerPage.goto(`/#/requests/${item.request_number}`);
     const managerPanel = managerPage.getByRole("region", { name: "General request accounting" });
-    await expect(managerPanel.getByText("Saved accounting draft 2", { exact: true })).toBeVisible();
+    await expect(managerPanel.getByText("Draft Saved", { exact: true })).toBeVisible();
     await expect(managerPanel.getByRole("button", { name: "Post accounting", exact: true })).toHaveCount(0);
     expect((await approve(manager)).state).toBe("approved");
     await managerPage.reload();

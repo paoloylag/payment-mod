@@ -72,7 +72,7 @@ def get_tax(request_id: UUID, request: Request, db: Session = Depends(get_db), a
     if item is None or not participant(db, request, actor, item):
         raise HTTPException(404, "Payment request not found")
     if item.request_type == "pettyCash":
-        raise HTTPException(409, "Petty Cash is approval-only; EWT calculations do not apply")
+        raise HTTPException(409, "Petty Cash vouchers use the full approved amount; EWT calculations do not apply")
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
     latest = latest_snapshot(db, item.id)
     stale = bool(latest and latest.request_version != item.version)
@@ -120,7 +120,7 @@ def save_tax(
     if item is None or not participant(db, request, actor, item):
         raise HTTPException(404, "Payment request not found")
     if item.request_type == "pettyCash":
-        raise HTTPException(409, "Petty Cash is approval-only; EWT calculations do not apply")
+        raise HTTPException(409, "Petty Cash vouchers use the full approved amount; EWT calculations do not apply")
     instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id).with_for_update())
     if not editable(db, request, actor, item, instance):
         raise HTTPException(403, "EWT can only be assigned by the current Finance Associate")

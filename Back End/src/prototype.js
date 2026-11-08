@@ -9,7 +9,7 @@ import { accountingBody } from "./finance-accounting-ui.js";
 import { financeOperationsBody } from "./finance-operations-ui.js";
 import { financeReportsBody, exportFinanceReport, printFinanceReport } from "./finance-reports-ui.js";
 import { initialSetupBody, initialSetupSteps, businessAcceptanceBody } from "./finance-initial-setup-ui.js";
-import { voucherBody, voucherPrintHtml, openVoucherPrint } from "./voucher-ui.js";
+import { voucherBody, voucherPrintHtml, openVoucherPrint, openVoucherPreview, pettyCashVoucherPrintHtml } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
 import { printSystemGuide } from "./guide-print.js";
@@ -521,7 +521,15 @@ function routeStateFromHash() {
   if (parts[0] === "dashboard") return { tab: "dashboard", dashboardMetric: ["pending", "value", "returned", "unclaimed"].includes(parts[1]) ? parts[1] : null, dashboardRequestId: null, dashboardWorkflow: parts[1] === "workflow", selectedId: requests.some((r) => r.id === parts[2]) ? parts[2] : state.selectedId, trackerRequestId: null, requestDetailId: null };
   return { tab: "error", errorCode: 404, dashboardMetric: null, trackerRequestId: null, requestDetailId: null };
 }
+let pendingWorkflowScroll = null;
 function resetPageScroll() {
+  if (pendingWorkflowScroll) {
+    const position = pendingWorkflowScroll;
+    pendingWorkflowScroll = null;
+    window.scrollTo({ top: position.windowTop, left: position.windowLeft, behavior: "instant" });
+    document.querySelector(".app-shell > main")?.scrollTo({ top: position.mainTop, left: position.mainLeft, behavior: "instant" });
+    return;
+  }
   window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   document.querySelector(".app-shell > main")?.scrollTo({ top: 0, left: 0, behavior: "instant" });
 }
@@ -556,7 +564,7 @@ const route = ({ amount, budgeted, type, backendId, currency }) => {
   const saved = backendId && state.workflowQueue.find((entry) => entry.request_id === backendId)?.route;
   if (saved?.rate_status === "awaiting_finance_manager") return "Executive route will be set after Finance Manager confirms this request's PHP conversion rate.";
   if (saved?.stages?.length) return `Saved approval route: ${saved.stages.map((stage) => ({ department_head: "Department Head", finance_associate: "Finance Associate", finance_manager: "Finance Manager", coo: "COO", president: "President", board_member: "Board" })[stage.role] || stage.role).join(" → ")}.`;
-  if (type === "pettyCash") return "Department Head → Finance Associate. Approval only; PHP currency, no voucher or payment.";
+  if (type === "pettyCash") return "Department Head → Finance Associate. PHP only, below ₱3,000. Finance Associate creates the voucher without tax deductions.";
   if (currency && currency !== "PHP") return "Finance Manager will confirm this request's PHP conversion rate before executive routing.";
   return type === "cashAdvance"
     ? amount > 40000 ? "Exceeds the PHP 40,000 employee cash advance limit." : "Finance Manager approval is required for this cash advance."
@@ -570,6 +578,25 @@ const finalApprovalRole = (r) => r.type === "pettyCash" ? "Finance Associate" : 
   : !r.budgeted || r.amount <= 300000
   ? "COO"
   : "President";
+let previewWorkflowReturnRoute = "/dashboard";
+let previewWorkflowScroll = null;
+function openPreviewWorkflow(requestId) {
+  previewWorkflowReturnRoute = window.location.hash.slice(1) || "/dashboard";
+  const main = document.querySelector(".app-shell > main");
+  previewWorkflowScroll = { windowTop: window.scrollY, windowLeft: window.scrollX, mainTop: main?.scrollTop || 0, mainLeft: main?.scrollLeft || 0 };
+  pendingWorkflowScroll = previewWorkflowScroll;
+  navigate(`/dashboard/workflow/${requestId}`);
+}
+function closePreviewWorkflow() {
+  pendingWorkflowScroll = previewWorkflowScroll;
+  navigate(previewWorkflowReturnRoute);
+}
+function finalApproverLabel(request) {
+  const saved = state.workflowDetails[request.backendId]?.route || state.workflowQueue.find(entry => entry.request_id === request.backendId)?.route;
+  if (saved?.rate_status === "awaiting_finance_manager") return "Pending exchange-rate confirmation";
+  const role = saved?.stages?.at(-1)?.role;
+  return ({department_head: "Department Head", finance_associate: "Finance Associate", finance_manager: "Finance Manager", coo: "COO", president: "President", board_member: "Board Member"})[role] || finalApprovalRole(request);
+}
 const approvalCertificationFor = (r) => {
   const key = r.id.replace(/[^A-Z0-9]/g, "");
   return [
@@ -1711,6 +1738,7 @@ async function submitSavedDraft(id) {
     }
     return;
   }
+  if (draft.type === "pettyCash" && activeLines.reduce((sum, {row}) => sum + Number(row.Amount || 0), 0) >= 3000) { showErrorToast("Petty Cash must be below ₱3,000.", "Request not submitted"); return; }
   let submittedRecord = null;
   if (dataSource.mode !== "mock" && state.authStatus === "authenticated") {
     try { await persistDraft(draft); }
@@ -1760,7 +1788,7 @@ function draftsView() {
 
 function requestTypeSelectionView() {
   const descriptions = {
-    pettyCash: "PHP-only petty cash request. Ends after Department Head and Finance Associate approval.",
+    pettyCash: "PHP-only request below ₱3,000. Finance Associate approves and creates the voucher.",
     reimbursement: "Repay employee expenses supported by invoices or official receipts.",
     cashAdvance: "Request funds before an approved activity, trip, or business expense.",
     liquidation: "Account for a previously issued cash advance and any balance due.",
@@ -2266,7 +2294,7 @@ function dashboardRequestPreview(request) {
     <div class="panel-header"><div><span class="eyebrow">Request Preview</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department}</p></div>${statusPill(request.status)}</div>
     <div class="preview-amount"><span>Transaction Amount</span><strong>${requestMoney(request)}</strong></div>
     <dl class="preview-detail-list">${reimbursementBatchDetail(request)}<div><dt>Requestor</dt><dd>${request.requestor}</dd></div><div><dt>Payee</dt><dd>${request.vendor}</dd></div><div><dt>Submitted</dt><dd>${request.submitted}</dd></div><div><dt>Aging</dt><dd>${agingDays(request)} day${agingDays(request) === 1 ? "" : "s"}</dd></div><div><dt>Current Owner</dt><dd>${owner}</dd></div><div><dt>Documents</dt><dd>${request.documents} attached · ${request.missing} missing</dd></div></dl>
-    <div class="preview-route"><span>Routing Threshold</span><strong>${route(request)}</strong></div>
+    <button type="button" class="preview-route preview-final-approver" data-final-approver-workflow="${escapeHtml(request.id)}" aria-label="View full workflow for ${escapeHtml(request.id)}"><span>Final Approver</span><strong>${escapeHtml(finalApproverLabel(request))}</strong><span aria-hidden="true">›</span></button>
     <div class="dashboard-preview-actions"><button type="button" class="confirmation-button preview-role-action" data-preview-action-route="${roleAction.route}">${roleAction.label}</button><button type="button" data-open-dashboard-full="${request.id}">View Details</button><button type="button" data-view-workflow="${request.id}">View Workflow</button></div>
   </aside>`;
 }
@@ -2599,23 +2627,29 @@ async function loadFinanceTax(r, force = false) {
   finally { state.financeTaxLoading[key] = false; render(); }
 }
 
+function financeSectionVisible(r, section) {
+  return state.workflowDetails[r.backendId]?.finance_sections?.[section] === true;
+}
+
 function financeTaxPanel(r) {
+  if (!financeSectionVisible(r, "tax")) return "";
   if (r.type === "pettyCash") return "";
   if (!r.backendId) return "";
   const key = financeTaxKey(r), tax = state.financeTax[key], error = state.financeTaxErrors[key];
-  const wrapper = (body) => `<section class="panel request-information-card finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request EWT" : "Finance calculation"}">${tax?.coding ? `<div data-finance-coding><h3>Automatic account assignment</h3><p>Configuration version ${tax.coding.configuration_version} · Applied to each request line</p><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><p>These are saved account assignments. Finance prepares and reviews balanced entries in the accounting workbench.</p></div>` : ""}<h3>${["cashAdvance", "liquidation"].includes(r.type) ? "Advance and liquidation calculation" : `${paymentTypes[r.type].label} EWT`}</h3>${body}</section>`;
+  const title = ["cashAdvance", "liquidation"].includes(r.type) ? "Advance Calculation" : "Tax & Withholding";
+  const wrapper = (body) => `<section class="panel request-information-card finance-tax-panel" data-finance-tax="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request EWT" : "Finance calculation"}"><h3>${title}</h3>${body}${tax?.coding ? `<details data-finance-disclosure="${r.backendId}:coding"><summary>Account assignments</summary><dl class="detail-list">${[["Debit", "debit"], ["Credit", "credit"], ["Cost center", "cost_center"]].map(([label, field]) => `<div><dt>${label}</dt><dd>${escapeHtml(tax.coding[field].code)} — ${escapeHtml(tax.coding[field].name)}</dd></div>`).join("")}</dl><small>Configuration ${tax.coding.configuration_version}</small></details>` : ""}</section>`;
   if (!tax) return wrapper(error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-finance-tax>Retry EWT</button>` : `<p role="status">Loading EWT…</p>`);
   const result = tax.stale ? tax.preview : (tax.saved?.result || tax.preview);
   const draft = state.financeTaxDrafts[key] || { request_ewt_tax_id: result?.request_ewt_tax_id || "", line_ewt_overrides: result?.line_ewt_overrides || {}, reason: "" };
   const options = (value, inherit) => `<option value="">${inherit}</option>${tax.tax_codes.map(code => `<option value="${escapeHtml(code.id)}" ${code.id === value ? "selected" : ""}>${escapeHtml(code.ewt_classification)} · ${escapeHtml(code.ewt_rate)}% (${escapeHtml(code.code)})</option>`).join("")}`;
   const editable = tax.can_edit && state.persona === "financeAssociate";
-  const totals = result ? `<dl class="detail-list">${[["Gross", "gross"], ["VAT", "vat"], ["EWT", "ewt"], ["Amount due", "amount_due"]].map(([label, field]) => `<div><dt>${label}</dt><dd data-tax-total="${field}">${money(Number(result.totals[field]), r.currency)}</dd></div>`).join("")}</dl><p>Setup version ${escapeHtml(result.configuration.version)} · ${tax.saved && !tax.stale ? `Saved calculation ${tax.version}` : "Default preview — not saved"}. EWT selection does not change VAT treatment.</p>` : "";
-  return wrapper(`${tax.stale ? '<p role="status">The request changed. Save a new calculation for its current lines; earlier calculations remain in history.</p>' : ""}${tax.blocker ? `<p role="alert">${escapeHtml(tax.blocker)} Update Finance Setup in Request Settings.</p>` : ""}${totals}
-    ${editable && !["cashAdvance", "liquidation"].includes(r.type) ? `<form data-finance-tax-form class="identity-form"><label>Request EWT<select name="request_ewt_tax_id">${options(draft.request_ewt_tax_id, "Use General request default")}</select></label><p>Lines inherit the request selection unless an override is selected.</p>
+  const totals = result ? `<dl class="detail-list">${[["Gross", "gross"], ["VAT", "vat"], ["EWT", "ewt"], ["Amount due", "amount_due"]].map(([label, field]) => `<div><dt>${label}</dt><dd data-tax-total="${field}">${money(Number(result.totals[field]), r.currency)}</dd></div>`).join("")}</dl>` : "";
+  return wrapper(`<div class="finance-status-line"><span class="status-pill ${tax.saved && !tax.stale ? "success" : ""}">${tax.stale ? "Needs Update" : tax.saved ? "Saved" : "Not Saved"}</span></div>${editable ? `<p class="finance-next-step"><strong>Next step:</strong> ${tax.saved && !tax.stale ? "Review the calculation, then complete document validation." : "Review and save the calculation."}</p>` : ""}${tax.stale ? '<p role="status">The request changed. Save a new calculation for its current lines; earlier calculations remain in history.</p>' : ""}${tax.blocker ? `<p role="alert">${escapeHtml(tax.blocker)} Update Finance Setup in Request Settings.</p>` : ""}${totals}
+    ${editable && !["cashAdvance", "liquidation"].includes(r.type) ? `<details data-finance-disclosure="${r.backendId}:tax-edit"><summary>${tax.saved ? "Edit EWT assignment" : "Review and save EWT"}</summary><form data-finance-tax-form class="identity-form"><label>Request EWT<select name="request_ewt_tax_id">${options(draft.request_ewt_tax_id, "Use General request default")}</select></label><p>Lines inherit the request selection unless an override is selected.</p>
       ${(r.lines || []).map((line, index) => `<label>Line ${index + 1}: ${escapeHtml(line.particulars)}<select data-line-ewt="${escapeHtml(line.id)}">${options(draft.line_ewt_overrides[line.id], "Use request EWT")}</select></label>`).join("")}
       <label>Reason for assignment or change<textarea name="reason" maxlength="4000" required rows="2">${escapeHtml(draft.reason)}</textarea></label>
       <p data-tax-error role="alert">${escapeHtml(error || "")}</p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save EWT and recalculate</button>
-    </form>` : ""}
+    </form></details>` : ""}
     ${editable && ["cashAdvance", "liquidation"].includes(r.type) ? `<form data-finance-tax-form class="identity-form"><p>${r.type === "cashAdvance" ? "Cash Advance uses the configured advance asset account without VAT/EWT deductions." : "Liquidation offsets the released advance. Only excess expenses create a new payment."}</p><label>Calculation review reason<textarea name="reason" rows="2" maxlength="4000" required>${escapeHtml(draft.reason)}</textarea></label><p data-tax-error role="alert"></p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save Finance calculation</button></form>` : ""}
     ${result?.advance_source ? `<p>Original advance: ${escapeHtml(result.advance_source.request_number)} · Applied ${money(Number(result.totals.advance_applied), r.currency)} · Cash return pending ${money(Number(result.totals.cash_return_pending), r.currency)}</p>` : ""}
     ${result ? `<details><summary>Calculation by line</summary>${result.lines.map(line => `<p><strong>Line ${line.position}: ${escapeHtml(line.particulars)}</strong><br>${escapeHtml(line.ewt_tax.ewt_classification)} ${escapeHtml(line.ewt_tax.ewt_rate)}% · ${line.source === "line" ? "Line override" : "Request EWT"}<br>Base ${money(Number(line.ewt_base), r.currency)} · EWT ${money(Number(line.ewt), r.currency)} · Due ${money(Number(line.amount_due), r.currency)}</p>`).join("")}</details>` : ""}
@@ -2679,12 +2713,13 @@ async function loadFinanceAccounting(r, force = false) {
 }
 
 function financeAccountingPanel(r) {
+  if (!financeSectionVisible(r, "accounting")) return "";
   if (r.type === "pettyCash") return "";
   if (!r.backendId || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
   const key = financeTaxKey(r), data = state.financeAccounting[key], error = state.financeAccountingErrors[key];
   if (state.financeTaxSaving[key]) return `<section class="panel request-information-card finance-tax-panel" aria-label="Updating request accounting"><h3>Accounting workbench</h3><p role="status">Updating accounting from the saved Finance calculation…</p></section>`;
   const body = data ? accountingBody(r, state.persona === "financeManager" && r.currentStep === 5 ? { ...data, can_prepare: false, can_post: false, can_prepare_voucher: false } : data, state.financeAccountingDrafts[key] || {}, error, escapeHtml, money) : error ? `<p role="alert">${escapeHtml(error)}</p><button type="button" data-retry-accounting>Retry accounting</button>` : '<p role="status">Loading accounting…</p>';
-  return `<section class="panel request-information-card finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request accounting" : "Request accounting"}"><h3>Accounting workbench</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
+  return `<section class="panel request-information-card finance-tax-panel" data-finance-accounting="${escapeHtml(r.backendId)}" aria-label="${r.type === "general" ? "General request accounting" : "Request accounting"}"><h3>Accounting</h3>${body}${data ? '<button type="button" data-retry-accounting>Refresh accounting</button>' : ""}</section>`;
 }
 
 function bindFinanceAccounting() {
@@ -2726,7 +2761,7 @@ function bindFinanceAccounting() {
   });
 }
 
-function financeVoucherKey(r) { return `${state.authUser?.id}:${r.backendId}:${r.backendVersion}:${r.backendStatus}`; }
+function financeVoucherKey(r) { return `${state.authUser?.id}:${r.backendId}:${r.backendVersion}:${r.backendStatus}:${r.approvalState || ""}`; }
 
 async function loadFinanceVoucher(r, force = false) {
   if (!["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return;
@@ -2734,7 +2769,7 @@ async function loadFinanceVoucher(r, force = false) {
   if (state.financeVoucherLoading[key] || (!force && (state.financeVouchers[key] || state.financeVoucherErrors[key]))) return;
   state.financeVoucherLoading[key] = true; state.financeVoucherErrors[key] = "";
   try {
-    const data = await dataSource.getFinanceVoucher(r.backendId);
+    const data = await (r.type === "pettyCash" ? dataSource.getPettyCashVoucher(r.backendId) : dataSource.getFinanceVoucher(r.backendId));
     if (paymentStages[data.state]) [r.currentStep, r.status] = paymentStages[data.state];
     state.financeVouchers[financeVoucherKey(r)] = data;
   } catch (error) { state.financeVoucherErrors[key] = error.message; }
@@ -2742,11 +2777,16 @@ async function loadFinanceVoucher(r, force = false) {
 }
 
 function financeVoucherPanel(r) {
-  if (r.type === "pettyCash") return "";
+  if (!financeSectionVisible(r, "voucher")) return "";
+  if (r.type === "pettyCash") {
+    if (!r.backendId || !["financeAssociate", "financeManager"].includes(state.persona)) return "";
+    const key = financeVoucherKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key], voucher = data?.voucher;
+    return `<section class="panel request-information-card finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" aria-label="Petty Cash voucher"><h3>Petty Cash Voucher</h3>${error ? `<p role="alert">${escapeHtml(error)}</p>` : ""}${!data ? `<p role="status">Loading voucher…</p>` : voucher ? `<dl class="detail-list"><div><dt>Voucher</dt><dd>${escapeHtml(voucher.voucher_number)}</dd></div><div><dt>Amount</dt><dd>${money(Number(voucher.amount_due), "PHP")}</dd></div><div><dt>Created by</dt><dd>${escapeHtml(voucher.issued_by)}</dd></div></dl><div class="voucher-document-actions"><button type="button" data-view-petty-voucher>View Voucher</button><button type="button" data-print-petty-voucher>Print voucher</button></div>` : data.can_issue ? `<p>Full approved amount. No tax deductions or Finance Manager review.</p><form data-petty-voucher-issue><label>Reason<textarea name="reason" required maxlength="4000">${escapeHtml(state.financeVoucherDrafts[key]?.petty_reason || "")}</textarea></label><button type="submit">Create voucher</button><p data-petty-voucher-error role="alert"></p></form>` : `<p>Finance Associate can create the voucher after final approval.</p>`}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
+  }
   if (!r.backendId || !["financeAssociate", "financeManager", "authorizedSignatory"].includes(state.persona)) return "";
   const key = financeVoucherKey(r), data = state.financeVouchers[key], error = state.financeVoucherErrors[key];
   const body = data ? voucherBody(data, state.financeVoucherDrafts[key] || {}, error, escapeHtml, money, state.paymentDrafts[r.backendId] || {}) : error ? `<p role="alert">${escapeHtml(error)}</p>` : '<p role="status">Loading voucher…</p>';
-  return `<section class="panel request-information-card finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" data-voucher-draft-key="${escapeHtml(key)}" aria-label="Voucher and payment release"><h3>Voucher and payment authorization</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
+  return `<section class="panel request-information-card finance-tax-panel" data-finance-voucher="${escapeHtml(r.backendId)}" data-voucher-draft-key="${escapeHtml(key)}" aria-label="Voucher and payment release"><h3>Voucher & Payment</h3>${body}<button type="button" data-refresh-voucher>Refresh voucher</button></section>`;
 }
 
 function bindFinanceVouchers() {
@@ -2757,11 +2797,33 @@ function bindFinanceVouchers() {
     if (!state.financeVouchers[key] && !state.financeVoucherLoading[key] && !state.financeVoucherErrors[key]) queueMicrotask(() => loadFinanceVoucher(r));
     panel.querySelector("[data-refresh-voucher]")?.addEventListener("click", () => loadFinanceVoucher(r, true));
     panel.querySelector("[data-voucher-replacement]")?.addEventListener("toggle", event => { const draft = state.financeVoucherDrafts[key] ||= {}; draft.replacement_open = event.currentTarget.open; });
+    panel.querySelector("[data-view-issued-voucher]")?.addEventListener("click", async event => {
+      const button = event.currentTarget; button.disabled = true;
+      try { openVoucherPreview(voucherPrintHtml(await dataSource.getVoucherPrint(r.backendId), escapeHtml, money), button); }
+      catch (error) { state.financeVoucherErrors[key] = error.message; render(); }
+      finally { button.disabled = false; }
+    });
+    panel.querySelector("[data-view-petty-voucher]")?.addEventListener("click", () => openVoucherPreview(pettyCashVoucherPrintHtml(state.financeVouchers[key].voucher, escapeHtml, money)));
     panel.querySelector("[data-print-issued-voucher]")?.addEventListener("click", async event => {
       const button = event.currentTarget; button.disabled = true;
       try { openVoucherPrint(voucherPrintHtml(await dataSource.getVoucherPrint(r.backendId), escapeHtml, money)); }
       catch (error) { state.financeVoucherErrors[key] = error.message; render(); }
       finally { button.disabled = false; }
+    });
+    panel.querySelector("[data-print-petty-voucher]")?.addEventListener("click", () => openVoucherPrint(pettyCashVoucherPrintHtml(state.financeVouchers[key].voucher, escapeHtml, money)));
+    const pettyForm = panel.querySelector("[data-petty-voucher-issue]");
+    pettyForm?.addEventListener("input", () => { state.financeVoucherDrafts[key] = {petty_reason: pettyForm.elements.reason.value}; });
+    pettyForm?.addEventListener("submit", async event => {
+      event.preventDefault();
+      const payload = {request_version: state.financeVouchers[key].request_version, reason: pettyForm.elements.reason.value};
+      const signature = JSON.stringify(payload), prior = state.financeVoucherRetries[key];
+      const retry = prior?.signature === signature ? prior : {signature, key: createUuid()}; state.financeVoucherRetries[key] = retry;
+      const button = pettyForm.querySelector('[type="submit"]'); button.disabled = true;
+      try {
+        await dataSource.issuePettyCashVoucher(r.backendId, payload, state.csrfToken, retry.key);
+        delete state.financeVoucherRetries[key]; delete state.financeVoucherDrafts[key];
+        await loadApiPaymentRequests(); await loadFinanceVoucher(requests.find(item => item.backendId === r.backendId) || r, true);
+      } catch (error) { pettyForm.querySelector('[data-petty-voucher-error]').textContent = error.message; button.disabled = false; }
     });
     bindPaymentExecution(panel, r, key);
     panel.querySelectorAll("[data-voucher-action]").forEach(form => {
@@ -2919,7 +2981,7 @@ async function loadNotifications() {
 function notificationPanel() {
   if (!state.notificationsOpen) return "";
   const items = state.notifications.items || [];
-  return `<section class="notification-panel" aria-label="Request notifications"><div class="notification-panel-header"><div><strong>Notifications</strong><small>${state.notifications.unread_count} unread</small></div><button type="button" data-close-notifications aria-label="Close notifications" class="close-icon-button">${closeIcon}</button></div>${state.notificationsLoading ? `<p class="notification-empty">Loading…</p>` : state.notificationsError ? `<div class="notification-empty" role="alert"><p>${escapeHtml(state.notificationsError)}</p><button type="button" data-retry-notifications>Try again</button></div>` : items.length ? `<div class="notification-list">${items.map((item) => `<article class="notification-row"><button type="button" class="notification-item ${item.read_at ? "" : "unread"}" data-open-notification="${escapeHtml(item.id)}"><span class="notification-item-title">${escapeHtml(item.title || (item.message_id ? `${item.author_name} Tagged You` : "Request Updated"))}</span><span class="notification-item-request">${escapeHtml(item.request.request_number || "Payment request")}</span><span class="notification-item-preview">${escapeHtml(item.preview)}</span><time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></button><button type="button" class="text-button notification-read-toggle" data-notification-read-toggle="${escapeHtml(item.id)}">Mark ${item.read_at ? "unread" : "read"}</button></article>`).join("")}</div><div class="notification-pagination"><button type="button" data-notification-page="-1" ${(state.notifications.page || 1) <= 1 ? "disabled" : ""} class="pagination-arrow" aria-label="Previous" title="Previous page"><span aria-hidden="true">←</span></button><span>Page ${state.notifications.page || 1}</span><button type="button" data-notification-page="1" ${(state.notifications.page || 1) * (state.notifications.page_size || 50) >= (state.notifications.total || items.length) ? "disabled" : ""} class="pagination-arrow" aria-label="Next" title="Next page"><span aria-hidden="true">→</span></button></div>` : `<p class="notification-empty">No notifications yet.</p>`}</section>`;
+  return `<section class="notification-panel" aria-label="Request notifications"><div class="notification-panel-header"><div><strong>Notifications</strong><small>${state.notifications.unread_count} unread</small></div><button type="button" data-close-notifications aria-label="Close notifications" class="close-icon-button">${closeIcon}</button></div>${state.notificationsLoading ? `<p class="notification-empty">Loading…</p>` : state.notificationsError ? `<div class="notification-empty" role="alert"><p>${escapeHtml(state.notificationsError)}</p><button type="button" data-retry-notifications>Try again</button></div>` : items.length ? `<div class="notification-list">${items.map((item) => `<article class="notification-row"><button type="button" class="notification-item ${item.read_at ? "" : "unread"}" data-open-notification="${escapeHtml(item.id)}"><span class="notification-item-title">${escapeHtml(item.title || (item.message_id ? `${item.author_name} Tagged You` : "Request Updated"))}</span><span class="notification-item-request">${escapeHtml(item.request.request_number || "Payment request")}</span><span class="notification-item-preview">${escapeHtml(item.preview)}</span><time datetime="${escapeHtml(item.created_at)}">${new Date(item.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</time></button><button type="button" class="close-icon-button notification-read-toggle" data-notification-read-toggle="${escapeHtml(item.id)}" aria-label="Mark as ${item.read_at ? "unread" : "read"}" title="Mark as ${item.read_at ? "unread" : "read"}"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 6 9 7 9-7"/>${item.read_at ? '<circle cx="19" cy="5" r="3" fill="currentColor" stroke="none"/>' : '<path d="m9 16 2 2 4-4"/>'}</svg></button></article>`).join("")}</div><div class="notification-pagination"><button type="button" data-notification-page="-1" ${(state.notifications.page || 1) <= 1 ? "disabled" : ""} class="pagination-arrow" aria-label="Previous" title="Previous page"><span aria-hidden="true">←</span></button><span>Page ${state.notifications.page || 1}</span><button type="button" data-notification-page="1" ${(state.notifications.page || 1) * (state.notifications.page_size || 50) >= (state.notifications.total || items.length) ? "disabled" : ""} class="pagination-arrow" aria-label="Next" title="Next page"><span aria-hidden="true">→</span></button></div>` : `<p class="notification-empty">No notifications yet.</p>`}</section>`;
 }
 
 function allRolesActionPanel(request) {
@@ -3493,7 +3555,7 @@ function approvalQueuePreview(request) {
     <div class="panel-header"><div><span class="eyebrow">Request Preview</span><h3>${request.id}</h3><p>${paymentTypes[request.type].label} · ${request.department}</p></div>${statusPill(request.status)}</div>
     <div class="preview-amount"><span>Transaction Amount</span><strong>${requestMoney(request)}</strong></div>
     <dl class="preview-detail-list">${reimbursementBatchDetail(request)}<div><dt>Requestor</dt><dd>${request.requestor}</dd></div><div><dt>Payee</dt><dd>${request.vendor}</dd></div><div><dt>Submitted</dt><dd>${request.submitted}</dd></div><div><dt>Aging</dt><dd>${agingDays(request)} day${agingDays(request) === 1 ? "" : "s"}</dd></div><div><dt>Current Owner</dt><dd>${owner}</dd></div><div><dt>Documents</dt><dd>${request.documents} attached · ${request.missing} missing</dd></div></dl>
-    <div class="preview-route"><span>Routing Threshold</span><strong>${route(request)}</strong></div>
+    <button type="button" class="preview-route preview-final-approver" data-final-approver-workflow="${escapeHtml(request.id)}" aria-label="View full workflow for ${escapeHtml(request.id)}"><span>Final Approver</span><strong>${escapeHtml(finalApproverLabel(request))}</strong><span aria-hidden="true">›</span></button>
     <div class="approval-preview-actions"><button type="button" class="confirmation-button" data-open-approval-workspace="${request.id}" data-action-route="/requests/${request.id}">${labels[state.persona] || "Open Request"}</button><button type="button" data-open-approval-full="${request.id}">View Details</button></div>
   </aside>`;
 }
@@ -3502,7 +3564,7 @@ function unifiedRoleAction(request, lifecycleButtons = "") {
   if (request.backendId && state.persona === "authorizedSignatory") return "";
   const currentOwner = steps.find(([id]) => id === request.currentStep)?.[2] || "System";
   if (request.backendId && request.backendStatus !== "submitted") return "";
-  if (request.backendId && request.approvalState === "approved") return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><span class="eyebrow">Approval complete</span><h3>${escapeHtml(statusLabel(request.status))}</h3><p>Request approvals are complete. Finance manages accounting, vouchers and payments. The recorded status is shown above.</p></div></section>`;
+  if (request.backendId && request.approvalState === "approved") return `<section class="panel unified-action-workspace read-only"><div class="unified-action-heading"><span class="eyebrow">Approval complete</span><h3>${escapeHtml(statusLabel(request.status))}</h3><p>${request.type === "pettyCash" ? "Finance Associate approval is complete. The Petty Cash voucher records the full approved amount without tax deductions." : "Request approvals are complete. Finance manages accounting, vouchers and payments. The recorded status is shown above."}</p></div></section>`;
   const informationAssignment = request.backendId && state.workflowQueue.find((entry) => entry.request_id === request.backendId && entry.state === "information_requested");
   if (informationAssignment && state.persona === "financeAssociate") return backendInformationResponseCard(request, informationAssignment);
   if (!request.backendId && request.infoRequest && state.persona === "financeAssociate") return mockInformationResponseCard(request);
@@ -3535,6 +3597,50 @@ function mockInformationResponseCard(request) {
 }
 
 function financeReviewDocuments(documents, readOnly = false) { return documents.map((doc) => `<div class="finance-validation-document"><div><a href="${escapeHtml(dataSource.documentContentUrl(doc.document_id))}" data-preview-document="${escapeHtml(doc.document_id)}" data-document-filename="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</a></div>${readOnly ? `<span>${escapeHtml(doc.decision === "accepted" ? "Accepted" : doc.decision === "replacement_required" ? "Replace file" : doc.decision === "rejected" ? "Rejected" : "Pending review")}</span>` : `<label><span class="sr-only">Decision for ${escapeHtml(doc.filename)}</span><select data-finance-document-review="${escapeHtml(doc.document_id)}"><option value="" ${doc.decision === "pending" ? "selected" : ""}>Select decision</option><option value="accepted" ${doc.decision === "accepted" ? "selected" : ""}>Accepted</option><option value="replacement_required" ${doc.decision === "replacement_required" ? "selected" : ""}>Replace file</option><option value="rejected" ${doc.decision === "rejected" ? "selected" : ""}>Rejected</option></select></label>`}</div>`).join(""); }
+
+function bindFinanceValidationNavigation() {
+  const card = document.querySelector('[data-finance-validation-request]');
+  const summary = card?.querySelector('.finance-validation-completion');
+  const page = card?.closest('.unified-request-page, .approval-review-page, .dashboard-request-detail');
+  if (!summary || !page || page.closest('.validation-guided-layout')) return;
+  const validation = state.financeValidation[card.dataset.financeValidationRequest];
+  if (!validation?.checks?.length) return;
+  const layout = document.createElement('div');
+  layout.className = 'validation-guided-layout';
+  page.before(layout); layout.append(page);
+  const sidebar = document.createElement('aside');
+  sidebar.className = 'validation-guide'; sidebar.setAttribute('aria-label', 'Approval checklist');
+  sidebar.append(summary); layout.append(sidebar);
+  const hint = document.createElement('p'); hint.className = 'validation-guide-hint';
+  hint.textContent = 'Review each item to complete validation.';
+  summary.querySelector('h4')?.after(hint);
+  summary.querySelector('[role=status]')?.removeAttribute('role');
+  summary.querySelector('[aria-live]')?.removeAttribute('aria-live');
+  summary.querySelectorAll('.finance-readiness-row').forEach((row, index) => {
+    const check = validation.checks[index];
+    const number = /^Line (\d+)\b/.exec(check.label)?.[1];
+    const doc = validation.documents.find(item => check.label === `Document ${item.filename} accepted by Finance`);
+    let target;
+    if (number) target = [...card.querySelectorAll('.finance-validation-item')].find(item => item.querySelector('.line-card-number')?.textContent.trim() === number);
+    else if (doc) target = [...card.querySelectorAll('[data-preview-document]')].find(item => item.dataset.previewDocument === doc.document_id)?.closest('.finance-validation-document');
+    else if (check.label === 'Finance calculation saved') target = page.querySelector('[data-finance-tax]');
+    else target = card.querySelector('.finance-validation-lines') || card.querySelector('.finance-validation-documents');
+    if (!target) return;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'validation-step-link';
+    const label = row.querySelector('.finance-readiness-label');
+    button.textContent = number ? `Review line ${number}` : doc ? 'Review document' : check.label === 'Finance calculation saved' ? 'Review calculation' : 'Review documents';
+    button.setAttribute('aria-label', `${check.label}: ${check.complete ? 'Complete' : 'Needs attention'}. Go to section`);
+    row.append(button);
+    button.addEventListener('click', () => {
+      for (let node = target; node && node !== page; node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true;
+      if (check.label === 'Finance calculation saved' && !check.complete) target.querySelector('[data-finance-tax-form]')?.closest('details')?.setAttribute('open', '');
+      page.querySelectorAll('.validation-jump-target').forEach(item => item.classList.remove('validation-jump-target'));
+      target.classList.add('validation-jump-target'); target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    });
+  });
+}
 
 function backendFinanceValidationCard(request, correction = false, readOnly = false) {
   const key = request.backendId;
@@ -3612,7 +3718,7 @@ function unifiedRequestDetails() {
     : requests.find((item) => item.id === state.selectedId);
   if (!request) return errorPage(404, { message: "The payment request you opened could not be found or is not available to your role." });
   const ownsRequest = ownsApiRequest(request);
-  const lifecycleButtons = request.backendId ? `${request.backendStatus === "returned" && ownsRequest ? `<button type="button" data-edit-returned="${request.id}">Edit Request</button><button type="button" class="confirmation-button" data-api-lifecycle="resubmit" data-api-request="${request.id}">Resubmit</button>` : ""}${["submitted", "returned"].includes(request.backendStatus) && (ownsRequest || canManageRequestLifecycle()) ? `<button type="button" class="danger" data-api-lifecycle="cancel" data-api-request="${request.id}">Cancel Request</button>` : ""}${request.backendStatus === "cancelled" && canManageRequestLifecycle() ? `<button type="button" class="primary-button" data-api-lifecycle="reopen" data-api-request="${request.id}">Reopen Request</button>` : ""}` : "";
+  const lifecycleButtons = request.backendId ? `${request.backendStatus === "returned" && ownsRequest ? `<button type="button" data-edit-returned="${request.id}">Edit Request</button><button type="button" class="confirmation-button" data-api-lifecycle="resubmit" data-api-request="${request.id}">Resubmit</button>` : ""}${["submitted", "returned"].includes(request.backendStatus) && !(request.type === "pettyCash" && request.voucherNumber) && (ownsRequest || canManageRequestLifecycle()) ? `<button type="button" class="danger" data-api-lifecycle="cancel" data-api-request="${request.id}">Cancel Request</button>` : ""}${request.backendStatus === "cancelled" && canManageRequestLifecycle() ? `<button type="button" class="primary-button" data-api-lifecycle="reopen" data-api-request="${request.id}">Reopen Request</button>` : ""}` : "";
   const cancelButton = lifecycleButtons.match(/<button[^>]*data-api-lifecycle="cancel"[\s\S]*?<\/button>/)?.[0] || "";
   const otherLifecycleButtons = lifecycleButtons.replace(cancelButton, "");
   const roleAction = unifiedRoleAction(request, otherLifecycleButtons);
@@ -3835,7 +3941,7 @@ function documentUploads() {
 }
 
 function documents() {
-  return `<section class="doc-grid">${Object.entries(paymentTypes).map(([, type]) => `<article class="panel"><h3>${type.label}</h3><h4>Mandatory fields</h4><ul class="check-list">${type.required.map((item) => `<li><span class="ok">✓</span>${item}</li>`).join("")}</ul><h4>Upload documents</h4><div class="chip-row">${type.uploadDocuments.map((item) => `<span>${item}</span>`).join("")}</div></article>`).join("")}<article class="panel todo-panel"><h3>Future modules</h3><div class="chip-row"><span>Petty Cash</span><span>Credit Card Payments</span><span>Cash Advance Guidelines</span><span>Procurement alignment</span></div></article></section>`;
+  return `<section class="doc-grid">${Object.entries(paymentTypes).map(([, type]) => `<article class="panel"><h3>${type.label}</h3><h4>Mandatory fields</h4><ul class="check-list">${type.required.map((item) => `<li><span class="ok">✓</span>${item}</li>`).join("")}</ul><h4>Upload documents</h4><div class="chip-row">${type.uploadDocuments.map((item) => `<span>${item}</span>`).join("")}</div></article>`).join("")}<article class="panel todo-panel"><h3>Future modules</h3><div class="chip-row"><span>Credit Card Payments</span><span>Cash Advance Guidelines</span><span>Procurement alignment</span></div></article></section>`;
 }
 
 function systemGuide() {
@@ -4249,6 +4355,13 @@ function render() {
     if (financeRequest && !state.financeValidationLoading[financeRequest.backendId] && !state.financeValidation[financeRequest.backendId] && !state.financeValidationErrors[financeRequest.backendId]) queueMicrotask(() => loadFinanceValidation(financeRequest));
   }
   bindMasterData();
+  document.querySelectorAll("[data-finance-disclosure]").forEach(details => {
+    const key = details.dataset.financeDisclosure;
+    state.financeDisclosure ||= {};
+    if (Object.hasOwn(state.financeDisclosure, key)) details.open = state.financeDisclosure[key];
+    details.addEventListener("toggle", () => { if (details.isConnected) state.financeDisclosure[key] = details.open; });
+  });
+  bindFinanceValidationNavigation();
   bindFinanceTax();
   bindFinanceAccounting();
   bindFinanceVouchers();
@@ -4501,7 +4614,7 @@ function render() {
       });
       const pane = document.querySelector(".dashboard-preview-pane");
       if (pane) pane.outerHTML = isApprovalQueue ? approvalQueuePreview(request) : dashboardRequestPreview(request);
-      pane?.querySelector("[data-view-workflow]")?.addEventListener("click", () => navigate(`/dashboard/workflow/${request.id}`));
+      pane?.querySelector("[data-view-workflow]")?.addEventListener("click", () => openPreviewWorkflow(request.id));
       document.querySelector("[data-open-dashboard-full]")?.addEventListener("click", () => navigate(`/requests/${request.id}`));
       document.querySelector("[data-preview-action-route]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.previewActionRoute));
       document.querySelector("[data-open-approval-workspace]")?.addEventListener("click", (event) => navigate(event.currentTarget.dataset.actionRoute));
@@ -4541,14 +4654,15 @@ function render() {
     else if (action === "documents") navigate("/documents/uploads");
     else if (action === "approval" || action === "tracker") navigate(`/requests/${request.id}`);
     else if (action === "email") navigate(`/emails/${request.currentStep >= 15 ? 15 : request.currentStep}`);
-    else if (action === "workflow") navigate(`/dashboard/workflow/${request.id}`);
+    else if (action === "workflow") openPreviewWorkflow(request.id);
     else if (action === "voucher") document.querySelector(".voucher-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
     else if (action === "unlock") setState({ unlockRequestId: request.id });
   }));
-  document.querySelector("[data-view-workflow]")?.addEventListener("click", (event) => navigate(`/dashboard/workflow/${event.currentTarget.dataset.viewWorkflow}`));
-  document.querySelectorAll("[data-close-workflow]").forEach((button) => button.addEventListener("click", () => navigate(`/dashboard/request/${state.selectedId}`)));
+  document.querySelectorAll("[data-final-approver-workflow]").forEach(button => button.addEventListener("click", () => openPreviewWorkflow(button.dataset.finalApproverWorkflow)));
+  document.querySelector("[data-view-workflow]")?.addEventListener("click", (event) => openPreviewWorkflow(event.currentTarget.dataset.viewWorkflow));
+  document.querySelectorAll("[data-close-workflow]").forEach((button) => button.addEventListener("click", () => closePreviewWorkflow()));
   document.querySelector("[data-workflow-modal]")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) navigate(`/dashboard/request/${state.selectedId}`);
+    if (event.target === event.currentTarget) closePreviewWorkflow();
   });
   document.querySelectorAll("[data-metric-request]").forEach((row) => row.addEventListener("click", () => { state.requestReturnRoute = "/dashboard"; navigate(`/requests/${row.dataset.metricRequest}`); }));
   const trackerFilterForm = document.querySelector("[data-tracker-filters]");
@@ -4855,7 +4969,7 @@ function render() {
     const request = requests.find((item) => item.id === document.querySelector("[data-finance-approve]")?.dataset.financeApprove);
     const assignment = state.workflowQueue.find((entry) => entry.request_id === request?.backendId);
     if (!request || !assignment || !state.financeValidation[request.backendId]?.ready_to_approve) return;
-    openActionPrompt({ eyebrow: "Finance Validation", title: `Complete validation for ${request.id}?`, message: request.type === "pettyCash" ? "This records final Finance Associate approval and completes the Petty Cash request. No voucher or payment will be created." : "Accepted documents and lines will be recorded in the approval history before this moves to Finance Manager.", confirmLabel: "Approve Validation", onConfirm: async () => {
+    openActionPrompt({ eyebrow: "Finance Validation", title: `Complete validation for ${request.id}?`, message: request.type === "pettyCash" ? "This records final Finance Associate approval and completes the Petty Cash request. Finance Associate can then create the Petty Cash voucher for the full approved amount." : "Accepted documents and lines will be recorded in the approval history before this moves to Finance Manager.", confirmLabel: "Approve Validation", onConfirm: async () => {
       try {
         await dataSource.approveWorkflow(request.backendId, assignment.version, "Finance documents and lines accepted.", state.csrfToken);
         delete state.financeValidation[request.backendId];
@@ -5263,7 +5377,7 @@ window.addEventListener("keydown", (event) => {
   else if (event.key === "Escape" && !state.vendorSaving && (state.vendorView || state.vendorCreating)) setState({vendorView: null, vendorCreating: false});
   else if (event.key === "Escape" && state.masterDataEdit) closeMasterDataModal();
   else if (event.key === "Escape" && state.unlockRequestId) setState({ unlockRequestId: null });
-  else if (event.key === "Escape" && state.dashboardWorkflow) navigate(`/dashboard/request/${state.selectedId}`);
+  else if (event.key === "Escape" && state.dashboardWorkflow) closePreviewWorkflow();
   else if (event.key === "Escape" && state.documentValidation.attachmentPreview) setState({ documentValidation: { ...state.documentValidation, attachmentPreview: "" } });
   else if (event.key === "Escape" && !state.conversationCollapsed && window.matchMedia("(max-width: 1199px)").matches && document.querySelector(".request-conversation")) setState({ conversationCollapsed: true });
 });
@@ -5291,4 +5405,11 @@ if (dataSource.mode !== "mock") {
 
 window.matchMedia("(min-width: 1200px)").addEventListener("change", () => {
   if (document.querySelector(".app-shell")) setState({ mobileNavOpen: false });
+});
+
+document.addEventListener("click", event => {
+  if (!state.notificationsOpen) return;
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest(".notification-panel, [data-toggle-notifications]")) return;
+  setState({ notificationsOpen: false });
 });

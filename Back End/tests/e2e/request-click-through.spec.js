@@ -129,9 +129,11 @@ async function review(page, item) {
 }
 async function accounting(page, item) {
   await open(page, item);
+  await page.locator('[data-finance-disclosure$=":tax-edit"] > summary').click();
   const tax = page.locator("[data-finance-tax-form]");
   await tax.locator('[name="reason"]').fill("Reviewed configured tax treatment");
   await mutation(page, `/finance-tax/${item.id}`, () => tax.getByRole("button", { name: "Save EWT and recalculate" }).click());
+  await page.locator('[data-finance-disclosure$=":accounting-edit"] > summary').click();
   const draft = page.locator('[data-accounting-action="draft"]');
   await draft.locator('[name="reason"]').fill("Balanced entries reviewed through UI");
   await mutation(page, `/finance-accounting/${item.id}/draft`, () => draft.getByRole("button", { name: "Save accounting draft" }).click());

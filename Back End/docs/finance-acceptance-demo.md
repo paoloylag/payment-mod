@@ -47,3 +47,17 @@ The existing Inter and Crimson Pro fonts are bundled locally, with their license
 ## Rehearsal evidence
 
 All 21 browser specifications passed (33 scenarios), with the final Finance reconciliation case rerun after the unclaimed filter addition. Backend regression passed 244 tests, and the final seven targeted report cases passed afterward. Build/lint/whitespace and the actual local smoke check passed. See `phase-08-finance-reconciliation.md` for evidence, amount definitions and report limits. This is development verification; Finance records its own acceptance during the demo.
+
+## Prepared Finance examples — 3 November 2026
+
+These additive local samples use the existing active Finance configuration; setup and earlier requests were preserved.
+
+| Request | Prepared state |
+| --- | --- |
+| GEN-2026-930001 | Finance Associate review, saved EWT and accounting draft |
+| GEN-2026-930002 | Final approval and posted accounting; ready for voucher preparation |
+| GEN-2026-930003 | Issued voucher; printable and ready for payment preparation |
+
+Open Request Tracker as Finance Associate (Nina Santos) and select the reference. Finance Manager can review the last two; the first has not reached Finance Manager yet. GEN-2026-920003 remains at Department Head approval, so Finance-only APIs are intentionally unavailable there.
+
+`python -m payment_module.seed_finance_examples` is local-only and skips completed samples on rerun. It uses short-lived normal sessions and API workflow/tax/accounting/voucher commands, removing its sessions afterward. No real payment is released or external email sent.

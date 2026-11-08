@@ -1,5 +1,7 @@
 # Finance-owned configuration
 
+Update 3 November 2026: Petty Cash is now supported separately for PHP requests below PHP 3,000, ending with Finance Associate approval and voucher creation without tax deductions. See [Petty Cash vouchers](petty-cash-vouchers.md). Earlier exclusions below are historical.
+
 Date implemented: 2026-10-02
 Applies to: local development for Phases 02–04
 

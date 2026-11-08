@@ -25,6 +25,7 @@ from ..models import (
     DocumentRequirementRule,
     DocumentType,
     PaymentInstruction,
+    PettyCashVoucher,
     PaymentRequest,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
@@ -270,7 +271,10 @@ def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
             center = db.get(CostCenter, line.cost_center_id)
             if not effective(center, finance_date()) or center.department_id != payload.department_id:
                 raise HTTPException(422, f"Line {index}: cost center must be effective and belong to the department")
-    return sum((line.amount for line in payload.lines), Decimal("0"))
+    total = sum((line.amount for line in payload.lines), Decimal("0"))
+    if payload.request_type == "pettyCash" and total >= Decimal("3000"):
+        raise HTTPException(422, "Petty Cash must be below PHP 3,000")
+    return total
 
 
 def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict[str, str]]:
@@ -1421,6 +1425,8 @@ def cancel_payment_request(
     item = get_visible(db, request, actor, request_id, lock_for_update=True)
     from ..finance_accounting import latest_journal
 
+    if db.scalar(select(PettyCashVoucher.id).where(PettyCashVoucher.request_id == item.id)):
+        raise HTTPException(409, "A request with an issued Petty Cash voucher cannot be cancelled")
     journal = latest_journal(db, item.id)
     if journal and journal.state == "posted":
         raise HTTPException(409, "Posted accounting must be reversed before cancelling this request")

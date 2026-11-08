@@ -161,7 +161,7 @@ def context(db, request, actor, request_id, lock=False):
     if "vouchers.read" not in codes or not (finance or assigned):
         raise HTTPException(404, "Voucher not found")
     if item is not None and item.request_type == "pettyCash":
-        raise HTTPException(409, "Petty Cash ends at Finance Associate approval; accounting, vouchers and payments do not apply")
+        raise HTTPException(409, "Petty Cash uses its separate Finance Associate voucher; standard accounting and payment processing do not apply")
     voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == item.id))
     return item, voucher, roles, codes
 

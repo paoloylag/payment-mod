@@ -12,6 +12,7 @@ from .finance import (
     FinanceLineReview,
     FinanceTaxSnapshot,
     FinanceVoucherDraft,
+    PettyCashVoucher,
     FinanceVoucherEvent,
     FinanceVoucherReplacement,
     FinanceVoucherSequence,

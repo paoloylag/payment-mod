@@ -56,3 +56,30 @@ Coverage: app-only candidate. Payment Module now uses one responsive, theme-awar
 ## 2026-10-30: Collapsible navigation
 
 Reused the tenant boilerplate's persisted sidebar-collapse pattern (src/App.tsx sidebarCollapsed state). Payment Module adapts it to fully hide the desktop sidebar and reclaim the entire content width, with an accessible topbar toggle. The existing mobile/tablet drawer retains its focus trap, Escape/backdrop closing, and independent state. No missing shared component was identified for this change.
+
+## 2026-11-03: Petty Cash voucher
+
+Reused the existing request information card, labelled reason form, shared buttons and print iframe. The simplified tax-free voucher is domain-specific; no new reusable UI gap was identified. Mobile/tablet/desktop layout checks cover the voucher card and printable document.
+
+## 2026-11-03: Finance section eligibility
+
+Existing information cards now use server-provided stage/participant visibility before rendering or fetching their contents. EWT/accounting appear at eligible Finance stages; voucher creation waits for final approval. Historical records remain available to eligible participants. This is domain-specific access logic, with no new shared UI gap.
+
+## 2026-11-03: Compact Finance workbench summaries
+
+Reuses the existing shared card, status pill, details/summary and touch-sized form controls. Each Finance card shows status, key totals and the next applicable action. Editing, assignments, balance breakdowns and history use disclosures; edit disclosure state survives asynchronous renders. Repeated voucher content moved out of the accounting summary. Boilerplate src/App.tsx disclosure/menu and card patterns were inspected; no new generic component gap was identified. Finance-specific progression remains app-owned.
+
+## 2026-11-03: Voucher document preview
+
+App-only candidate within the existing document-viewer pattern: native modal dialog with a bounded, scrollable document iframe, print and close actions, Escape dismissal and focus restoration. Uses shared button/theme tokens and narrow-screen wrapping. Boilerplate menu/dialog patterns were inspected earlier; a reusable printable-document preview is not verified there. Reuse candidate: shared document preview shell with caller-supplied trusted content and print action; voucher generation remains domain-specific. Printing now uses natural Letter pagination without width compensation, fixed body height or hidden overflow.
+## 2026-11-03: Sticky approval checklist navigation
+
+App-only reusable candidate: a bounded sticky side checklist with completion counts, keyboard-operable section links, disclosure expansion, focus/highlight on the destination and reduced-motion scrolling. Narrow layouts place it above the request. Implemented in `src/prototype.js` (`bindFinanceValidationNavigation`) and `src/boilerplate-shell.css`. Tenant boilerplate `src/App.tsx` provides upload checklists and progress examples, but not this approval section-navigation pattern. Reuse candidate: a shared sticky section navigator receiving labels, statuses and target elements; finance readiness and permission rules remain in Payment Module. Preserve light/dark tokens, 44px touch targets, and stacked tablet/phone layout.
+
+## 2026-11-03: Validation checklist cards
+
+Reuses shared panel surfaces, radius, borders and button styling for each validation check. Titles and status are separate from a full-width Review button; 44px controls, wrapping text and mobile/tablet stacking preserve touch access. Existing app-only guided-checklist pattern remains domain-specific; no additional shared component gap identified.
+
+## 2026-11-03: Narrow-phone validation audit
+
+At 320–420px, stack the request status beneath the request identity and stack document review dropdowns beneath filenames. The shared row layout was squeezing long references and filenames despite having no page overflow. Reused existing responsive grid/flex patterns; no new shared component gap. Audit includes 320/390/430px phones, 768/820px portrait tablets, 1024/1180px landscape tablets, 1100/1101/1199/1200px transitions, desktop, enlarged checklist text and a short-landscape unsaved review dialog. Physical iOS Safari and software keyboard behavior remain unverified.

@@ -96,14 +96,16 @@ test("all request types use Finance defaults and individual payment authorizatio
       const acceptedLine = await associate.context.post(`/api/v1/finance-validation/${item.id}/lines/${item.lines[0].id}/reviews`, { headers: associate.headers, data: { request_version: item.version, decision: "accepted", physical_original_received: true } });
       expect(acceptedLine.ok(), await acceptedLine.text()).toBeTruthy();
       await page.goto(`/#/requests/${item.request_number}`);
+      const taxEditor=page.locator('[data-finance-disclosure$=":tax-edit"] > summary');if(await taxEditor.count())await taxEditor.click();
       const calculation = page.locator("[data-finance-tax-form]");
       await calculation.locator('[name="reason"]').fill("Review amounts for this request type");
       await calculation.locator('button[type="submit"]').click();
-      await expect(page.locator("[data-finance-tax]")).toContainText("Saved calculation 1");
+      await expect(page.locator("[data-finance-tax]")).toContainText("Saved");
+      await page.locator('[data-finance-disclosure$=":accounting-edit"] > summary').click();
       const accounting = page.locator('[data-accounting-action="draft"]');
       await accounting.locator('[name="reason"]').fill("Balanced accounting from configured defaults");
       await accounting.getByRole("button", { name: "Save accounting draft" }).click();
-      await expect(page.locator("[data-finance-accounting]")).toContainText("Saved accounting draft 1");
+      await expect(page.locator("[data-finance-accounting]")).toContainText("Draft Saved");
       let approved = await approveCurrent();
       for (let count = 0; approved.state !== "approved" && count < 8; count++) approved = await approveCurrent();
       expect(approved.state).toBe("approved");

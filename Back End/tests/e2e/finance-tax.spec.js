@@ -61,6 +61,7 @@ test("General EWT inherits defaults, overrides lines, preserves retries and rema
     await expect(page).toHaveURL(/#\/dashboard$/);
     await page.goto(`/#/requests/${item.request_number}`);
     const panel = page.getByRole("region", { name: "General request EWT" });
+    await panel.locator('[data-finance-disclosure$=":tax-edit"] > summary').click();
     const form = panel.locator("form");
     await expect(form).toBeVisible();
     await expect(panel.locator('[data-tax-total="ewt"]')).toContainText("40.00");
