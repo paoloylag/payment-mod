@@ -29,7 +29,8 @@ def request_report(
     request: Request,
     search: str = Query(default="", max_length=200),
     department: str = Query(default="", max_length=120),
-    request_type: Literal["general", "reimbursement", "cashAdvance", "liquidation", "poPayment", "pettyCash"] | None = None,
+    request_type: Literal["general", "reimbursement", "cashAdvance", "liquidation", "poPayment", "pettyCash"]
+    | None = None,
     status: str = Query(default="", max_length=100),
     lifecycle_status: Literal["submitted", "returned", "declined", "cancelled", "archived"] | None = None,
     date_from: date | None = None,
@@ -164,7 +165,11 @@ def request_report(
                     else ROLE_LABELS.get(role, role)
                 )
             elif workflow and workflow.state == "approved":
-                label, owner = ("Approved", "Complete") if item.request_type == "pettyCash" else ("Approved — Finance Processing", "Finance Associate")
+                label, owner = (
+                    ("Approved", "Complete")
+                    if item.request_type == "pettyCash"
+                    else ("Approved — Finance Processing", "Finance Associate")
+                )
             payment_state = payments.get(item.id, {}).get("state")
             if payment_state in PAYMENT_LABELS:
                 label = PAYMENT_LABELS[payment_state]

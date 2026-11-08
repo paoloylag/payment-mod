@@ -11,11 +11,6 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
-    FinanceJournalSnapshot,
-    FinanceVoucherDraft,
-    FinanceVoucherEvent,
-    PaymentInstruction,
-    PaymentLineEvent,
     PaymentRequest,
     User,
     WorkflowAssignment,
@@ -25,7 +20,6 @@ from ..payment_execution import request_payment_summaries
 from ..reporting import request_display
 from ..security import current_user
 from ..workflow_assignments import effective_assignee, user_roles
-from .financial_reports import latest_rows
 from .requests import visible_query
 
 router = APIRouter(prefix="/api/v1/reports", tags=["dashboard"])
@@ -59,28 +53,6 @@ def dashboard_snapshot(request: Request, db: Session = Depends(get_db), actor: U
     }
     payments = request_payment_summaries(db, ids)
     roles = user_roles(db, actor)
-    instructions = list(
-        db.scalars(
-            select(PaymentInstruction).where(
-                PaymentInstruction.request_id.in_(ids), PaymentInstruction.signatory_user_id == actor.id
-            )
-        )
-    )
-    events = latest_rows(db, PaymentLineEvent, "instruction_id", [row.id for row in instructions])
-    vouchers = {
-        row.id: row
-        for row in db.scalars(
-            select(FinanceVoucherDraft).where(FinanceVoucherDraft.id.in_({row.voucher_id for row in instructions}))
-        )
-    }
-    voucher_events = latest_rows(db, FinanceVoucherEvent, "voucher_id", list(vouchers))
-    journal_actors = dict(
-        db.execute(
-            select(FinanceJournalSnapshot.id, FinanceJournalSnapshot.actor_user_id).where(
-                FinanceJournalSnapshot.id.in_({row.journal_id for row in vouchers.values()})
-            )
-        ).all()
-    )
     signatory_pending = set()
     totals = defaultdict(Decimal)
     membership = {"open": [], "pending": [], "returned": [], "unclaimed": []}
@@ -97,11 +69,16 @@ def dashboard_snapshot(request: Request, db: Session = Depends(get_db), actor: U
             "approval_state": workflow.state if workflow else None,
             "version": item.version,
         }
-        if not (item.request_type == "pettyCash" and workflow and workflow.state == "approved") and item.status in {"submitted", "returned"} and payment.get("state") not in {
-            "cleared",
-            "funds_returned",
-            "settled_no_payment",
-        }:
+        if (
+            not (item.request_type == "pettyCash" and workflow and workflow.state == "approved")
+            and item.status in {"submitted", "returned"}
+            and payment.get("state")
+            not in {
+                "cleared",
+                "funds_returned",
+                "settled_no_payment",
+            }
+        ):
             membership["open"].append(key)
             totals[item.currency_code] += item.gross_amount
         if item.status == "returned":

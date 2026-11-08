@@ -6,6 +6,8 @@ Reviewer: Codex development and local verification. Finance business acceptance 
 
 The confirmed approval, Finance and payment flows are implemented. The closeout adds explicit replacement links and a Finance work queue. Actual Finance configuration and a named business review are required before operational acceptance. This work does not enable production email, banking connections or production deployment.
 
+Update 8 November 2026: the signatory gate described in this historical closeout has been removed. Finance Associate prepares and releases payments with evidence; Finance Manager clears them. See [current release flow](signatory-step-removal.md).
+
 ## Delivered scope
 
 | Phase | Current development scope |

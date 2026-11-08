@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
+from .cost_center_approvals import department_participant
 from .models import Role, User, UserRole, WorkflowAssignment, WorkflowInstance
 from .security import effective_permissions
-from .cost_center_approvals import department_participant
 
 
 def user_roles(db, user):
@@ -23,7 +23,11 @@ def base_eligible(db, user, item, role):
         and user.id != item.requestor_id
         and role in user_roles(db, user)
         and "workflow.review" in effective_permissions(db, user.id)
-        and (role != "department_head" or user.department_id == item.department_id or department_participant(db, item, user))
+        and (
+            role != "department_head"
+            or user.department_id == item.department_id
+            or department_participant(db, item, user)
+        )
     )
 
 

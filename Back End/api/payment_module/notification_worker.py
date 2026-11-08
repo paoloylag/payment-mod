@@ -28,6 +28,7 @@ def deliver(db, event, development_mailbox=False):
     if is_mention:
         from .models import PaymentRequest
         from .routers.conversation import participant_users
+
         participants = {person["id"] for person in participant_users(db, db.get(PaymentRequest, event.aggregate_id))}
 
     if development_mailbox:
@@ -39,13 +40,19 @@ def deliver(db, event, development_mailbox=False):
     for recipient in plan["recipient_ids"]:
         user = db.get(User, UUID(recipient))
 
-        if not user or not user.is_active or user.is_suspended or (participants is not None and recipient not in participants):
+        if (
+            not user
+            or not user.is_active
+            or user.is_suspended
+            or (participants is not None and recipient not in participants)
+        ):
             continue
 
         for channel in channels:
             content = {"title": plan["title"], "preview": plan["preview"]}
             if is_mention and channel == "development_email":
                 from .mention_email import mention_email
+
                 content.update(mention_email(event.payload, user))
             db.execute(
                 insert(NotificationDelivery)

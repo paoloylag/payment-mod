@@ -45,7 +45,6 @@ def line(amount, signatory, method, predecessor=None):
         "label": "Scheduled installment",
         "amount": amount,
         "method_id": method,
-        "signatory_user_id": signatory,
         "reference": f"TX-{uuid4().hex}",
     }
     if predecessor:
@@ -94,7 +93,7 @@ def view(client, request_id):
     return response.json()
 
 
-def test_multiple_payments_authorize_release_clear_and_cap(client, payment_voucher):
+def test_multiple_payments_release_clear_and_cap(client, payment_voucher):
     request_id, signatory, methods = payment_voucher
     lines = [line("600.00", signatory, methods["BANK_TRANSFER"]), line("500.00", signatory, methods["CHECK"])]
     assert schedule(client, request_id, [line("1100.01", signatory, methods["CHECK"])]).status_code == 409
@@ -106,20 +105,10 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     data = view(client, request_id)
     first, second = [row["id"] for row in data["lines"]]
     assert data["summary"]["allocated"] == "1100.0000"
-    assert evidence(client, request_id, first, "release").status_code == 409
-    assert action(client, request_id, first, "authorize", 1, email="finance.associate@payment.local").status_code == 403
-    auth_key = str(uuid4())
-    auth = action(client, request_id, first, "authorize", 1, key=auth_key)
-    assert auth.status_code == 200, auth.text
-    assert action(client, request_id, first, "authorize", 1, key=auth_key).json() == auth.json()
-    assert (
-        action(client, request_id, first, "authorize", 1, extra={"bank_name": "changed"}, key=auth_key).status_code
-        == 409
-    )
+    assert action(client, request_id, first, "authorize", 1, email="finance.associate@payment.local").status_code == 410
     login(client, "signatory@payment.local")
-    queue = [row for row in client.get("/api/v1/finance-vouchers/queue").json() if row["request_id"] == str(request_id)]
-    assert len(queue) == 1 and queue[0]["pending"]
-    assert action(client, request_id, first, "release", 2).status_code == 409
+    assert client.get("/api/v1/finance-vouchers/queue").json() == []
+    assert action(client, request_id, first, "release", 1).status_code == 409
     evidence_key = str(uuid4())
     receipt = evidence(client, request_id, first, "release", evidence_key)
     assert receipt.status_code == 200, receipt.text
@@ -129,7 +118,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
         request_id,
         first,
         "release",
-        2,
+        1,
         {
             "evidence_id": receipt.json()["id"],
             "bank_name": "Test Bank",
@@ -139,7 +128,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     )
     assert released.status_code == 200, released.text
     assert view(client, request_id)["summary"]["remaining"] == "500.0000"
-    assert action(client, request_id, first, "fail", 3).status_code == 409
+    assert action(client, request_id, first, "fail", 2).status_code == 409
     manager = login(client, "finance.manager@payment.local")
     assert (
         command(
@@ -147,7 +136,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
         ).status_code
         == 409
     )
-    assert action(client, request_id, first, "clear", 3, {"evidence_id": receipt.json()["id"]}).status_code == 409
+    assert action(client, request_id, first, "clear", 2, {"evidence_id": receipt.json()["id"]}).status_code == 409
     cleared_receipt = evidence(client, request_id, first, "clearing")
     assert cleared_receipt.status_code == 200, cleared_receipt.text
     assert (
@@ -156,18 +145,17 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
             request_id,
             first,
             "clear",
-            3,
+            2,
             {"evidence_id": cleared_receipt.json()["id"], "recorded_on": "2026-01-01"},
         ).status_code
         == 422
     )
     assert (
-        action(client, request_id, first, "clear", 3, {"evidence_id": cleared_receipt.json()["id"]}).status_code == 200
+        action(client, request_id, first, "clear", 2, {"evidence_id": cleared_receipt.json()["id"]}).status_code == 200
     )
-    assert action(client, request_id, second, "authorize", 1).status_code == 200
-    assert action(client, request_id, second, "release", 2, {"evidence_id": receipt.json()["id"]}).status_code == 409
+    assert action(client, request_id, second, "release", 1, {"evidence_id": receipt.json()["id"]}).status_code == 409
     assert view(client, request_id)["summary"]["unclaimed_check_count"] == 0
-    assert action(client, request_id, second, "pickup-ready", 2).status_code == 200
+    assert action(client, request_id, second, "pickup-ready", 1).status_code == 200
     assert view(client, request_id)["summary"]["unclaimed_check_count"] == 1
     request_view = client.get(f"/api/v1/requests/{request_id}").json()
     assert request_view["payment_summary"]["unclaimed_check_count"] == 1
@@ -178,7 +166,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
             request_id,
             second,
             "release",
-            3,
+            2,
             {
                 "evidence_id": receipt.json()["id"],
                 "bank_name": "Bank",
@@ -193,7 +181,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
             request_id,
             second,
             "release",
-            3,
+            2,
             {
                 "evidence_id": second_receipt["id"],
                 "bank_name": "Bank",
@@ -204,7 +192,7 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     )
     assert view(client, request_id)["summary"]["state"] == "released"
     second_clear = evidence(client, request_id, second, "clearing").json()
-    assert action(client, request_id, second, "clear", 4, {"evidence_id": second_clear["id"]}).status_code == 200
+    assert action(client, request_id, second, "clear", 3, {"evidence_id": second_clear["id"]}).status_code == 200
     final = view(client, request_id)
     assert final["summary"]["state"] == "cleared" and float(final["summary"]["remaining"]) == 0
     assert final["summary"]["unclaimed_check_count"] == 0
@@ -214,22 +202,23 @@ def test_multiple_payments_authorize_release_clear_and_cap(client, payment_vouch
     assert printable["current_state"] == "cleared"
 
 
-def test_failure_replacement_requires_fresh_authorization_and_preserves_history(client, payment_voucher):
+def test_failure_replacement_requires_fresh_release_evidence_and_preserves_history(client, payment_voucher):
     request_id, signatory, methods = payment_voucher
     assert schedule(client, request_id, [line("1100.00", signatory, methods["CHECK"])]).status_code == 200
     original = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, original, "authorize", 1).status_code == 200
-    assert action(client, request_id, original, "fail", 2).status_code == 200
+    assert action(client, request_id, original, "fail", 1).status_code == 200
     replacement = line("1100.00", signatory, methods["BANK_TRANSFER"], original)
     assert schedule(client, request_id, [{**replacement, "amount": "100.00"}], version=2).status_code == 409
     assert schedule(client, request_id, [replacement], version=2).status_code == 200
     data = view(client, request_id)
     old, new = data["lines"]
-    assert old["state"] == "failed" and len(old["history"]) == 3
+    assert old["state"] == "failed" and len(old["history"]) == 2
     assert old["replacement_id"] == new["id"] and new["predecessor_id"] == original
-    assert new["state"] == "prepared" and not new["can_release"]
+    assert new["state"] == "prepared"
+    login(client, "finance.associate@payment.local")
+    eligible = client.get(f"/api/v1/payments/{request_id}").json()["lines"][1]
+    assert eligible["can_release"]
     assert action(client, request_id, new["id"], "release", 1).status_code == 409
-    assert action(client, request_id, new["id"], "authorize", 1).status_code == 200
     with SessionLocal() as db:
         assert (
             db.get(PaymentInstruction, UUID(original)).reference
@@ -242,7 +231,6 @@ def test_payment_validation_permissions_duplicates_and_void_history(client, paym
     payment = line("1100.00", signatory, methods["CASH"])
     for amount in ("0", "-1", "NaN", "0.001"):
         assert schedule(client, request_id, [{**payment, "amount": amount}]).status_code == 422
-    assert schedule(client, request_id, [{**payment, "signatory_user_id": str(uuid4())}]).status_code == 422
     assert schedule(client, request_id, [{**payment, "method_id": str(uuid4())}]).status_code == 422
     assert schedule(client, request_id, [payment, {**payment, "amount": "1"}]).status_code == 409
     assert view(client, request_id)["lines"] == []
@@ -252,21 +240,19 @@ def test_payment_validation_permissions_duplicates_and_void_history(client, paym
     assert schedule(client, request_id, [payment]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
     assert action(client, request_id, instruction, "clear", 1).status_code == 409
-    assert action(client, request_id, instruction, "authorize", 0).status_code == 409
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
-    assert action(client, request_id, instruction, "pickup-ready", 2).status_code == 409
+    assert action(client, request_id, instruction, "pickup-ready", 1).status_code == 409
     assert (
-        action(client, request_id, instruction, "release", 2, email="finance.manager@payment.local").status_code == 403
+        action(client, request_id, instruction, "release", 1, email="finance.manager@payment.local").status_code == 403
     )
     assert (
-        action(client, request_id, instruction, "clear", 2, email="finance.associate@payment.local").status_code == 403
+        action(client, request_id, instruction, "clear", 1, email="finance.associate@payment.local").status_code == 403
     )
-    assert action(client, request_id, instruction, "release", 2, {"recorded_on": "2099-01-01"}).status_code == 422
-    assert action(client, request_id, instruction, "void", 2).status_code == 200
+    assert action(client, request_id, instruction, "release", 1, {"recorded_on": "2099-01-01"}).status_code == 422
+    assert action(client, request_id, instruction, "void", 1).status_code == 200
     voided = view(client, request_id)
     assert voided["lines"][0]["state"] == "voided"
     assert float(voided["summary"]["available"]) == 1100
-    assert action(client, request_id, instruction, "release", 3).status_code == 409
+    assert action(client, request_id, instruction, "release", 2).status_code == 409
     owner = login(client, "requestor@payment.local")
     assert client.get(f"/api/v1/payments/{request_id}", headers=owner).status_code == 404
 

@@ -301,7 +301,9 @@ def test_user_roles_saved_atomically_with_profile(client):
     user = response.json()
     assert set(user["role_ids"]) == set(selected)
     invalid = [str(uuid4())]
-    failed = client.patch(f"/api/v1/users/{user['id']}", json={"display_name": "Should roll back", "role_ids": invalid}, headers=headers)
+    failed = client.patch(
+        f"/api/v1/users/{user['id']}", json={"display_name": "Should roll back", "role_ids": invalid}, headers=headers
+    )
     assert failed.status_code == 422
     stored = next(row for row in client.get("/api/v1/users").json() if row["id"] == user["id"])
     assert stored["display_name"] == "Atomic roles"

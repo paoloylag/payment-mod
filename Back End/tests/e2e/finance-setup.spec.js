@@ -14,9 +14,11 @@ test("Finance setup saves partial choices and remains usable across viewport wid
   await readiness.locator("summary").focus();
   await page.keyboard.press("Enter");
   await expect(readiness.getByText("Finance policy activation", { exact: true })).toBeVisible();
+  await form.locator('[name="voucher_prefix"]').fill("DRAFT-RESIZE");
   for (const width of [390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
-    await form.scrollIntoViewIfNeeded();
+    await expect(async()=>{await form.scrollIntoViewIfNeeded();}).toPass({timeout:5000});
+    await expect(form.locator('[name="voucher_prefix"]')).toHaveValue("DRAFT-RESIZE");
     expect(await page.locator("main").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
     expect(await readiness.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
     for (const element of await form.locator("select, input, textarea").all()) {

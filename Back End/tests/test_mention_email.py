@@ -1,19 +1,24 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
+
 import pytest
-from sqlalchemy import select, func
 from payment_module.database import SessionLocal
-from payment_module.models import NotificationDelivery, NotificationOutboxEvent, User
 from payment_module.mention_email import mention_email
+from payment_module.models import NotificationDelivery, NotificationOutboxEvent, User
 from payment_module.seed import seed
-from test_request_conversation import submitted_request, login
+from sqlalchemy import func, select
 from test_notifications_phase08 import process_pending
+from test_request_conversation import login, submitted_request
 
 
 def test_tag_email_escapes_content_and_links_to_conversation():
-    payload = {"request_number": "GEN-2026-920001", "message_id": str(uuid4()),
-        "author_name": "Mara <Reyes>\r\nInjected", "message_body": '@Nina <img src=x onerror=alert(1)>\nPlease review & reply.'}
+    payload = {
+        "request_number": "GEN-2026-920001",
+        "message_id": str(uuid4()),
+        "author_name": "Mara <Reyes>\r\nInjected",
+        "message_body": "@Nina <img src=x onerror=alert(1)>\nPlease review & reply.",
+    }
     result = mention_email(payload, SimpleNamespace(display_name="Nina & Santos"), "https://payment.life.edu.ph")
     assert "\r" not in result["subject"] and "\n" not in result["subject"]
     assert "<img" not in result["html_body"] and "&lt;img" in result["html_body"]
@@ -36,10 +41,17 @@ def test_tags_prepare_one_private_email_and_preserve_single_in_app_notification(
     url = f"/api/v1/requests/{request_id}/conversation"
     posted = client.post(url, json=payload, headers={**headers, "Idempotency-Key": "mention-email-test"})
     assert posted.status_code == 201, posted.text
-    assert client.post(url, json=payload, headers={**headers, "Idempotency-Key": "mention-email-test"}).json() == posted.json()
+    assert (
+        client.post(url, json=payload, headers={**headers, "Idempotency-Key": "mention-email-test"}).json()
+        == posted.json()
+    )
     process_pending()
     with SessionLocal.begin() as db:
-        event = db.scalar(select(NotificationOutboxEvent).where(NotificationOutboxEvent.source_key == f"mention:{posted.json()['id']}"))
+        event = db.scalar(
+            select(NotificationOutboxEvent).where(
+                NotificationOutboxEvent.source_key == f"mention:{posted.json()['id']}"
+            )
+        )
         entries = list(db.scalars(select(NotificationDelivery).where(NotificationDelivery.outbox_id == event.id)))
         assert len(entries) == 1 and entries[0].channel == "development_email"
         assert entries[0].content["subject"].startswith("[Payment Module]")
@@ -48,8 +60,16 @@ def test_tags_prepare_one_private_email_and_preserve_single_in_app_notification(
         event_id = event.id
     process_pending()
     with SessionLocal() as db:
-        assert db.scalar(select(func.count()).select_from(NotificationDelivery).where(NotificationDelivery.outbox_id == event_id)) == 1
-    assert not any(posted.json()["id"] in row.get("action_url", "") for row in client.get("/api/v1/notifications/email-previews").json()["items"])
+        assert (
+            db.scalar(
+                select(func.count()).select_from(NotificationDelivery).where(NotificationDelivery.outbox_id == event_id)
+            )
+            == 1
+        )
+    assert not any(
+        posted.json()["id"] in row.get("action_url", "")
+        for row in client.get("/api/v1/notifications/email-previews").json()["items"]
+    )
     login(client, "requestor@payment.local")
     inbox = client.get("/api/v1/notifications").json()
     assert sum(item["message_id"] == posted.json()["id"] for item in inbox["items"]) == 1
@@ -65,7 +85,18 @@ def test_untagged_messages_do_not_prepare_emails(client):
     seed()
     request_id = submitted_request()
     headers = login(client, "department.head@payment.local")
-    response = client.post(f"/api/v1/requests/{request_id}/conversation", json={"body": "General note with no tag"}, headers={**headers, "Idempotency-Key": str(uuid4())})
+    response = client.post(
+        f"/api/v1/requests/{request_id}/conversation",
+        json={"body": "General note with no tag"},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
     assert response.status_code == 201
     with SessionLocal() as db:
-        assert db.scalar(select(NotificationOutboxEvent).where(NotificationOutboxEvent.source_key == f"mention:{response.json()['id']}")) is None
+        assert (
+            db.scalar(
+                select(NotificationOutboxEvent).where(
+                    NotificationOutboxEvent.source_key == f"mention:{response.json()['id']}"
+                )
+            )
+            is None
+        )

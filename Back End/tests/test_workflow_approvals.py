@@ -521,16 +521,24 @@ def test_finance_manager_return_to_requestor_resubmits_at_associate(client):
     seed()
     request_id = create_submitted()
     head = login(client, "department.head@payment.local")
-    assert client.post(
-        f"/api/v1/workflow/{request_id}/approve",
-        json={"version": 1}, headers={**head, "Idempotency-Key": "head-before-manager-return"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/workflow/{request_id}/approve",
+            json={"version": 1},
+            headers={**head, "Idempotency-Key": "head-before-manager-return"},
+        ).status_code
+        == 200
+    )
     associate = login(client, "finance.associate@payment.local")
     accept_finance_line(client, request_id, associate)
-    assert client.post(
-        f"/api/v1/workflow/{request_id}/approve",
-        json={"version": 2}, headers={**associate, "Idempotency-Key": "associate-before-manager-return"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/workflow/{request_id}/approve",
+            json={"version": 2},
+            headers={**associate, "Idempotency-Key": "associate-before-manager-return"},
+        ).status_code
+        == 200
+    )
     manager = login(client, "finance.manager@payment.local")
     returned = client.post(
         f"/api/v1/workflow/{request_id}/reject",
@@ -699,8 +707,14 @@ def test_finance_manager_approval_on_behalf_preserves_stages_and_gates(client):
     request_id = create_submitted()
     headers = login(client, "finance.manager@payment.local")
     url = f"/api/v1/workflow/{request_id}"
+
     def approve(version, key, **extra):
-        return client.post(url + "/approve", json={"version": version, "note": "Approver on leave", "on_behalf": True, **extra}, headers={**headers, "Idempotency-Key": key})
+        return client.post(
+            url + "/approve",
+            json={"version": version, "note": "Approver on leave", "on_behalf": True, **extra},
+            headers={**headers, "Idempotency-Key": key},
+        )
+
     assert client.get(url).json()["can_approve_on_behalf"]
     assert approve(1, "blank", note="  ").status_code == 422
     response = approve(1, "head-coverage")
@@ -716,7 +730,9 @@ def test_finance_manager_approval_on_behalf_preserves_stages_and_gates(client):
     assert approve(2, "finance-coverage").status_code == 200
     assert not client.get(url).json()["can_approve_on_behalf"]
     assert approve(3, "own-stage-coverage").status_code == 403
-    normal = client.post(url + "/approve", json={"version": 3}, headers={**headers, "Idempotency-Key": "normal-manager"})
+    normal = client.post(
+        url + "/approve", json={"version": 3}, headers={**headers, "Idempotency-Key": "normal-manager"}
+    )
     assert normal.status_code == 200, normal.text
     for version, stage_index, name in [(4, 4, "coo"), (5, 5, "president"), (6, None, "board")]:
         result = approve(version, name + "-coverage")
@@ -725,16 +741,35 @@ def test_finance_manager_approval_on_behalf_preserves_stages_and_gates(client):
     assert approve(7, "already-complete").status_code == 409
     events = client.get(url).json()["events"]
     covered = [e for e in events if e["details"].get("approved_on_behalf")]
-    assert [e["details"]["on_behalf_role"] for e in covered] == ["department_head", "finance_associate", "coo", "president", "board_member"]
+    assert [e["details"]["on_behalf_role"] for e in covered] == [
+        "department_head",
+        "finance_associate",
+        "coo",
+        "president",
+        "board_member",
+    ]
     assert all(e["note"] == "Approver on leave" for e in covered)
 
 
-@pytest.mark.parametrize("email", ["requestor@payment.local", "department.head@payment.local", "finance.associate@payment.local", "coo@payment.local", "admin@payment.local"])
+@pytest.mark.parametrize(
+    "email",
+    [
+        "requestor@payment.local",
+        "department.head@payment.local",
+        "finance.associate@payment.local",
+        "coo@payment.local",
+        "admin@payment.local",
+    ],
+)
 def test_other_roles_cannot_approve_on_behalf(client, email):
     seed()
     request_id = create_submitted()
     headers = login(client, email)
-    response = client.post(f"/api/v1/workflow/{request_id}/approve", json={"version": 1, "on_behalf": True, "note": "Unavailable"}, headers={**headers, "Idempotency-Key": str(uuid4())})
+    response = client.post(
+        f"/api/v1/workflow/{request_id}/approve",
+        json={"version": 1, "on_behalf": True, "note": "Unavailable"},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
     assert response.status_code == 403
 
 
@@ -749,10 +784,18 @@ def test_manager_cannot_override_own_request_or_paused_information(client):
         item.requestor_id = manager.id
     url = f"/api/v1/workflow/{request_id}"
     payload = {"version": 1, "on_behalf": True, "note": "Approver unavailable"}
-    assert client.post(url + "/approve", json=payload, headers={**headers, "Idempotency-Key": "self-coverage"}).status_code == 403
+    assert (
+        client.post(url + "/approve", json=payload, headers={**headers, "Idempotency-Key": "self-coverage"}).status_code
+        == 403
+    )
     with SessionLocal.begin() as db:
         db.get(PaymentRequest, request_id).requestor_id = original_owner
         instance = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == request_id))
         instance.state = "information_requested"
     assert not client.get(url).json()["can_approve_on_behalf"]
-    assert client.post(url + "/approve", json=payload, headers={**headers, "Idempotency-Key": "paused-coverage"}).status_code == 409
+    assert (
+        client.post(
+            url + "/approve", json=payload, headers={**headers, "Idempotency-Key": "paused-coverage"}
+        ).status_code
+        == 409
+    )

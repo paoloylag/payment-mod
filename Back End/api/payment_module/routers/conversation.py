@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from ..audit import audit
-from ..outbox import record_mention_notification
+from ..cost_center_approvals import department_participant
 from ..database import get_db
 from ..models import (
     PaymentInstruction,
@@ -22,10 +22,10 @@ from ..models import (
     WorkflowEvent,
     WorkflowInstance,
 )
+from ..outbox import record_mention_notification
 from ..security import current_user, effective_permissions
 from ..voucher_service import assigned_instruction
 from ..workflow_visibility import reached_stages
-from ..cost_center_approvals import department_participant
 from .workflow import actor_roles
 
 router = APIRouter(prefix="/api/v1/requests", tags=["request conversation"])
@@ -53,7 +53,11 @@ def participant_users(db: Session, item: PaymentRequest) -> list[dict]:
         .join(Role, Role.id == UserRole.role_id)
         .where(Role.code.in_(route_roles), User.is_active.is_(True), User.is_suspended.is_(False))
     ):
-        if user.id == item.requestor_id or role_code == "department_head" and not department_participant(db, item, user, instance):
+        if (
+            user.id == item.requestor_id
+            or role_code == "department_head"
+            and not department_participant(db, item, user, instance)
+        ):
             continue
         if "workflow.review" not in effective_permissions(db, user.id):
             continue

@@ -41,7 +41,7 @@ def recovery_evidence(client, request_id, instruction_id):
 
 
 @pytest.mark.parametrize("cleared", [False, True])
-def test_full_recovery_preserves_balances_until_verified_and_requires_linked_fresh_authorization(
+def test_full_recovery_preserves_balances_until_verified_and_requires_linked_fresh_release_evidence(
     client,
     payment_voucher,  # noqa: F811
     cleared,  # noqa: F811
@@ -49,7 +49,6 @@ def test_full_recovery_preserves_balances_until_verified_and_requires_linked_fre
     request_id, signatory, methods = payment_voucher
     assert schedule(client, request_id, [line("1100", signatory, methods["BANK_TRANSFER"])]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
     release = evidence(client, request_id, instruction, "release").json()["id"]
     assert (
         action(
@@ -57,21 +56,21 @@ def test_full_recovery_preserves_balances_until_verified_and_requires_linked_fre
             request_id,
             instruction,
             "release",
-            2,
+            1,
             {"evidence_id": release, "bank_name": "Bank", "recipient_name": "Payee", "recorded_on": "2026-01-02"},
         ).status_code
         == 200
     )
-    version = 3
+    version = 2
     if cleared:
         proof = evidence(client, request_id, instruction, "clearing").json()["id"]
         assert (
             action(
-                client, request_id, instruction, "clear", 3, {"evidence_id": proof, "recorded_on": "2026-01-03"}
+                client, request_id, instruction, "clear", 2, {"evidence_id": proof, "recorded_on": "2026-01-03"}
             ).status_code
             == 200
         )
-        version = 4
+        version = 3
     with SessionLocal() as db:
         journal_ids = list(
             db.scalars(select(FinanceJournalSnapshot.id).where(FinanceJournalSnapshot.request_id == request_id))
@@ -154,7 +153,6 @@ def test_rejected_recovery_restores_prior_state_and_supports_retry(client, payme
     request_id, signatory, methods = payment_voucher
     assert schedule(client, request_id, [line("1100", signatory, methods["BANK_TRANSFER"])]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
     proof = evidence(client, request_id, instruction, "release").json()["id"]
     assert (
         action(
@@ -162,7 +160,7 @@ def test_rejected_recovery_restores_prior_state_and_supports_retry(client, payme
             request_id,
             instruction,
             "release",
-            2,
+            1,
             {"evidence_id": proof, "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
@@ -174,19 +172,19 @@ def test_rejected_recovery_restores_prior_state_and_supports_retry(client, payme
             request_id,
             instruction,
             "recover",
-            3,
+            2,
             {"evidence_id": recovered, "recovered_amount": "1100", "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
     )
     key = str(uuid4())
     rejected = action(
-        client, request_id, instruction, "reject-recovery", 4, key=key, email="finance.manager@payment.local"
+        client, request_id, instruction, "reject-recovery", 3, key=key, email="finance.manager@payment.local"
     )
     assert rejected.status_code == 200, rejected.text
     assert (
         action(
-            client, request_id, instruction, "reject-recovery", 4, key=key, email="finance.manager@payment.local"
+            client, request_id, instruction, "reject-recovery", 3, key=key, email="finance.manager@payment.local"
         ).json()
         == rejected.json()
     )
@@ -355,7 +353,6 @@ def test_entirely_unused_advance_can_be_returned_without_creating_zero_expense_l
         method = str(db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")))
     assert schedule(client, request_id, [line("1120", signatory, method)]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
     proof = evidence(client, request_id, instruction, "release").json()["id"]
     assert (
         action(
@@ -363,7 +360,7 @@ def test_entirely_unused_advance_can_be_returned_without_creating_zero_expense_l
             request_id,
             instruction,
             "release",
-            2,
+            1,
             {"evidence_id": proof, "bank_name": "Bank", "recipient_name": "Payee", "recorded_on": "2026-01-02"},
         ).status_code
         == 200

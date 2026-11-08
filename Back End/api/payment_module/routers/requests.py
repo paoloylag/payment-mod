@@ -11,10 +11,9 @@ from sqlalchemy.orm import Session
 
 from ..audit import audit
 from ..config import get_settings
+from ..cost_center_approvals import department_participant, routing_approver
 from ..database import get_db
 from ..finance_configuration import active_configuration, apply_payload, apply_submission, request_coding, save_coding
-from ..cost_center_approvals import routing_approver, department_participant
-from ..workflow_assignments import assignment_allows
 from ..finance_readiness import effective, finance_date
 from ..models import (
     ChartAccount,
@@ -25,11 +24,11 @@ from ..models import (
     DocumentRequirementRule,
     DocumentType,
     PaymentInstruction,
-    PettyCashVoucher,
     PaymentRequest,
     PaymentRequestLine,
     PaymentRequestStatusHistory,
     PaymentRequestVersion,
+    PettyCashVoucher,
     RequestCommand,
     RequestSequence,
     Role,
@@ -50,6 +49,7 @@ from ..schemas import (
 )
 from ..security import current_user
 from ..vendor_adapter import get_vendor_adapter
+from ..workflow_assignments import assignment_allows
 from ..workflow_policy import PolicyCannotRoute
 from ..workflow_service import close_workflow, start_workflow
 from ..workflow_visibility import reached_stages
@@ -93,11 +93,15 @@ def visible_query(db: Session, request: Request, actor: User):
         mapped_requests = select(WorkflowInstance.request_id).where(
             WorkflowInstance.route_snapshot["department_approver_id"].astext.is_not(None)
         )
-        visible.extend((
-            and_(PaymentRequest.department_id == actor.department_id, PaymentRequest.id.not_in(mapped_requests)),
-            and_(PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
-                 PaymentRequest.id.not_in(mapped_requests)),
-        ))
+        visible.extend(
+            (
+                and_(PaymentRequest.department_id == actor.department_id, PaymentRequest.id.not_in(mapped_requests)),
+                and_(
+                    PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
+                    PaymentRequest.id.not_in(mapped_requests),
+                ),
+            )
+        )
     if "workflow.review" in codes:
         role_codes = db.scalars(
             select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == actor.id)
@@ -116,8 +120,12 @@ def visible_query(db: Session, request: Request, actor: User):
             if not reached_request_ids:
                 continue
             if role_code == "department_head":
-                scoped_ids = [instance.request_id for instance in candidate_routes
-                    if instance.request_id in reached_request_ids and department_participant(db, db.get(PaymentRequest, instance.request_id), actor, instance)]
+                scoped_ids = [
+                    instance.request_id
+                    for instance in candidate_routes
+                    if instance.request_id in reached_request_ids
+                    and department_participant(db, db.get(PaymentRequest, instance.request_id), actor, instance)
+                ]
                 visible.append(PaymentRequest.id.in_(scoped_ids))
             else:
                 visible.append(PaymentRequest.id.in_(reached_request_ids))
@@ -211,7 +219,9 @@ def serialize(
 
 
 def serialize_many(
-    db: Session, items: list[PaymentRequest], workflow_states: dict | None = None,
+    db: Session,
+    items: list[PaymentRequest],
+    workflow_states: dict | None = None,
     workflow_records: dict | None = None,
 ) -> list[dict]:
     if not items:
@@ -220,11 +230,19 @@ def serialize_many(
     requestor_ids = {item.requestor_id for item in items}
     department_ids = {item.department_id for item in items}
     request_ids = {item.id for item in items}
-    workflows = workflow_records if workflow_records is not None else {
-        row.request_id: row for row in db.scalars(select(WorkflowInstance).where(
-            WorkflowInstance.request_id.in_(request_ids)))}
-    workflow_states = workflow_states if workflow_states is not None else {
-        request_id: workflow.state for request_id, workflow in workflows.items()}
+    workflows = (
+        workflow_records
+        if workflow_records is not None
+        else {
+            row.request_id: row
+            for row in db.scalars(select(WorkflowInstance).where(WorkflowInstance.request_id.in_(request_ids)))
+        }
+    )
+    workflow_states = (
+        workflow_states
+        if workflow_states is not None
+        else {request_id: workflow.state for request_id, workflow in workflows.items()}
+    )
     requestors = {item.id: item for item in db.scalars(select(User).where(User.id.in_(requestor_ids)))}
     departments = {item.id: item for item in db.scalars(select(Department).where(Department.id.in_(department_ids)))}
     lines_by_request: dict[UUID, list[PaymentRequestLine]] = {request_id: [] for request_id in request_ids}
@@ -238,9 +256,15 @@ def serialize_many(
 
     result = []
     for item in items:
-        data = serialize(db, item, requestors=requestors, departments=departments,
-                         lines_by_request=lines_by_request, payment_summaries=payment_summaries,
-                         workflow_states=workflow_states)
+        data = serialize(
+            db,
+            item,
+            requestors=requestors,
+            departments=departments,
+            lines_by_request=lines_by_request,
+            payment_summaries=payment_summaries,
+            workflow_states=workflow_states,
+        )
         data.update(request_display(item, workflows.get(item.id), payment_summaries.get(item.id, {})))
         result.append(data)
     return result
@@ -731,8 +755,7 @@ def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
 
 def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
     existing = {
-        line.id: line
-        for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
+        line.id: line for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
     }
     retained = [line.id for line in payload.lines if line.id is not None]
     if len(retained) != len(set(retained)) or any(line_id not in existing for line_id in retained):
@@ -881,8 +904,9 @@ def list_payment_requests(
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
-    return serialize_many(db, [row[0] for row in rows],
-                          workflow_records={row[0].id: row[1] for row in rows if row[1] is not None})
+    return serialize_many(
+        db, [row[0] for row in rows], workflow_records={row[0].id: row[1] for row in rows if row[1] is not None}
+    )
 
 
 @router.get("/cash-advance-options")

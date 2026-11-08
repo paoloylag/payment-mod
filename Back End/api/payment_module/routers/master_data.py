@@ -171,7 +171,12 @@ def cost_centers(
 @router.get("/cost-center-approvers")
 def cost_center_approvers(_: User = Depends(require_permission("master_data.manage")), db: Session = Depends(get_db)):
     from ..cost_center_approvals import eligible_approver
-    return [{"id": str(user.id), "display_name": user.display_name} for user in db.scalars(select(User).order_by(User.display_name)) if eligible_approver(db, user)]
+
+    return [
+        {"id": str(user.id), "display_name": user.display_name}
+        for user in db.scalars(select(User).order_by(User.display_name))
+        if eligible_approver(db, user)
+    ]
 
 
 class CostCenterApprover(BaseModel):
@@ -179,10 +184,16 @@ class CostCenterApprover(BaseModel):
 
 
 @router.patch("/cost-centers/{center_id}/approver")
-def set_cost_center_approver(center_id: UUID, payload: CostCenterApprover, request: Request,
-    actor: User = Depends(require_permission("master_data.manage")), db: Session = Depends(get_db)):
-    from ..models import CostCenter
+def set_cost_center_approver(
+    center_id: UUID,
+    payload: CostCenterApprover,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
     from ..cost_center_approvals import eligible_approver
+    from ..models import CostCenter
+
     center = db.scalar(select(CostCenter).where(CostCenter.id == center_id).with_for_update())
     if center is None:
         raise HTTPException(404, "Cost center not found")
@@ -191,8 +202,16 @@ def set_cost_center_approver(center_id: UUID, payload: CostCenterApprover, reque
         raise HTTPException(422, "Choose an active user with the Department Head role and approval permission")
     before = str(center.approver_user_id) if center.approver_user_id else None
     center.approver_user_id = payload.approver_user_id
-    audit(db, actor_id=actor.id, action="cost_center.approver_changed", entity_type="cost_center", entity_id=center.id,
-        request_id=request.state.request_id, before={"approver_user_id": before}, after={"approver_user_id": str(user.id) if user else None})
+    audit(
+        db,
+        actor_id=actor.id,
+        action="cost_center.approver_changed",
+        entity_type="cost_center",
+        entity_id=center.id,
+        request_id=request.state.request_id,
+        before={"approver_user_id": before},
+        after={"approver_user_id": str(user.id) if user else None},
+    )
     db.commit()
     return {**row(center), "approver_name": user.display_name if user else None}
 
@@ -666,6 +685,13 @@ def delete_vendor(
         record.payload = values
     else:
         db.add(VendorRecord(id=vendor_id, payload=values))
-    audit(db, actor_id=actor.id, action="vendor.deleted", entity_type="vendor", entity_id=None,
-          request_id=request.state.request_id, before={"vendor_id": vendor_id, **existing})
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.deleted",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before={"vendor_id": vendor_id, **existing},
+    )
     db.commit()

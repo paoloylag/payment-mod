@@ -128,7 +128,9 @@ test("delegation, reassignment, recovery and material correction retain a usable
   const final = await (await admin.context.get(`/api/v1/workflow/${item.id}`)).json();
   expect(final.current_stage).toBe(0);
   expect(Number(final.route.amount)).toBe(2000);
-  expect(final.current_assignment.named).toBeNull();
+  expect(final.current_assignment.named.assigned_user_id).toBe(original.id);
+  expect(final.current_assignment.named.effective_user_id).toBe(original.id);
+  expect(final.current_assignment.named.delegation_active).toBe(false);
   expect(final.events.map((event) => event.action)).toEqual(expect.arrayContaining(["assignment_delegated", "delegation_revoked", "assignment_reassigned", "assignment_recovered", "route_correction_requested"]));
   await adminContext.close();
   await headContext.close();

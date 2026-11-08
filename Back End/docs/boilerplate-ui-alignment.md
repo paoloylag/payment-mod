@@ -83,3 +83,7 @@ Reuses shared panel surfaces, radius, borders and button styling for each valida
 ## 2026-11-03: Narrow-phone validation audit
 
 At 320–420px, stack the request status beneath the request identity and stack document review dropdowns beneath filenames. The shared row layout was squeezing long references and filenames despite having no page overflow. Reused existing responsive grid/flex patterns; no new shared component gap. Audit includes 320/390/430px phones, 768/820px portrait tablets, 1024/1180px landscape tablets, 1100/1101/1199/1200px transitions, desktop, enlarged checklist text and a short-landscape unsaved review dialog. Physical iOS Safari and software keyboard behavior remain unverified.
+
+## 2026-11-08: Preserve editing across navigation breakpoints
+
+Regression testing found a full page rerender at 1200px could replace active form controls. Navigation now updates its DOM, accessibility and inert state in place. Finance setup tests retain an unsaved voucher prefix across phone/tablet/desktop widths. This extends the existing persisted-navigation pattern; no new component is needed.

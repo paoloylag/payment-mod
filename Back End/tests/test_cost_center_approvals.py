@@ -1,12 +1,13 @@
 from uuid import uuid4
+
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
-from payment_module.database import SessionLocal
-from payment_module.models import CostCenter, Department, User, WorkflowInstance, PaymentRequest
 from payment_module.cost_center_approvals import routing_approver
+from payment_module.database import SessionLocal
+from payment_module.models import PaymentRequest, WorkflowInstance
 from payment_module.notification_policy import reviewers
 from payment_module.seed import seed
+from sqlalchemy import select
 from test_workflow_approvals import create_submitted, login
 
 
@@ -18,7 +19,17 @@ def test_cost_center_assignee_controls_queue_visibility_chat_and_notifications(c
     head_role = next(r["id"] for r in roles if r["code"] == "department_head")
     other_department = next(d["id"] for d in departments if d["code"] == "OPS")
     email = f"cross-center-{uuid4()}@payment.local"
-    created = client.post("/api/v1/users", json={"email": email, "display_name": "Cross Department Approver", "password": "Phase01-Test-Only!", "department_id": other_department, "role_ids": [head_role]}, headers=headers)
+    created = client.post(
+        "/api/v1/users",
+        json={
+            "email": email,
+            "display_name": "Cross Department Approver",
+            "password": "Phase01-Test-Only!",
+            "department_id": other_department,
+            "role_ids": [head_role],
+        },
+        headers=headers,
+    )
     assert created.status_code == 201, created.text
     assigned_id = created.json()["id"]
     center = next(c for c in client.get("/api/v1/cost-centers").json() if c["code"] == "MKTG")
@@ -32,7 +43,7 @@ def test_cost_center_assignee_controls_queue_visibility_chat_and_notifications(c
         assert str(request_id) not in [r["request_id"] for r in client.get("/api/v1/workflow/queue").json()]
         assert client.get(f"/api/v1/requests/{request_id}").status_code == 404
         assert client.get(f"/api/v1/requests/{request_id}/conversation").status_code == 404
-        assigned_headers = login(client, email)
+        login(client, email)
         assert str(request_id) in [r["request_id"] for r in client.get("/api/v1/workflow/queue").json()]
         assert client.get(f"/api/v1/requests/{request_id}").status_code == 200
         people = client.get(f"/api/v1/requests/{request_id}/conversation").json()["participants"]
@@ -45,7 +56,11 @@ def test_cost_center_assignee_controls_queue_visibility_chat_and_notifications(c
         assert client.patch(url, json={"approver_user_id": original_id}, headers=headers).status_code == 200
         login(client, email)
         assert client.get(f"/api/v1/workflow/{request_id}").json()["route"]["department_approver_id"] == assigned_id
-        response = client.post(f"/api/v1/workflow/{request_id}/approve", json={"version": 1}, headers={**login(client, email), "Idempotency-Key": str(uuid4())})
+        response = client.post(
+            f"/api/v1/workflow/{request_id}/approve",
+            json={"version": 1},
+            headers={**login(client, email), "Idempotency-Key": str(uuid4())},
+        )
         assert response.status_code == 200, response.text
     finally:
         headers = login(client, "admin@payment.local")

@@ -1,7 +1,6 @@
 """Phase 05 provisional approval queue and decisions."""
 
 import hashlib
-
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
@@ -13,9 +12,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, object_session
 
 from ..audit import audit
+from ..cost_center_approvals import department_participant
 from ..database import get_db
-from ..finance_validation import validation_summary
 from ..finance_section_visibility import finance_sections
+from ..finance_validation import validation_summary
 from ..models import (
     Currency,
     PaymentRequest,
@@ -33,7 +33,6 @@ from ..security import current_user
 from ..workflow_assignments import assignment_allows, assignment_view, exception_controls
 from ..workflow_assignments import current_assignment as named_assignment
 from ..workflow_policy import PolicyCannotRoute, route_for
-from ..cost_center_approvals import department_participant
 from ..workflow_service import close_workflow, start_workflow
 from .requests import serialize_many, visible_query
 
@@ -75,7 +74,9 @@ def can_review(request: Request, actor: User, item: PaymentRequest, stage: dict,
     )
 
 
-def can_override_approval(request: Request, actor: User, item: PaymentRequest, instance: WorkflowInstance, roles: set[str]) -> bool:
+def can_override_approval(
+    request: Request, actor: User, item: PaymentRequest, instance: WorkflowInstance, roles: set[str]
+) -> bool:
     return (
         "workflow.review" in getattr(request.state, "permissions", set())
         and "finance_manager" in roles
@@ -402,7 +403,12 @@ def approve_stage(
             action="stage_approved",
             stage_index=completed,
             note=payload.note.strip(),
-            details={"stage": stage["code"], "assignment": completed_assignment, "approved_on_behalf": payload.on_behalf, "on_behalf_role": stage["role"] if payload.on_behalf else None},
+            details={
+                "stage": stage["code"],
+                "assignment": completed_assignment,
+                "approved_on_behalf": payload.on_behalf,
+                "on_behalf_role": stage["role"] if payload.on_behalf else None,
+            },
         ),
     )
     db.flush()
@@ -417,7 +423,15 @@ def approve_stage(
         entity_id=instance.id,
         request_id=request.state.request_id,
         before={"stage_index": completed, "version": payload.version},
-        after={"state": instance.state, "current_stage": instance.current_stage, "version": instance.version, "approved_on_behalf": payload.on_behalf, "on_behalf_role": stage["role"] if payload.on_behalf else None, "reason": payload.note.strip() if payload.on_behalf else None, "assignment": completed_assignment},
+        after={
+            "state": instance.state,
+            "current_stage": instance.current_stage,
+            "version": instance.version,
+            "approved_on_behalf": payload.on_behalf,
+            "on_behalf_role": stage["role"] if payload.on_behalf else None,
+            "reason": payload.note.strip() if payload.on_behalf else None,
+            "assignment": completed_assignment,
+        },
     )
     db.add(
         WorkflowCommand(request_id=request_id, actor_user_id=actor.id, idempotency_key=idempotency_key, result=result)

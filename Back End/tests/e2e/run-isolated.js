@@ -15,9 +15,14 @@ const selected = requested.length ? files.filter(file => requested.some(value =>
 if (requested.length && selected.length !== new Set(requested.map(value => value.replaceAll("\\", "/").split("/").at(-1))).size) {
   throw new Error("Choose existing browser specifications under tests/e2e");
 }
+const failed = [];
 for (const file of selected) {
   const result = spawnSync(process.execPath, [cli, "test", `tests/e2e/${file}`, ...options], { cwd: root, stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    failed.push(file);
+    if (process.env.PAYMENT_E2E_CONTINUE_ON_FAILURE !== "true") process.exit(result.status ?? 1);
+  }
 }
+if (failed.length) { console.error(`Failed ${failed.length}/${selected.length} specifications: ${failed.join(", ")}`); process.exit(1); }
 console.log(`All ${selected.length} isolated browser specifications passed.`);

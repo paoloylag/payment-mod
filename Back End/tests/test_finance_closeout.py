@@ -61,7 +61,6 @@ def test_queue_latest_payment_state_and_partial_totals(client, payment_voucher):
                 )
             )
         )
-    assert action(client, request_id, instruction_id, "authorize", 1).status_code == 200
     uploaded = evidence(client, request_id, instruction_id, "release")
     assert uploaded.status_code == 200
     released = action(
@@ -69,7 +68,7 @@ def test_queue_latest_payment_state_and_partial_totals(client, payment_voucher):
         request_id,
         instruction_id,
         "release",
-        2,
+        1,
         {
             "evidence_id": uploaded.json()["id"],
             "recorded_on": "2026-10-14",
@@ -90,7 +89,7 @@ def test_queue_latest_payment_state_and_partial_totals(client, payment_voucher):
             request_id,
             instruction_id,
             "clear",
-            3,
+            2,
             {"evidence_id": uploaded.json()["id"], "recorded_on": "2026-10-14"},
         ).status_code
         == 200

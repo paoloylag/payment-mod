@@ -65,7 +65,11 @@ def context(db, request, actor, request_id, lock=False):
     ):
         raise HTTPException(404, "Finance request not found")
     if item is not None and item.request_type == "pettyCash":
-        raise HTTPException(409, "Petty Cash uses its separate Finance Associate voucher; standard accounting and payment processing do not apply")
+        raise HTTPException(
+            409,
+            "Petty Cash uses its separate Finance Associate voucher; "
+            "standard accounting and payment processing do not apply",
+        )
     query = select(WorkflowInstance).where(WorkflowInstance.request_id == item.id)
     instance = db.scalar(query.with_for_update() if lock else query)
     return item, instance, roles

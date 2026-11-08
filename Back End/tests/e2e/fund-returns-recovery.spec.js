@@ -80,13 +80,12 @@ test("full fund returns and recovered payments require independent Finance verif
     await expect(associate.locator("[data-payment-card]")).toHaveCount(2);
     const lines = (await fixture.get(`payments/${fixture.general.id}`)).lines;
     expect(lines[1].predecessor_id).toBe(fixture.payment); expect(lines[1].state).toBe("prepared");
-    const signatory = await ui("signatory@payment.local");
+    const signatory = await ui("finance.associate@payment.local");
     await signatory.goto(`/#/requests/${fixture.general.request_number}`);
     const newCard = signatory.locator(`[data-payment-card="${lines[1].id}"]`);
-    await newCard.locator("summary").filter({ hasText: /^Authorize payment line$/ }).click();
-    await newCard.locator("textarea").fill("Fresh authorization for replacement");
-    await newCard.getByRole("button", { name: "Authorize payment line", exact: true }).click();
-    await expect(newCard.locator("[data-payment-state]")).toHaveText("Authorized");
+    await expect(newCard.locator('[data-payment-action="authorize"]')).toHaveCount(0);
+    await expect(newCard.locator('[data-payment-state]')).toHaveText("Ready For Finance Release");
+    expect((await (await fixture.roles["finance.associate"].context.get(`/api/v1/payments/${fixture.general.id}`)).json()).lines[1].can_release).toBe(true);
     const unspent = await fixture.prepare("cashAdvance", "500", { event_end_date: "2026-10-13", liquidation_due_date: "2026-10-28", accountability_acknowledged: true });
     await fixture.release(unspent, "500", "Unspent advance");
     await associate.goto(`/#/requests/${unspent.request_number}`);

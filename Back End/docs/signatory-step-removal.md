@@ -6,4 +6,4 @@ Migration 20261030_0031 makes signatory assignment nullable. Historical assignme
 
 Apply the migration before serving the updated backend. A downgrade cannot make the column required while unassigned payment instructions exist; do not fabricate assignments or delete payment history.
 
-Focused regression: tests/test_no_signatory.py covers preparation without assignment, retired authorization, evidence required before release, and bank transfer/cash/check paths. Legacy tests that explicitly expect a signatory gate describe the retired workflow and require revision before using them as release gates.
+Focused regression: tests/test_no_signatory.py covers preparation without assignment, retired authorization, evidence required before release, and bank transfer/cash/check paths. Legacy regression scenarios now exercise Finance release directly, with release evidence, independent clearing/recovery verification, allocation caps, immutable history, permissions and stale-version checks retained. Retired authorization endpoints are tested as rejections. See release-validation-2026-11-08.md for the combined release verification record.

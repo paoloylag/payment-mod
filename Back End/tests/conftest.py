@@ -23,16 +23,27 @@ os.environ["DATABASE_URL"] = configured_database_url
 
 from payment_module.database import SessionLocal  # noqa: E402
 from payment_module.main import app  # noqa: E402
-from payment_module.models import AuthSession, DocumentRequirementRule, PaymentRequest  # noqa: E402
+from payment_module.models import (  # noqa: E402
+    AuthSession,
+    DocumentRequirementRule,
+    FinanceConfiguration,
+    PaymentRequest,
+    SystemSetting,
+)
 
 
 @pytest.fixture(autouse=True)
 def remove_records_created_by_test():
-    """Never leave test-created sessions or payment requests in the test database."""
+    """Clean transaction fixtures and restore Finance policy/settings after each test."""
     with SessionLocal() as db:
         existing_session_ids = set(db.scalars(select(AuthSession.id)))
         existing_request_ids = set(db.scalars(select(PaymentRequest.id)))
         existing_document_rule_ids = set(db.scalars(select(DocumentRequirementRule.id)))
+        existing_finance_config_ids = set(db.scalars(select(FinanceConfiguration.id)))
+        finance_settings = {
+            row.key: (row.id, row.value)
+            for row in db.scalars(select(SystemSetting).where(SystemSetting.key.like("finance.%")))
+        }
     yield
     with SessionLocal.begin() as db:
         session_delete = delete(AuthSession)
@@ -47,6 +58,19 @@ def remove_records_created_by_test():
         db.execute(session_delete)
         db.execute(request_delete)
         db.execute(rule_delete)
+        config_delete = delete(FinanceConfiguration)
+        if existing_finance_config_ids:
+            config_delete = config_delete.where(FinanceConfiguration.id.not_in(existing_finance_config_ids))
+        db.execute(config_delete)
+        for row in db.scalars(select(SystemSetting).where(SystemSetting.key.like("finance.%"))):
+            if row.key not in finance_settings:
+                db.delete(row)
+        for key, (setting_id, value) in finance_settings.items():
+            row = db.get(SystemSetting, setting_id)
+            if row is None:
+                db.add(SystemSetting(id=setting_id, key=key, value=value))
+            else:
+                row.value = value
 
 
 @pytest.fixture()

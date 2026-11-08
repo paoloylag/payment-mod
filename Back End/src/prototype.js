@@ -3663,7 +3663,7 @@ function backendApprovalCard(request, lifecycleButtons = "") {
   const suggestedRate = state.masterData.currencies?.find((currency) => currency.code === assignment.route.currency_code)?.php_per_unit;
   const inputKey = workflowInputKey(request.backendId);
   const inputDraft = state.approvalInputDrafts[inputKey] || {};
-  const foreignRate = stage.role === "finance_manager" && assignment.route.currency_code !== "PHP" ? `<label>PHP per 1 ${escapeHtml(assignment.route.currency_code)}<input readonly data-request-php-rate data-approval-input-key="${escapeHtml(inputKey)}" data-approval-input-field="php_per_unit" type="number" inputmode="decimal" min="0.00000001" step="0.00000001" value="${escapeHtml(inputDraft.php_per_unit ?? suggestedRate ?? "")}" required><small>The configured rate is shown for review and determines the remaining approval route.</small></label>` : "";
+  const foreignRate = stage.role === "finance_manager" && assignment.route.currency_code !== "PHP" ? `<label>PHP per 1 ${escapeHtml(assignment.route.currency_code)}<input data-request-php-rate data-approval-input-key="${escapeHtml(inputKey)}" data-approval-input-field="php_per_unit" type="number" inputmode="decimal" min="0.00000001" step="0.00000001" value="${escapeHtml(inputDraft.php_per_unit ?? suggestedRate ?? "")}" required><small>Confirm the PHP rate for this request. It determines the remaining approval route.</small></label>` : "";
   return `${backendFinanceValidationCard(request, false, true)}<section class="panel unified-action-workspace approval-decision-card"><div class="unified-action-heading"><span class="eyebrow">Assigned Approval</span><h3>${escapeHtml(stage.purpose)}</h3><p>Review the request and supporting documents before recording your decision.</p></div>${foreignRate}<div class="approval-actions"><button type="button" class="confirmation-button" data-backend-approve="${escapeHtml(request.id)}">Approve</button>${canRejectApproval(request) ? approvalRejectControl(request) : `<button type="button" class="request-info-button" data-backend-request-information="${escapeHtml(request.id)}">Request More Information</button>`}</div><label class="approval-reviewer-note">Reviewer Note<textarea data-approval-input-key="${escapeHtml(inputKey)}" data-approval-input-field="note" placeholder="Add a note for the approval history">${escapeHtml(inputDraft.note || "")}</textarea></label>${lifecycleButtons ? `<div class="approval-lifecycle-actions">${lifecycleButtons}</div>` : ""}</section>`;
 }
 
@@ -4188,7 +4188,7 @@ function render() {
     sidebar.setAttribute("aria-label", "Navigation");
     sidebar.querySelector("[data-close-mobile-nav]")?.focus();
     sidebar.addEventListener("keydown", event => {
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab" || !state.mobileNavOpen || !window.matchMedia("(max-width: 1199px)").matches) return;
       const controls = [...sidebar.querySelectorAll("button, a, input, select, [tabindex='0']")].filter(node => !node.disabled && node.getClientRects().length);
       const first = controls[0], last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
@@ -5403,8 +5403,23 @@ if (dataSource.mode !== "mock") {
     });
 }
 
-window.matchMedia("(min-width: 1200px)").addEventListener("change", () => {
-  if (document.querySelector(".app-shell")) setState({ mobileNavOpen: false });
+window.matchMedia("(min-width: 1200px)").addEventListener("change", event => {
+  const shell = document.querySelector(".app-shell");
+  if (!shell) return;
+  state.mobileNavOpen = false;
+  shell.classList.remove("nav-open");
+  const sidebar = document.getElementById("primarySidebar");
+  const expanded = event.matches && !state.sidebarCollapsed;
+  const toggle = document.querySelector("[data-open-mobile-nav]");
+  if (!expanded && sidebar.contains(document.activeElement)) toggle?.focus();
+  sidebar.inert = !expanded;
+  sidebar.setAttribute("aria-hidden", String(!expanded));
+  sidebar.removeAttribute("role"); sidebar.removeAttribute("aria-modal"); sidebar.removeAttribute("aria-label");
+  document.querySelector(".app-shell > main").inert = false;
+  const label = event.matches ? expanded ? "Collapse navigation" : "Expand navigation" : "Open navigation";
+  toggle?.setAttribute("aria-expanded", String(expanded));
+  toggle?.setAttribute("aria-label", label);
+  if (toggle) toggle.title = label;
 });
 
 document.addEventListener("click", event => {

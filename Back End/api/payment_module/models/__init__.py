@@ -12,7 +12,6 @@ from .finance import (
     FinanceLineReview,
     FinanceTaxSnapshot,
     FinanceVoucherDraft,
-    PettyCashVoucher,
     FinanceVoucherEvent,
     FinanceVoucherReplacement,
     FinanceVoucherSequence,
@@ -20,6 +19,7 @@ from .finance import (
     PaymentEvidence,
     PaymentInstruction,
     PaymentLineEvent,
+    PettyCashVoucher,
 )
 from .identity import (
     AuditEvent,
@@ -48,6 +48,7 @@ from .system_setting import SystemSetting
 from .workflow import WorkflowAssignment, WorkflowCommand, WorkflowEvent, WorkflowInstance
 
 __all__ = [
+    "PettyCashVoucher",
     "AuditEvent",
     "AuthSession",
     "Department",

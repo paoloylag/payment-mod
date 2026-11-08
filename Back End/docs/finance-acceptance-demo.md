@@ -2,9 +2,11 @@
 
 Prepared 2026-10-30 (Asia/Manila). Local URL: http://127.0.0.1:5180/.
 
-## Starting state — intentional
+## Original starting state — 30 October 2026
 
 The owner requested blank Finance setup. No Finance configuration has been activated and no business acceptance has been recorded. New requests are deliberately blocked until required setup is complete. The local database contains 29 existing sample requests; it has not been reset or populated with automated test transactions. Automated tests use separate databases.
+
+Update 8 November 2026: clearly labelled Finance examples were added on 3 November using the existing local Finance configuration. Treat the paragraph above as historical. Finance must still confirm actual operating settings and sign business acceptance.
 
 ## Start with Finance setup
 
@@ -21,12 +23,12 @@ The owner requested blank Finance setup. No Finance configuration has been activ
 | General payment | Submit documents; Department Head approves; Finance Associate accepts required documents and lines, saves tax/accounting; Finance Manager approves the configured route; final approval permits posting and voucher preparation/certification. |
 | Executive route | For unbudgeted requests above PHP 1,000,000: COO → President → Board. Executive More Information goes to Finance Associate and resumes the same stage. Future approvers cannot see/chat before their stage is reached. |
 | Return/correction | Return with destination and reason; requestor edits and resubmits to the applicable stage. Finance Manager can return to Finance Associate and resume Finance Manager review. Fully decline remains distinct. |
-| Payment | Finance Associate prepares multiple lines capped by amount due; each has one independent signatory. Authorize, record pickup readiness for checks, upload release evidence and record release; Finance Manager records clearing evidence. |
+| Payment | Finance Associate prepares multiple lines capped by amount due; Finance releases each line. Record pickup readiness for checks, upload release evidence and record release; Finance Manager records clearing evidence. |
 | Partial release | Payment report shows net due, released, cleared, awaiting clearing and unreleased balances separately. No summation across currencies. |
 | Reimbursement | Proof of payment on each line; missing physical originals block Finance approval. |
 | Cash Advance/Liquidation | Expenses above the advance pay only the excess; equal expenses require no new payment; lower expenses leave an unused balance. Only posted Liquidation accounting reduces advance accountability. |
 | Fund return | Record the full unused amount with evidence. Pending/rejected receipts remain outstanding; Finance Manager verification reduces outstanding to zero. Entirely unused advances can be returned in full without a zero-expense Liquidation. |
-| Payment recovery | Full line recovery remains released until independent verification. Confirmation reopens the same voucher amount; linked replacement requires fresh signatory authorization. Expense/tax accounting and prior request approvals stay recorded. |
+| Payment recovery | Full line recovery remains released until independent verification. Confirmation reopens the same voucher amount; linked replacement requires fresh release evidence. Expense/tax accounting and prior request approvals stay recorded. |
 | Conversations/notifications | Reached participants can message and @mention. Show current-stage approval, certification, return/payment updates and read/unread in the bell. No real email is sent. |
 | Reports | Tracker and Reports → Financial reconciliation. Generate each report, narrow filters, open a request, export Excel and print. Inspect applied filters and cross-page totals. Dashboard Filter retains gross request reports. |
 

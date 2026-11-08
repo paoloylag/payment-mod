@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { expect, request as apiRequest, test } from "@playwright/test";
 
-test("all request types use Finance defaults and individual payment authorization", async ({ browser }) => {
+test("all request types use Finance defaults and evidence-backed Finance release", async ({ browser }) => {
   test.setTimeout(300_000);
   const sessions = [], browsers = [], errors = [];
   const session = async email => {
@@ -45,7 +45,7 @@ test("all request types use Finance defaults and individual payment authorizatio
     expect((await (await admin.context.get("/api/v1/request-settings/finance-setup")).json()).activation.scope).toBe("all");
     const associate = await session("finance.associate@payment.local"), owner = await session("requestor@payment.local");
     const manager = await session("finance.manager@payment.local");
-    const page = await ui("finance.associate@payment.local"), signatoryPage = await ui("signatory@payment.local");
+    const page = await ui("finance.associate@payment.local");
     const departments = await (await admin.context.get("/api/v1/departments")).json();
     const centers = await (await admin.context.get("/api/v1/cost-centers")).json();
     const documentTypes = await (await admin.context.get("/api/v1/document-types")).json();
@@ -96,8 +96,9 @@ test("all request types use Finance defaults and individual payment authorizatio
       const acceptedLine = await associate.context.post(`/api/v1/finance-validation/${item.id}/lines/${item.lines[0].id}/reviews`, { headers: associate.headers, data: { request_version: item.version, decision: "accepted", physical_original_received: true } });
       expect(acceptedLine.ok(), await acceptedLine.text()).toBeTruthy();
       await page.goto(`/#/requests/${item.request_number}`);
-      const taxEditor=page.locator('[data-finance-disclosure$=":tax-edit"] > summary');if(await taxEditor.count())await taxEditor.click();
       const calculation = page.locator("[data-finance-tax-form]");
+      await calculation.waitFor({state:"attached"});
+      if (!await calculation.isVisible()) await page.locator('[data-finance-disclosure$=":tax-edit"] > summary').click();
       await calculation.locator('[name="reason"]').fill("Review amounts for this request type");
       await calculation.locator('button[type="submit"]').click();
       await expect(page.locator("[data-finance-tax]")).toContainText("Saved");
@@ -112,10 +113,10 @@ test("all request types use Finance defaults and individual payment authorizatio
       await managerPage.goto(`/#/requests/${item.request_number}`);
       const post = managerPage.locator('[data-accounting-action="post"]');
       await post.locator('[name="reason"]').fill("Post approved accounting"); await post.getByRole("button").click();
-      await expect(managerPage.locator("[data-finance-accounting]")).toContainText("Posted accounting");
+      await expect(managerPage.locator("[data-finance-accounting]")).toContainText("Posted");
       await page.reload(); const voucher = page.locator('[data-accounting-action="voucher"]');
       await voucher.locator('[name="reason"]').fill("Prepare the voucher"); await voucher.getByRole("button").click();
-      await expect(page.locator("[data-finance-accounting]")).toContainText("Prepared voucher draft");
+      await expect(page.locator("[data-finance-accounting]")).toContainText("Voucher preparation details");
       await managerPage.reload(); const issue = managerPage.locator('[data-voucher-action="issue"]');
       await issue.locator('[name="reason"]').fill("Certify this voucher"); await issue.getByRole("button").click();
       await expect(managerPage.locator("[data-voucher-state]")).toHaveText("Voucher Issued");
@@ -125,15 +126,9 @@ test("all request types use Finance defaults and individual payment authorizatio
       const payment = page.locator('[data-payment-action="prepare"]');
       await payment.locator('[name="label"]').fill(`${type} payment`); await payment.locator('[name="amount"]').fill(details.voucher.totals.amount_due);
       await payment.locator('[name="method_id"]').selectOption(transfer);
-      await payment.locator('[name="signatory_user_id"]').selectOption(await payment.locator('[name="signatory_user_id"] option').nth(1).getAttribute("value"));
       await payment.locator('[name="reference"]').fill(`ALL-${crypto.randomUUID().slice(0, 12)}`);
-      await payment.locator('[name="reason"]').fill("Prepare individual authorization"); await payment.getByRole("button", { name: "Prepare payment line items" }).click();
-      await expect(page.locator("[data-voucher-state]")).toHaveText("Awaiting Assigned Signatory");
-      await signatoryPage.goto(`/#/requests/${item.request_number}`);
-      await signatoryPage.getByText("Authorize payment line", { exact: true }).first().click();
-      const authorization = signatoryPage.locator('[data-payment-action="authorize"]');
-      await authorization.locator('[name="reason"]').fill("Authorize this payment line"); await authorization.getByRole("button").click();
-      await expect(signatoryPage.locator("[data-voucher-state]")).toHaveText("Payment Authorized · Release Pending");
+      await payment.locator('[name="reason"]').fill("Prepare Finance release"); await payment.getByRole("button", { name: "Prepare payment line items" }).click();
+      await expect(page.locator("[data-voucher-state]")).toHaveText("Ready For Finance Release");
       const record = async (target, actionName, title) => {
         await target.reload(); await target.getByText(title, { exact: true }).first().click();
         const form = target.locator(`[data-payment-action="${actionName}"]`);
@@ -160,7 +155,7 @@ test("all request types use Finance defaults and individual payment authorizatio
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
       }
       await page.goto("/#/tracker"); const row = page.locator(`[data-tracker-request="${item.request_number}"]`);
-      await expect(row).toContainText("Cleared"); await expect(row).toContainText("Approved");
+      await expect(row).toContainText("Released"); await expect(row).toContainText("Approved");
     }
     expect(errors).toEqual([]);
   } finally {

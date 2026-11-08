@@ -128,7 +128,7 @@ def test_rollback_and_payment_snapshots(client):
         outbox = db.scalar(
             select(NotificationOutboxEvent).where(NotificationOutboxEvent.source_key == f"payment:{row_id}")
         )
-        assert outbox.payload["notification"]["recipient_ids"] == [str(signatory.id)]
+        assert outbox.payload["notification"]["recipient_ids"] == []  # Finance has not been reached; no signatory task.
 
 
 def test_return_final_approval_and_release_recipients(client):

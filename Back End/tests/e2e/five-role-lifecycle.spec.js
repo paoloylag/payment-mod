@@ -333,7 +333,7 @@ test("executive review keeps messages, mentions, and information requests at the
     const financePage = sessions.financeAssociate.page;
     await financePage.reload();
     await financePage.getByRole("button", { name: /Notifications/ }).click();
-    await expect(financePage.locator(".notification-item-title").first()).toContainText("Mentioned you");
+    await expect(financePage.locator(".notification-item-title").first()).toContainText("Tagged You");
     await expect(financePage.locator(".notification-item").first()).toContainText("@Nina Santos Please confirm the payment schedule.");
 
     await cooPage.locator("[data-backend-request-information]").click();

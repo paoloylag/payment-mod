@@ -289,7 +289,9 @@ def execution_view(db, voucher, actor, roles, permissions):
                 "can_release": issued
                 and finance_associate
                 and "payments.release" in permissions
-                and (state == "ready_for_pickup" if method_category == "check" else state in {"prepared", "authorized"}),
+                and (
+                    state == "ready_for_pickup" if method_category == "check" else state in {"prepared", "authorized"}
+                ),
                 "can_clear": issued and state == "released" and manager and "payments.clear" in permissions,
                 "can_fail": issued
                 and state in {"prepared", "authorized", "ready_for_pickup"}

@@ -29,7 +29,6 @@ def test_payment_reconciliation_preserves_pending_recovery_and_replacement_balan
         reference = db.get(PaymentRequest, request_id).request_number
     assert schedule(client, request_id, [line("1100", signatory, methods["BANK_TRANSFER"])]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
     proof = evidence(client, request_id, instruction, "release").json()["id"]
     assert (
         action(
@@ -37,7 +36,7 @@ def test_payment_reconciliation_preserves_pending_recovery_and_replacement_balan
             request_id,
             instruction,
             "release",
-            2,
+            1,
             {"evidence_id": proof, "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
@@ -53,7 +52,7 @@ def test_payment_reconciliation_preserves_pending_recovery_and_replacement_balan
             request_id,
             instruction,
             "recover",
-            3,
+            2,
             {"evidence_id": recovered, "recovered_amount": "1100", "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
@@ -62,7 +61,7 @@ def test_payment_reconciliation_preserves_pending_recovery_and_replacement_balan
     assert report(client, "recoveries", search=reference)["items"][0]["state"] == "pending"
     assert (
         action(
-            client, request_id, instruction, "confirm-reversal", 4, email="finance.manager@payment.local"
+            client, request_id, instruction, "confirm-reversal", 3, email="finance.manager@payment.local"
         ).status_code
         == 200
     )
@@ -204,7 +203,6 @@ def test_rejected_recovery_report_and_notification_return_to_finance_associate(c
     request_id, signatory, methods = payment_voucher
     assert schedule(client, request_id, [line("1100", signatory, methods["BANK_TRANSFER"])]).status_code == 200
     instruction = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, instruction, "authorize", 1).status_code == 200
     proof = evidence(client, request_id, instruction, "release").json()["id"]
     assert (
         action(
@@ -212,7 +210,7 @@ def test_rejected_recovery_report_and_notification_return_to_finance_associate(c
             request_id,
             instruction,
             "release",
-            2,
+            1,
             {"evidence_id": proof, "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
@@ -224,13 +222,13 @@ def test_rejected_recovery_report_and_notification_return_to_finance_associate(c
             request_id,
             instruction,
             "recover",
-            3,
+            2,
             {"evidence_id": recovered, "recovered_amount": "1100", "bank_name": "Bank", "recipient_name": "Payee"},
         ).status_code
         == 200
     )
     assert (
-        action(client, request_id, instruction, "reject-recovery", 4, email="finance.manager@payment.local").status_code
+        action(client, request_id, instruction, "reject-recovery", 3, email="finance.manager@payment.local").status_code
         == 200
     )
     data = report(client, "recoveries")
@@ -260,10 +258,8 @@ def test_unclaimed_checks_filter_uses_actual_ready_lines_not_authorized_transfer
         == 200
     )
     payments = view(client, request_id)["lines"]
-    for payment in payments:
-        assert action(client, request_id, payment["id"], "authorize", 1).status_code == 200
     assert report(client, "payments", state="unclaimed")["total"] == 0
-    assert action(client, request_id, payments[1]["id"], "pickup-ready", 2).status_code == 200
+    assert action(client, request_id, payments[1]["id"], "pickup-ready", 1).status_code == 200
     data = report(client, "payments", state="unclaimed")
     row = next(row for row in data["items"] if row["request_id"] == str(request_id))
     assert row["unclaimed_checks"] == 1 and Decimal(row["unclaimed_amount"]) == 500

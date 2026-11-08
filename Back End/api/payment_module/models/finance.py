@@ -195,7 +195,9 @@ class PaymentInstruction(Base):
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     voucher_id: Mapped[UUID] = mapped_column(ForeignKey("finance_voucher_drafts.id", ondelete="CASCADE"), index=True)
     request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), index=True)
-    signatory_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True)
+    signatory_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     preparer_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     method_id: Mapped[UUID] = mapped_column(ForeignKey("payment_methods.id", ondelete="RESTRICT"), nullable=False)
     reference: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -274,6 +276,7 @@ class FundReturnEvent(Base):
 
 class PettyCashVoucher(Base):
     """Immutable, tax-free voucher issued by Finance Associate."""
+
     __tablename__ = "petty_cash_vouchers"
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     request_id: Mapped[UUID] = mapped_column(ForeignKey("payment_requests.id", ondelete="CASCADE"), unique=True)

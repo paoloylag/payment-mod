@@ -11,7 +11,7 @@ test("Finance links independently approved replacements and reconciles its filte
     await page.goto("/#/login"); await page.locator("[data-demo-login]").selectOption("finance.manager@payment.local");
     await page.getByRole("button", { name: "Sign in", exact: true }).click(); await expect(page).toHaveURL(/#\/dashboard$/);
     await page.goto(`/#/requests/${fixture.original.request_number}`);
-    const panel = page.getByRole("region", { name: "Voucher and payment authorization", exact: true });
+    const panel = page.getByRole("region", { name: "Voucher and payment release", exact: true });
     await panel.locator("[data-voucher-replacement] summary").click();
     const form = panel.locator('[data-voucher-action="link-replacement"]');
     await form.getByRole("combobox", { name: "Replacement request" }).selectOption(fixture.replacement.id);

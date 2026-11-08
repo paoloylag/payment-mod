@@ -78,7 +78,7 @@ def prepared_voucher(client, accounting_request):  # noqa: F811
         db.execute(delete(FinanceVoucherEvent).where(FinanceVoucherEvent.request_id == request_id))
 
 
-def test_issue_assign_authorize_void_preserves_sources_and_reverses(client, prepared_voucher):
+def test_issue_prepare_void_preserves_sources_and_reverses(client, prepared_voucher):
     request_id, setup_version, posted, voucher = prepared_voucher
     url = f"/api/v1/finance-vouchers/{request_id}"
     signatory = login(client, "signatory@payment.local")
@@ -114,26 +114,22 @@ def test_issue_assign_authorize_void_preserves_sources_and_reverses(client, prep
         == prepared.json()
     )
     signatory = login(client, "signatory@payment.local")
-    assert client.get(f"/api/v1/requests/{request_id}").status_code == 200
-    assert client.get(f"/api/v1/requests/{request_id}/conversation").status_code == 200
-    assert any(
-        row["request_id"] == str(request_id) and row["pending"]
-        for row in client.get("/api/v1/finance-vouchers/queue").json()
-    )
-    authorize_body = {"request_version": 2, "version": 2, "reason": "Authorize recorded instruction"}
-    authorize_key = str(uuid4())
-    authorized = command(client, request_id, "authorize", signatory, authorize_body, authorize_key)
-    assert authorized.status_code == 200, authorized.text
+    assert client.get(f"/api/v1/requests/{request_id}").status_code == 404
+    assert client.get(f"/api/v1/requests/{request_id}/conversation").status_code == 404
+    assert client.get("/api/v1/finance-vouchers/queue").json() == []
+    associate = login(client, "finance.associate@payment.local")
     assert (
-        command(client, request_id, "authorize", signatory, authorize_body, authorize_key).json() == authorized.json()
+        command(
+            client, request_id, "authorize", associate, {"request_version": 2, "version": 2, "reason": "Retired"}
+        ).status_code
+        == 410
     )
-    assert command(client, request_id, "authorize", signatory, {**authorize_body, "version": 3}).status_code == 409
     manager = login(client, "finance.manager@payment.local")
-    void_body = {"request_version": 2, "version": 3, "reason": "Void before release"}
+    void_body = {"request_version": 2, "version": 2, "reason": "Void before release"}
     void_key = "v" * 100
     voided = command(client, request_id, "void", manager, void_body, void_key)
     assert voided.status_code == 200, voided.text
-    assert voided.json()["result"]["payment_authorization"] == "invalidated"
+    assert voided.json()["result"]["payment_authorization"] == "voided"
     assert command(client, request_id, "void", manager, void_body, void_key).json() == voided.json()
     print_view = client.get(url + "/print-data").json()
     assert print_view["current_state"] == "voided"
@@ -148,7 +144,12 @@ def test_issue_assign_authorize_void_preserves_sources_and_reverses(client, prep
     with SessionLocal() as db:
         assert db.get(FinanceJournalSnapshot, UUID(posted["id"])).result == posted["result"]
     signatory = login(client, "signatory@payment.local")
-    assert command(client, request_id, "authorize", signatory, {**authorize_body, "version": 4}).status_code == 409
+    assert (
+        command(
+            client, request_id, "authorize", signatory, {"request_version": 2, "version": 3, "reason": "Retired"}
+        ).status_code
+        == 410
+    )
     owner = login(client, "requestor@payment.local")
     cancelled = client.post(
         f"/api/v1/requests/{request_id}/cancel", headers=owner, json={"version": 2, "note": "Cancel the voided request"}
@@ -228,7 +229,6 @@ def test_payment_eligibility_permissions_and_expired_method(client, prepared_vou
     )
     with SessionLocal() as db:
         signatory_id = db.scalar(select(User.id).where(User.email == "signatory@payment.local"))
-        associate_id = db.scalar(select(User.id).where(User.email == "finance.associate@payment.local"))
         method_id = db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER"))
     associate = login(client, "finance.associate@payment.local")
     body = {
@@ -240,43 +240,23 @@ def test_payment_eligibility_permissions_and_expired_method(client, prepared_vou
         "reference": f"TX-{uuid4().hex[:12]}",
     }
     assert (
-        command(
-            client, request_id, "prepare-payment", associate, {**body, "signatory_user_id": str(associate_id)}
-        ).status_code
-        == 422
-    )
-    assert (
         command(client, request_id, "prepare-payment", associate, {**body, "method_id": str(uuid4())}).status_code
         == 422
     )
     assert command(client, request_id, "prepare-payment", associate, {**body, "reference": " "}).status_code == 422
-    assert command(client, request_id, "prepare-payment", associate, body).status_code == 200
-    authorization = {"request_version": 2, "version": 2, "reason": "Authorize"}
-    assert command(client, request_id, "authorize", associate, authorization).status_code == 403
-    with SessionLocal.begin() as db:
-        permission_id = db.scalar(select(Permission.id).where(Permission.code == "payments.authorize"))
-        deny = UserPermissionOverride(user_id=signatory_id, permission_id=permission_id, is_allowed=False)
-        db.add(deny)
-        db.flush()
-        deny_id = deny.id
-    try:
-        signatory = login(client, "signatory@payment.local")
-        assert command(client, request_id, "authorize", signatory, authorization).status_code == 403
-        assert client.get("/api/v1/finance-vouchers/queue").json() == []
-    finally:
-        with SessionLocal.begin() as db:
-            db.execute(delete(UserPermissionOverride).where(UserPermissionOverride.id == deny_id))
-    signatory = login(client, "signatory@payment.local")
     with SessionLocal.begin() as db:
         db.get(PaymentMethod, method_id).is_active = False
     try:
-        blocked = command(client, request_id, "authorize", signatory, authorization)
-        assert blocked.status_code == 409 and "no longer active" in blocked.text
+        assert command(client, request_id, "prepare-payment", associate, body).status_code == 422
     finally:
         with SessionLocal.begin() as db:
             db.get(PaymentMethod, method_id).is_active = True
-    assert command(client, request_id, "authorize", signatory, {**authorization, "version": 1}).status_code == 409
-    assert command(client, request_id, "authorize", signatory, authorization).status_code == 200
+    assert command(client, request_id, "prepare-payment", associate, body).status_code == 200
+    authorization = {"request_version": 2, "version": 2, "reason": "Retired authorization"}
+    assert command(client, request_id, "authorize", associate, authorization).status_code == 410
+    with SessionLocal() as db:
+        instruction = db.scalar(select(PaymentInstruction).where(PaymentInstruction.request_id == request_id))
+        assert instruction.signatory_user_id is None
 
 
 def test_incomplete_setup_blocks_issue_and_void_draft_has_no_formal_print(client, prepared_voucher):

@@ -200,19 +200,18 @@ def test_all_types_use_configured_accounting_and_payment_controls(client, all_se
         method = str(db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")))
     assert schedule(client, request_id, [line(due, signatory, method)]).status_code == 200
     payment_id = view(client, request_id)["lines"][0]["id"]
-    assert action(client, request_id, payment_id, "authorize", 1).status_code == 200
     receipt = evidence(client, request_id, payment_id, "release").json()
     released = action(
         client,
         request_id,
         payment_id,
         "release",
-        2,
+        1,
         {"evidence_id": receipt["id"], "bank_name": "Bank", "recipient_name": "Payee"},
     )
     assert released.status_code == 200, released.text
     proof = evidence(client, request_id, payment_id, "clearing").json()
-    assert action(client, request_id, payment_id, "clear", 3, {"evidence_id": proof["id"]}).status_code == 200
+    assert action(client, request_id, payment_id, "clear", 2, {"evidence_id": proof["id"]}).status_code == 200
     assert view(client, request_id)["summary"]["state"] == "cleared"
 
 

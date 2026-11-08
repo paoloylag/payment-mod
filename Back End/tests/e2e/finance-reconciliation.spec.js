@@ -45,9 +45,9 @@ test("Finance reconciliation follows verified returns, recoveries, exports and r
     await generate("advances",fixture.advance.request_number);await expect(panel.locator("tbody")).toContainText("Settled");
     await generate("returns",fixture.liquidation.request_number);await expect(panel.locator("tbody")).toContainText("Verified");
     const proof=await fixture.upload(associate,`payments/${fixture.general.id}/lines/${fixture.payment}/evidence/upload`,{kind:"recovery"});
-    await fixture.post(associate,`payments/${fixture.general.id}/lines/${fixture.payment}/recover`,{request_version:fixture.general.version,version:3,reason:"Funds fully recovered",evidence_id:proof.id,recovered_amount:"1100",bank_name:"Cash office",recipient_name:"Payee",recorded_on:"2026-10-15"});
+    await fixture.post(associate,`payments/${fixture.general.id}/lines/${fixture.payment}/recover`,{request_version:fixture.general.version,version:2,reason:"Funds fully recovered",evidence_id:proof.id,recovered_amount:"1100",bank_name:"Cash office",recipient_name:"Payee",recorded_on:"2026-10-15"});
     await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("Pending");
-    await fixture.post(manager,`payments/${fixture.general.id}/lines/${fixture.payment}/confirm-reversal`,{request_version:fixture.general.version,version:4,reason:"Full recovery independently verified"});
+    await fixture.post(manager,`payments/${fixture.general.id}/lines/${fixture.payment}/confirm-reversal`,{request_version:fixture.general.version,version:3,reason:"Full recovery independently verified"});
     await generate("recoveries",fixture.general.request_number);await expect(panel.locator("tbody")).toContainText("Verified");
     for(const width of [375,768,1440]){
       await page.setViewportSize({width,height:900});await panel.scrollIntoViewIfNeeded();

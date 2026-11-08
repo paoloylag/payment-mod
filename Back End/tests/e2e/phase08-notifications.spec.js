@@ -32,8 +32,8 @@ with SessionLocal.begin() as db:
     await head.locator('[data-toggle-notifications]').click();
     let row=head.locator('.notification-row').filter({hasText:'GEN-2026-880001'});
     await expect(row).toContainText('Approval action needed');await expect(row.locator('.notification-item')).toHaveClass(/unread/);
-    await row.getByRole('button',{name:'Mark read',exact:true}).click();await expect(row.locator('.notification-item')).not.toHaveClass(/unread/);
-    await row.getByRole('button',{name:'Mark unread',exact:true}).click();await expect(row.locator('.notification-item')).toHaveClass(/unread/);
+    await row.getByRole('button',{name:'Mark as read',exact:true}).click();await expect(row.locator('.notification-item')).not.toHaveClass(/unread/);
+    await row.getByRole('button',{name:'Mark as unread',exact:true}).click();await expect(row.locator('.notification-item')).toHaveClass(/unread/);
     for(const width of [375,768,1440]){
       await head.setViewportSize({width,height:900});
       await expect(head.locator('.notification-panel')).toBeVisible();

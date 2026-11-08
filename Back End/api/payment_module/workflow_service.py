@@ -3,11 +3,11 @@
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from .cost_center_approvals import routing_approver
 from .models import Currency, PaymentRequest, WorkflowAssignment, WorkflowEvent, WorkflowInstance
 from .outbox import record_workflow_event
 from .workflow_assignments import assignment_view, current_assignment
 from .workflow_policy import route_for
-from .cost_center_approvals import routing_approver
 
 
 def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInstance:
@@ -37,6 +37,7 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
     )
     if item.request_type == "pettyCash" and item.currency_code != "PHP":
         from .workflow_policy import PolicyCannotRoute
+
         raise PolicyCannotRoute("Petty Cash supports PHP only")
     currency = db.get(Currency, item.currency_code)
     php_per_unit = currency.php_per_unit if currency else None
@@ -111,7 +112,14 @@ def start_workflow(db: Session, item: PaymentRequest, actor_id) -> WorkflowInsta
     instance.route_snapshot = snapshot
     db.flush()
     if snapshot.get("department_approver_id"):
-        db.add(WorkflowAssignment(workflow_id=instance.id, stage_index=0, kind="approval", assigned_user_id=snapshot["department_approver_id"]))
+        db.add(
+            WorkflowAssignment(
+                workflow_id=instance.id,
+                stage_index=0,
+                kind="approval",
+                assigned_user_id=snapshot["department_approver_id"],
+            )
+        )
         db.flush()
     record_workflow_event(
         db,

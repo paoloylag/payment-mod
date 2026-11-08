@@ -79,8 +79,16 @@ test("Finance activates General setup and requests receive immutable account ass
     const item = await submitted.json();
     const page = await ownerContext.newPage(); await signIn(page, "requestor@payment.local");
     await page.goto(`/#/requests/${item.request_number}`);
-    await expect(page.locator("[data-finance-coding]")).toContainText(accounts[0].code);
-    await expect(page.locator("[data-finance-coding]")).toContainText(accounts[1].code);
+    await expect(page.locator("[data-finance-tax]")).toHaveCount(0);
+    const head = await session("department.head@payment.local");
+    const route = await (await head.context.get(`/api/v1/workflow/${item.id}`)).json();
+    const approval = await head.context.post(`/api/v1/workflow/${item.id}/approve`, {headers:{...head.headers,"Idempotency-Key":crypto.randomUUID()},data:{version:route.version}});
+    expect(approval.ok(),await approval.text()).toBeTruthy();
+    await page.reload();
+    const coding = page.locator('[data-finance-disclosure$=":coding"]');
+    await coding.locator("summary").click();
+    await expect(coding).toContainText(accounts[0].code);
+    await expect(coding).toContainText(accounts[1].code);
     await page.goto("/#/requests/new/general");
     await expect(page.getByText("Assigned by active Finance setup").first()).toBeVisible();
     await expect(page.locator(`input[readonly]`).filter({ visible: true }).first()).toBeVisible();

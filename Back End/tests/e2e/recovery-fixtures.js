@@ -47,11 +47,10 @@ export async function prepareRecoveries() {
     return submitted;
   };
   const release = async (item, amount, label) => {
-    await post(associate, `payments/${item.id}/lines`, { request_version: item.version, version: 1, reason: "Sample payment", lines: [{ label, amount, method_id: methods.find(row => row.code === "BANK_TRANSFER").id, signatory_user_id: users.find(row => row.email === "signatory@payment.local").id, reference: `REC-${crypto.randomUUID()}` }] });
+    await post(associate, `payments/${item.id}/lines`, { request_version: item.version, version: 1, reason: "Sample payment", lines: [{ label, amount, method_id: methods.find(row => row.code === "BANK_TRANSFER").id, reference: `REC-${crypto.randomUUID()}` }] });
     const payment = (await get(`payments/${item.id}`)).lines[0];
-    await post(roles.signatory, `payments/${item.id}/lines/${payment.id}/authorize`, { request_version: item.version, version: 1, reason: "Sample authorization" });
     const receipt = await upload(associate, `payments/${item.id}/lines/${payment.id}/evidence/upload`, { kind: "release" });
-    await post(associate, `payments/${item.id}/lines/${payment.id}/release`, { request_version: item.version, version: 2, reason: "Sample release", evidence_id: receipt.id, bank_name: "Sample bank", recipient_name: "Payee", recorded_on: "2026-10-14" });
+    await post(associate, `payments/${item.id}/lines/${payment.id}/release`, { request_version: item.version, version: 1, reason: "Sample release", evidence_id: receipt.id, bank_name: "Sample bank", recipient_name: "Payee", recorded_on: "2026-10-14" });
     return payment.id;
   };
   const advance = await prepare("cashAdvance", "1000", { event_end_date: "2026-10-13", liquidation_due_date: "2026-10-28", accountability_acknowledged: true });

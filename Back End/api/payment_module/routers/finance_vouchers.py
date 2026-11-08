@@ -36,15 +36,12 @@ from ..models import (
 from ..outbox import record_finance_notification
 from ..payment_execution import (
     execution_view,
-    latest_line_event,
-    line_state,
     payment_summary,
 )
 from ..security import current_user
 from ..voucher_service import (
     assigned_instruction,
     latest_voucher_event,
-    signatory_users,
 )
 from .conversation import participant
 from .finance_setup import read_draft
@@ -161,7 +158,11 @@ def context(db, request, actor, request_id, lock=False):
     if "vouchers.read" not in codes or not (finance or assigned):
         raise HTTPException(404, "Voucher not found")
     if item is not None and item.request_type == "pettyCash":
-        raise HTTPException(409, "Petty Cash uses its separate Finance Associate voucher; standard accounting and payment processing do not apply")
+        raise HTTPException(
+            409,
+            "Petty Cash uses its separate Finance Associate voucher; "
+            "standard accounting and payment processing do not apply",
+        )
     voucher = db.scalar(select(FinanceVoucherDraft).where(FinanceVoucherDraft.request_id == item.id))
     return item, voucher, roles, codes
 

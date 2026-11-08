@@ -22,7 +22,9 @@ def ready_setup(client, all_setup):  # noqa: F811
         for department in db.scalars(select(Department).where(Department.is_active.is_(True))):
             if not any(row.department_id == department.id and effective(row, finance_date()) for row in centers):
                 row = CostCenter(
-                    code=f"INI-{uuid4().hex[:8]}", name="Initial setup test center", department_id=department.id
+                    code=f"INI-{uuid4().hex[:8]}",
+                    name=f"Initial setup test center {uuid4().hex[:8]}",
+                    department_id=department.id,
                 )
                 db.add(row)
                 db.flush()
