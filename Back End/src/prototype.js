@@ -462,10 +462,10 @@ const errorPages = {
   409: { title: "Information changed", message: "This record was updated while you were working.", guidance: "Reload the latest information before continuing.", action: "retry", label: "Reload page" },
   422: { title: "Unable to process", message: "Some submitted information is incomplete or invalid.", guidance: "Go back, review the highlighted fields, and submit again.", action: "back", label: "Go back" },
   429: { title: "Too many requests", message: "The payment system is receiving too many requests from this session.", guidance: "Wait a moment before trying again.", action: "retry", label: "Try again" },
-  500: { title: "Something went wrong", message: "The payment system encountered an unexpected error.", guidance: "No action was completed. Try again or contact support if the problem continues.", action: "retry", label: "Try again" },
+  500: { title: "Something went wrong", message: "The payment system encountered an unexpected error.", guidance: "Check the latest record before retrying. Contact support if the problem continues.", action: "retry", label: "Try again" },
   502: { title: "Service connection failed", message: "The payment system could not reach a required service.", guidance: "The connection may recover shortly. Please try again.", action: "retry", label: "Try again" },
   503: { title: "Service temporarily unavailable", message: "The payment system is currently unavailable or undergoing maintenance.", guidance: "Please try again in a few minutes.", action: "retry", label: "Try again" },
-  504: { title: "Service timed out", message: "A required service did not respond in time.", guidance: "No action was completed. Please try again.", action: "retry", label: "Try again" },
+  504: { title: "Service timed out", message: "A required service did not respond in time.", guidance: "Check the latest record before retrying.", action: "retry", label: "Try again" },
 };
 
 function errorPage(code = 500, options = {}) {
@@ -864,18 +864,17 @@ function bindLogin() {
   });
   document.querySelector("[data-login-form]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setState({ authSubmitting: true, authError: "" });
-    try {
+    const element = event.currentTarget;
+    const form = new FormData(element);
+    await submitRecoverableForm(element, async () => {
       const returnPath = state.tab === "requestDetail" ? window.location.hash.slice(1) : "/dashboard";
       const session = await dataSource.login(form.get("email"), form.get("password"));
       const persona = personaForRoles(session.user.roles);
       state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona, authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null, notifications: { unread_count: 0, items: [] }, notificationsLoaded: false, notificationsPage: 1, notificationsOpen: false };
-      await loadApiPaymentRequests();
+      try { await loadApiPaymentRequests(); }
+      catch (error) { setState({ tab: "error", errorCode: error.status === 401 ? 401 : error.status === 403 ? 403 : 503 }); return; }
       navigate(returnPath);
-    } catch (error) {
-      setState({ authStatus: "unauthenticated", authError: error.message || "Sign-in failed", authSubmitting: false, toast: errorToast(error.message || "Sign-in failed", "Unable to sign in") });
-    }
+    });
   });
 }
 
@@ -888,7 +887,7 @@ async function loadIdentityData() {
   render();
   try {
     const [users, roles, permissions, departments] = await Promise.all([dataSource.listUsers(), dataSource.listRoles(), dataSource.listPermissions(), dataSource.listDepartments()]);
-    setState({ identityData: { users, roles, permissions, departments }, identityLoading: false });
+    setState({ identityData: { users, roles, permissions, departments }, identityLoading: false, ...(state.toast?.title === "Administration data unavailable" ? { toast: "" } : {}) });
   } catch (error) {
     const message = error.status === 403 ? "You do not have permission to administer identity data." : error.message;
     setState({ identityLoading: false, identityError: message, toast: errorToast(message, "Administration data unavailable") });
@@ -918,7 +917,7 @@ function identityEditorModal() {
 
 function identityPage(kind) {
   if (state.identityLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading administration data"></div></section>`;
-  if (state.identityError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.identityError)}</p></section>`;
+  if (state.identityError) return `<section class="identity-page"><p class="auth-error login-error" role="alert">${escapeHtml(state.identityError)}</p><button type="button" data-retry-identity>Try again</button></section>`;
   const { users, roles, permissions, departments } = state.identityData;
   const departmentName = (id) => departments.find((item) => item.id === id)?.name || "Unassigned";
   const roleName = (id) => roles.find((item) => item.id === id)?.name || "Unknown role";
@@ -941,6 +940,32 @@ async function refreshIdentityData() {
   await loadIdentityData();
 }
 
+async function submitRecoverableForm(form, action) {
+  if (form.getAttribute("aria-busy") === "true") return;
+  let errorBox = form.querySelector("[data-form-error]");
+  if (!errorBox) {
+    errorBox = document.createElement("p");
+    errorBox.dataset.formError = "";
+    errorBox.className = "auth-error login-error";
+    errorBox.setAttribute("role", "alert");
+    errorBox.tabIndex = -1;
+    form.append(errorBox);
+  }
+  errorBox.textContent = "";
+  const controls = [...form.querySelectorAll('button[type="submit"]')];
+  const disabled = controls.map(control => control.disabled);
+  form.setAttribute("aria-busy", "true");
+  controls.forEach(control => { control.disabled = true; });
+  try { await action(); }
+  catch (error) {
+    errorBox.textContent = error.message || "Unable to save. Try again.";
+    errorBox.focus();
+  } finally {
+    form.removeAttribute("aria-busy");
+    controls.forEach((control, index) => { control.disabled = disabled[index]; });
+  }
+}
+
 function bindIdentityForms() {
   document.querySelectorAll("[data-add-identity]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: button.dataset.addIdentity, id: null } })));
   document.querySelectorAll("[data-identity-action-menu]").forEach((button) => button.addEventListener("click", (event) => {
@@ -954,22 +979,15 @@ function bindIdentityForms() {
       button.setAttribute("aria-expanded", "true");
     }
   }));
-  document.querySelector("[data-create-department]")?.addEventListener("submit", async (event) => {
+  const bindSubmit = (selector, action) => document.querySelector(selector)?.addEventListener("submit", event => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try {
-      await dataSource.createDepartment({ code: String(form.get("code")).toUpperCase(), name: form.get("name") }, state.csrfToken);
-      await refreshIdentityData();
-    } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update user") }); }
+    const element = event.currentTarget;
+    const values = new FormData(element);
+    void submitRecoverableForm(element, async () => { await action(values, element); await refreshIdentityData(); });
   });
-  document.querySelector("[data-create-user]")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    try {
-      await dataSource.createUser({ role_ids: form.getAll("role_ids"), email: form.get("email"), display_name: form.get("display_name"), password: form.get("password"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null }, state.csrfToken);
-      await refreshIdentityData();
-    } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update role") }); }
-  });
+  document.querySelector("[data-retry-identity]")?.addEventListener("click", loadIdentityData);
+  bindSubmit("[data-create-department]", form => dataSource.createDepartment({ code: String(form.get("code")).toUpperCase(), name: form.get("name") }, state.csrfToken));
+  bindSubmit("[data-create-user]", form => dataSource.createUser({ role_ids: form.getAll("role_ids"), email: form.get("email"), display_name: form.get("display_name"), password: form.get("password"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null }, state.csrfToken));
   document.querySelectorAll("[data-edit-user]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "user", id: button.dataset.editUser } })));
   document.querySelectorAll("[data-edit-department]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "department", id: button.dataset.editDepartment } })));
   document.querySelectorAll("[data-edit-role]").forEach((button) => button.addEventListener("click", () => setState({ identityEdit: { kind: "role", id: button.dataset.editRole } })));
@@ -978,9 +996,7 @@ function bindIdentityForms() {
   document.querySelector("[data-identity-modal-backdrop]")?.addEventListener("click", (event) => {
     if (event.target === event.currentTarget) setState({ identityEdit: null });
   });
-  const bindSubmit = (selector, action) => document.querySelector(selector)?.addEventListener("submit", async (event) => { event.preventDefault(); try { await action(new FormData(event.currentTarget), event.currentTarget); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to save changes") }); } });
-  const editUserForm = document.querySelector("form[data-edit-user-form]");
-  editUserForm?.addEventListener("submit", async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await dataSource.updateUser(event.currentTarget.dataset.editUserForm, { role_ids: form.getAll("role_ids"), display_name: form.get("display_name"), email: form.get("email"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null, is_active: form.get("is_active") === "on", is_suspended: form.get("is_suspended") === "on" }, state.csrfToken); await refreshIdentityData(); } catch (error) { setState({ identityError: error.message, toast: errorToast(error.message, "Unable to update user") }); } });
+  bindSubmit("[data-edit-user-form]", (form, element) => dataSource.updateUser(element.dataset.editUserForm, { role_ids: form.getAll("role_ids"), display_name: form.get("display_name"), email: form.get("email"), department_id: form.get("department_id") || null, manager_id: form.get("manager_id") || null, is_active: form.get("is_active") === "on", is_suspended: form.get("is_suspended") === "on" }, state.csrfToken));
   bindSubmit("[data-edit-department-form]", (form, element) => dataSource.updateDepartment(element.dataset.editDepartmentForm, { code: String(form.get("code")).toUpperCase(), name: form.get("name"), is_active: form.get("is_active") === "on" }, state.csrfToken));
   bindSubmit("[data-create-role]", (form) => dataSource.createRole({ code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
   bindSubmit("[data-edit-role-form]", (form, element) => dataSource.updateRole(element.dataset.editRoleForm, { code: form.get("code"), name: form.get("name"), description: form.get("description") }, state.csrfToken));
@@ -1022,7 +1038,7 @@ async function loadMasterData(tab = state.tab) {
       tab === "currencies" ? dataSource.getRequestNumberingSetting().catch(() => null) : Promise.resolve(state.requestNumbering),
       tab === "costCenters" && canConfigureCostCenterApprovers() ? dataSource.getCostCenterApprovers() : Promise.resolve(state.costCenterApprovers || []),
     ]);
-    setState({ masterData: { ...state.masterData, [config.resource]: items }, requestNumbering, costCenterApprovers, masterDataLoading: false, vendorDirectoryLoaded: tab === "vendors" ? true : state.vendorDirectoryLoaded });
+    setState({ masterData: { ...state.masterData, [config.resource]: items }, requestNumbering, costCenterApprovers, masterDataLoading: false, ...(state.toast?.title === "Master data unavailable" ? { toast: "" } : {}), vendorDirectoryLoaded: tab === "vendors" ? true : state.vendorDirectoryLoaded });
   } catch (error) {
     const message = error.status === 403 ? "You do not have permission to view this master data." : error.message;
     setState({ masterDataLoading: false, masterDataError: message, toast: errorToast(message, "Master data unavailable") });
@@ -1090,7 +1106,7 @@ function masterDataPage(tab) {
   if (tab === "vendors") return vendorsPage();
   const config = masterDataConfig[tab];
   if (state.masterDataLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading master data"></div></section>`;
-  if (state.masterDataError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.masterDataError)}</p></section>`;
+  if (state.masterDataError) return `<section class="identity-page"><p class="auth-error login-error" role="alert">${escapeHtml(state.masterDataError)}</p><button type="button" data-retry-master>Try again</button></section>`;
   const items = state.masterData[config.resource] || [];
   if (tab === "costCenters") return costCenterApproversPage(items);
   const rows = items.length ? items.map((item) => {
@@ -1194,6 +1210,7 @@ function bindMasterData() {
       await loadMasterData("vendors"); setState({ toast: successToast("Vendor saved.") });
     } catch (error) { setState({ vendorSaving: false, vendorError: error.message }); }
   });
+  document.querySelector("[data-retry-master]")?.addEventListener("click", () => loadMasterData(state.tab));
   const config = masterDataConfig[state.tab];
   if (!config) return;
   document.querySelector("[data-add-master]")?.addEventListener("click", () => openMasterDataModal());
@@ -1218,13 +1235,13 @@ function bindMasterData() {
     const payload = masterPayload(edit.tab, new FormData(event.currentTarget));
     const isEdit = Boolean(edit.id);
     if (isEdit) payload.is_active = event.currentTarget.elements.is_active?.checked ?? undefined;
-    try {
+    await submitRecoverableForm(event.currentTarget, async () => {
       if (isEdit) await dataSource.updateMasterData(config.resource, edit.id, payload, state.csrfToken);
       else await dataSource.createMasterData(config.resource, payload, state.csrfToken);
       state.masterDataEdit = null;
       state.masterData[config.resource] = [];
       await loadMasterData(state.tab);
-    } catch (error) { setState({ masterDataError: error.message, toast: errorToast(error.message, "Unable to save master data") }); }
+    });
   });
   document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1868,7 +1885,7 @@ function requirementRuleModal() {
 
 function requestRequirementsPage() {
   if (state.requirementRulesLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading request requirements"></div></section>`;
-  if (state.requirementRulesError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.requirementRulesError)}</p></section>`;
+  if (state.requirementRulesError) return `<section class="identity-page"><p class="auth-error login-error">${escapeHtml(state.requirementRulesError)}</p></section>`;
   const documentName = (id) => state.requirementDocumentTypes.find((type) => type.id === id)?.name || "Unknown document type";
   const rows = state.requirementRules.length ? state.requirementRules.map((rule) => `<article><div><strong>${escapeHtml(documentName(rule.document_type_id))}</strong><small>${escapeHtml(requestTypeLabels[rule.request_type] || rule.request_type)} · ${rule.scope === "line" ? "Every line" : "Whole request"}</small></div><div><span>${rule.is_required ? "Required" : "Conditional"}</span><small>${escapeHtml(rule.guidance || `Minimum ${rule.minimum_count} file${rule.minimum_count === 1 ? "" : "s"}`)}</small></div><span class="status-pill ${rule.is_active ? "success" : "danger"}">${rule.is_active ? "Active" : "Inactive"}</span><div class="identity-action-menu"><button type="button" class="identity-action-trigger" data-identity-action-menu aria-label="Actions for ${escapeHtml(documentName(rule.document_type_id))}" aria-expanded="false">⋮</button><div class="identity-action-popover" data-identity-action-popover hidden><button type="button" data-edit-requirement-rule="${rule.id}">Edit</button></div></div></article>`).join("") : `<div class="empty-state"><strong>No requirements configured</strong><p>Requests remain non-blocking until an active required rule is added.</p></div>`;
   return `<section class="identity-page"><section class="panel"><div class="panel-header"><div><h3>Request Requirements</h3><p>Configure required and conditional documents for each payment request type.</p></div><div class="identity-header-actions"><button type="button" class="primary-button" data-add-requirement-rule>+ Requirement</button></div></div><div class="identity-list">${rows}</div></section></section>${requirementRuleModal()}`;
@@ -1905,7 +1922,7 @@ async function loadRequestSettings() {
       dataSource.getRequestNumberingSetting(), dataSource.getReimbursementBatchSetting(), dataSource.getFinanceRequestPolicy(),
       dataSource.getFinanceSetupDraft(), dataSource.listMasterData("tax-codes"), dataSource.listMasterData("chart-of-accounts"),
     ]);
-    setState({ requestNumbering, reimbursementBatchSetting, financePolicySetting, financeSetup, financeSetupTaxCodes, financeSetupAccounts, requestSettingsLoading: false });
+    setState({ requestNumbering, reimbursementBatchSetting, financePolicySetting, financeSetup, financeSetupTaxCodes, financeSetupAccounts, requestSettingsLoading: false, ...(state.toast?.title === "Settings unavailable" ? { toast: "" } : {}) });
   } catch (error) {
     setState({ requestSettingsLoading: false, requestSettingsError: error.message, toast: errorToast(error.message, "Settings unavailable") });
   }
@@ -2001,7 +2018,7 @@ function financeReadinessSection(setup) {
 
 function requestSettingsPage() {
   if (state.requestSettingsLoading) return `<section class="identity-page"><div class="auth-loading" aria-label="Loading request settings"></div></section>`;
-  if (state.requestSettingsError) return `<section class="identity-page"><p class="auth-error">${escapeHtml(state.requestSettingsError)}</p></section>`;
+  if (state.requestSettingsError) return `<section class="identity-page"><p class="auth-error login-error" role="alert">${escapeHtml(state.requestSettingsError)}</p><button type="button" data-retry-request-settings>Try again</button></section>`;
   if (!state.requestNumbering || !state.reimbursementBatchSetting || !state.financePolicySetting || !state.financeSetup) return `<section class="identity-page"><div class="auth-loading" aria-label="Preparing request settings"></div></section>`;
   const editable = canManageRequestSettings();
   const disabled = editable ? "" : "disabled";
@@ -2058,30 +2075,31 @@ function bindInitialFinanceSetup() {
 }
 
 function bindRequestSettings() {
+  document.querySelector("[data-retry-request-settings]")?.addEventListener("click", loadRequestSettings);
   bindInitialFinanceSetup();
   if (state.tab !== "requestSettings" || !canManageRequestSettings()) return;
   document.querySelector("[data-numbering-settings]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
+    const element = event.currentTarget;
+    await submitRecoverableForm(element, async () => {
       await dataSource.updateRequestNumberingSetting(Number(new FormData(event.currentTarget).get("reset_month")), state.csrfToken);
       state.requestNumbering = await dataSource.getRequestNumberingSetting();
       setState({ toast: successToast("The academic-year numbering schedule was updated.", "Numbering saved") });
-    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save numbering") }); }
+    });
   });
   document.querySelector("[data-reimbursement-batches]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const element = event.currentTarget;
     const cutoffDays = new FormData(event.currentTarget).getAll("cutoff_day").map(Number);
-    if (new Set(cutoffDays).size !== cutoffDays.length) {
-      setState({ toast: errorToast("Choose two different cutoff days.", "Schedule not saved") });
-      return;
-    }
-    try {
+    await submitRecoverableForm(element, async () => {
+      if (new Set(cutoffDays).size !== cutoffDays.length) throw new Error("Choose two different cutoff days.");
       state.reimbursementBatchSetting = await dataSource.updateReimbursementBatchSetting(cutoffDays, state.csrfToken);
       setState({ toast: successToast("Late reimbursements will carry into the next configured batch.", "Batch schedule saved") });
-    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save batch schedule") }); }
+    });
   });
   document.querySelector("[data-finance-policies]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const element = event.currentTarget;
     const form = new FormData(event.currentTarget);
     const payload = {
       cash_advance_limit_amount: String(form.get("cash_advance_limit_amount")),
@@ -2091,10 +2109,10 @@ function bindRequestSettings() {
       reimbursement_invoice_age_days: Number(form.get("reimbursement_invoice_age_days")),
       reimbursement_invoice_age_action: String(form.get("reimbursement_invoice_age_action")),
     };
-    try {
+    await submitRecoverableForm(element, async () => {
       state.financePolicySetting = await dataSource.updateFinanceRequestPolicy(payload, state.csrfToken);
       setState({ toast: successToast("Future submission checks will use the updated rules. Existing submitted records remain unchanged.", "Finance policies saved") });
-    } catch (error) { setState({ toast: errorToast(error.message, "Unable to save finance policies") }); }
+    });
   });
   const activationForm = document.querySelector("[data-finance-activation]");
   activationForm?.elements.scope.addEventListener("change", () => {
@@ -2120,6 +2138,7 @@ function bindRequestSettings() {
   document.querySelector("[data-finance-setup]")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const setupForm = event.currentTarget;
+    if (setupForm.getAttribute("aria-busy") === "true") return;
     const form = new FormData(setupForm);
     const choice = (key) => String(form.get(key) || "") || null;
     const payload = {
@@ -2142,6 +2161,7 @@ function bindRequestSettings() {
       payload.tax_by_request_type[key] = choice(`tax_${key}`);
       payload.accounts_by_request_type[key] = { debit_account_id: choice(`debit_${key}`), credit_account_id: choice(`credit_${key}`), input_vat_account_id: key === "general" ? choice(`input_vat_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.input_vat_account_id || null), ewt_payable_account_id: key === "general" ? choice(`ewt_payable_${key}`) : (state.financeSetup.accounts_by_request_type?.[key]?.ewt_payable_account_id || null) };
     }
+    setupForm.querySelectorAll("[data-form-error]").forEach(element => { element.textContent = ""; });
     const saveButton = setupForm.querySelector('button[type="submit"]');
     saveButton.disabled = true;
     setupForm.setAttribute("aria-busy", "true");
@@ -2150,7 +2170,14 @@ function bindRequestSettings() {
       if (!state.financeInitialMode) state.financeInitialValues = {};
       else setupForm.elements.voucher_prefix.value = payload.voucher.prefix;
       setState({ toast: successToast("The Finance choices were saved as a draft.", "Finance setup saved") });
-    } catch (error) { saveButton.disabled = false; setupForm.removeAttribute("aria-busy"); const target = document.querySelector("[data-initial-save-error]"); if (target) target.textContent = error.message; else setState({ toast: errorToast(error.message, "Unable to save Finance setup") }); }
+    } catch (error) {
+      saveButton.disabled = false;
+      setupForm.removeAttribute("aria-busy");
+      let target = setupForm.querySelector("[data-form-error]") || document.querySelector("[data-initial-save-error]");
+      if (!target) { target = document.createElement("p"); target.dataset.formError = ""; target.className = "auth-error login-error"; target.setAttribute("role", "alert"); target.tabIndex = -1; setupForm.append(target); }
+      target.textContent = error.message;
+      target.focus();
+    }
   });
 }
 
@@ -2366,7 +2393,7 @@ function workflowExceptionPanel(r) {
       <div class="field-grid" data-exception-fields="delegate"><label>Starts (local time)<input name="starts_at" type="datetime-local"></label><label>Ends (local time)<input name="ends_at" type="datetime-local"></label></div>
       <fieldset data-exception-fields="material-correction"><legend>Fields requiring correction</legend>${[["amount", "Amount"], ["budget_status", "Budget status"], ["department", "Department"], ["request_type", "Request type"], ["currency", "Currency"]].map(([value, label]) => `<label class="checkbox-field"><input name="changed_fields" type="checkbox" value="${value}">${label}</label>`).join("")}<p>The requestor will edit the request. Resubmission starts a fresh route at Department Head; earlier decisions remain in history.</p></fieldset>
       <p data-exception-description></p><label>Reason<textarea name="note" rows="3" maxlength="2000" required></textarea></label>
-      <div data-exception-error role="alert" class="auth-error" hidden></div>
+      <div data-exception-error role="alert" class="auth-error login-error" hidden></div>
       <button type="submit" class="primary-button">Apply workflow action</button>
     </form></div></details>`;
 }
@@ -4082,7 +4109,12 @@ function bindErrorPage() {
     const action = button.dataset.errorAction;
     if (action === "retry") window.location.reload();
     else if (action === "back" && window.history.length > 1) window.history.back();
-    else if (action === "login") navigate("/login");
+    else if (action === "login") {
+      state.authStatus = "unauthenticated";
+      state.authUser = null;
+      state.csrfToken = null;
+      navigate("/login");
+    }
     else navigate("/dashboard");
   }));
 }
@@ -4141,7 +4173,7 @@ function render() {
     const requestAvailable = requests.some((item) => item.id === state.requestDetailId);
     if (state.requestDeepLinkError || !requestAvailable) {
       const content = state.requestDeepLinkError
-        ? errorPage(500, { message: state.requestDeepLinkError })
+        ? errorPage(state.requestDeepLinkStatus || 500, { message: state.requestDeepLinkError })
         : errorPage(404, { message: "The payment request you opened could not be found or is not available to your role." });
       document.getElementById("root").innerHTML = `<main class="signed-out error-page-standalone">${content}</main>`;
       bindErrorPage();
@@ -4407,7 +4439,15 @@ function render() {
   document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem("payment-module-theme", state.theme);
-    render();
+    document.documentElement.dataset.theme = state.theme;
+    const toggle = document.querySelector("[data-theme-toggle]");
+    const label = `Switch to ${state.theme === "dark" ? "light" : "dark"} mode`;
+    toggle.setAttribute("aria-label", label);
+    toggle.setAttribute("title", label);
+    toggle.setAttribute("aria-pressed", String(state.theme === "dark"));
+    toggle.innerHTML = state.theme === "dark"
+      ? `<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/></svg>`
+      : `<svg aria-hidden="true" viewBox="0 0 24 24"><path class="moon-fill" d="M20.2 15.45A8.75 8.75 0 0 1 8.55 3.8 9 9 0 1 0 20.2 15.45Z"/></svg>`;
   });
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest, documentError: "" })));
   document.querySelector("[data-guide-print]")?.addEventListener("click", printSystemGuide);
@@ -5346,10 +5386,10 @@ window.addEventListener("hashchange", async () => {
     finally { state.trackerLoading = false; }
   }
   if (state.authStatus === "authenticated" && state.tab === "requestDetail" && !requests.some(item => item.id === state.requestDetailId)) {
-    state.requestDeepLinkLoading = true; state.requestDeepLinkError = "";
+    state.requestDeepLinkLoading = true; state.requestDeepLinkError = ""; state.requestDeepLinkStatus = null;
     render();
     try { await loadApiPaymentRequests(); }
-    catch (error) { state.requestDeepLinkError = error.message; }
+    catch (error) { state.requestDeepLinkError = error.message; state.requestDeepLinkStatus = error.status || 503; }
     finally { state.requestDeepLinkLoading = false; }
   } else state.requestDeepLinkError = "";
   render();
@@ -5390,7 +5430,8 @@ if (dataSource.mode !== "mock") {
   dataSource.getSession()
     .then(async (session) => {
       state = { ...state, authStatus: "authenticated", authUser: session.user, csrfToken: session.csrf_token, persona: personaForRoles(session.user.roles), authSubmitting: false, cashAdvanceOptions: null, requirementRules: [], requirementDocumentTypes: [], requirementRulesLoaded: false, requirementRulesLoading: false, requirementRulesError: "", requirementRuleEdit: null };
-      await loadApiPaymentRequests();
+      try { await loadApiPaymentRequests(); }
+      catch (error) { setState({ tab: "error", errorCode: error.status === 401 ? 401 : error.status === 403 ? 403 : 503 }); return; }
       if (window.location.hash === "#/login") navigate("/dashboard");
       else render();
     })
