@@ -2,7 +2,7 @@
 
 Prepared: 2026-09-28  
 Scope: backend integration branch, Phases 02–09  
-Source of truth: `PROJECT_MANIFEST.md`, the phase plans and validation records, and the Finance orientation findings in this directory.
+Current delivery status: [Current system status — 10 November 2026](current-system-status.md). `PROJECT_MANIFEST.md` records approved scope; dated phase notes retain delivery history.
 Current Phase 05–07 closeout: [development and Finance acceptance](phase-05-07-closeout.md). Earlier planning sequences remain historical context.
 
 
@@ -17,11 +17,11 @@ Current Phase 05–07 closeout: [development and Finance acceptance](phase-05-07
 | 04 — Documents | Validated for local development | Production storage, scanning, retention, accessibility, and hosted-browser assurance remain Phase 09 work. |
 | 05 | Confirmed approval and exception scope implemented and validated | Finance business acceptance. SLA/escalation deferred. |
 | 06 | All-type Finance configuration/accounting/vouchers and replacement links implemented | Actual Finance setup activation and business acceptance. |
-| 07 | All-type multiple payment lines, authorization, pickup, release, clearing, exceptions and Finance queue implemented | Finance acceptance. Fund returns and post-release reversals deferred; detailed reporting is Phase 08. |
-| 08 | Workflow/payment notification inbox and local worker implemented 2026-10-20 | Reporting definitions, dashboards/exports, remaining event coverage and production delivery acceptance. |
-| 09 | Not started | Approve providers, identity contracts, owners, and production controls before activation. |
+| 07 | Ordinary payment lines, pickup, release, clearing, fund returns/recovery and Finance queue implemented; separate signatory gate retired | Finance acceptance. Petty Cash ends with its Finance Associate voucher. |
+| 08 | In-app notifications/local worker, dashboard snapshots, request and Finance reconciliation reports implemented | Finance acceptance; SLA/escalation deferred. Production delivery/volume acceptance remains separate. |
+| 09 | Local deployment preparation started; live integrations and production acceptance open | Confirm provider/identity contracts and implement/validate live connections separately. |
 
-The status above reflects development through 2026-10-13 and accepted local limitations. A release cannot inherit an
+The table above was reconciled on 2026-11-10. The detailed execution sequences below are historical planning context and must be read against current-system-status.md. A release cannot inherit an
 unresolved external or production rule silently. Keep the existing frontend-only GitHub Pages preview explicitly in
 mock mode; the backend integration build must continue to require the API.
 

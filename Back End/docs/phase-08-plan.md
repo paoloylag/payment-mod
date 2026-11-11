@@ -1,7 +1,9 @@
 # Phase 08 — Notifications, Dashboards, and Reports
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date prepared: 2026-08-28  
-Status: Local Finance notifications, server dashboard snapshots and reconciliation reports implemented 2026-10-30; Finance acceptance and production activation remain separate
+Status: Local notifications, authoritative dashboard snapshots, request exports and Finance reconciliation reports implemented. Finance acceptance remains open; SLA/escalation deferred.
 Depends on: Phases 03–07 transactional data
 
 ## Outbox foundation — 2026-10-11

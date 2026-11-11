@@ -1,5 +1,7 @@
 # Phase 08 notification increment — 2026-10-20
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Status: implemented locally; full Phase 08 is not complete. Production email remains disabled.
 The owner confirmed the recipient policy in this chat on 2026-10-20.
 

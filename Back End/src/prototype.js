@@ -12,6 +12,7 @@ import { initialSetupBody, initialSetupSteps, businessAcceptanceBody } from "./f
 import { voucherBody, voucherPrintHtml, openVoucherPrint, openVoucherPreview, pettyCashVoucherPrintHtml } from "./voucher-ui.js";
 import { openStoredDocumentPreview } from "./document-preview.js?v=20261011-preview-decisions";
 import { createDataSource } from "./data-source.js?v=20261013-connection-errors";
+import { downloadSystemGuide } from "./guide-builder.js";
 import { printSystemGuide } from "./guide-print.js";
 import { paginateTables } from "./table-pagination.js";
 import { guideSections, guideStageAudiences, guideStages } from "./guide-data.js?v=20260920-backend-integration";
@@ -3989,8 +3990,8 @@ function systemGuide() {
     <div class="guide-card-grid">${section.cards.map((card) => `<details class="guide-card" data-guide-card ${window.matchMedia("(min-width: 701px)").matches ? "open" : ""}><summary><span><h4>${card.title}</h4><p class="guide-path">${card.path}</p></span><span class="guide-card-toggle">Steps</span></summary><ol>${card.steps.map((step) => `<li>${step}</li>`).join("")}</ol></details>`).join("")}</div>
     <p class="guide-note"><strong>Remember:</strong> ${section.note}</p>
   </section>`).join("");
-  return `<section class="system-guide-page">
-    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></header>
+  return `<section class="system-guide-page" data-guide-audience="${escapeHtml(audience)}">
+    <header class="guide-hero"><div><span class="eyebrow">${audienceLabels[audience]}</span><h2>Payment Module quick reference</h2><p>Practical procedures, approval rules, and controls for using the Payment Module.</p></div><div class="identity-header-actions"><button type="button" data-guide-download="${escapeHtml(audience)}">Download HTML</button><button type="button" class="guide-print-button" data-guide-print>Print / Save PDF</button></div></header>
     <nav class="guide-anchor-nav" aria-label="Guide sections">${visibleSections.map((section) => `<a href="#guide-${section.id}" data-guide-anchor="guide-${section.id}"><span>${section.number}</span>${section.title}</a>`).join("")}</nav>
     <div class="guide-content">
       <search class="guide-search"><label for="guideSearch">Search the Payment Module guide</label><div><span aria-hidden="true">⌕</span><input id="guideSearch" type="search" placeholder="Search procedures, roles, or payment stages" autocomplete="off" data-guide-search></div><p role="status" data-guide-search-status>Search procedures, approval rules, documents, and controls.</p></search>
@@ -4451,6 +4452,7 @@ function render() {
   });
   document.querySelectorAll("[data-upload-request]").forEach((button) => button.addEventListener("click", () => setState({ uploadId: button.dataset.uploadRequest, documentError: "" })));
   document.querySelector("[data-guide-print]")?.addEventListener("click", printSystemGuide);
+  document.querySelector("[data-guide-download]")?.addEventListener("click", event => downloadSystemGuide(event.currentTarget.dataset.guideDownload));
   document.querySelectorAll("[data-guide-anchor]").forEach((anchor) => anchor.addEventListener("click", (event) => {
     event.preventDefault();
     const search = document.querySelector("[data-guide-search]");

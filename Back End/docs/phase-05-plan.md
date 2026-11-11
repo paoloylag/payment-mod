@@ -1,5 +1,7 @@
 # Phase 05 — Workflow and Approvals
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date prepared: 2026-08-28  
 Status: Approved exception scope implemented, locally verified, and hosted CI passed. Owner authorized progression to Phase 06; a separate Finance acceptance session remains available. SLA and escalation deferred on 2026-10-13.
 Depends on: Phases 03–04 — Requests and Documents

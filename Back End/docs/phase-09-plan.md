@@ -1,5 +1,7 @@
 # Phase 09 — Administration and Integrations
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date prepared: 2026-08-28  
 Last updated: 2026-09-25
 Status: Local deployment preparation started 2026-10-19; infrastructure and production acceptance pending

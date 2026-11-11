@@ -1,5 +1,7 @@
 # Phase 06 — Finance Validation and Vouchers
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date prepared: 2026-08-28  
 Status: Confirmed local development scope implemented for all request types, including replacement links. Finance configuration and business acceptance remain the operational closeout.
 

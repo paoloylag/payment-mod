@@ -8,6 +8,8 @@ The owner requested blank Finance setup. No Finance configuration has been activ
 
 Update 8 November 2026: clearly labelled Finance examples were added on 3 November using the existing local Finance configuration. Treat the paragraph above as historical. Finance must still confirm actual operating settings and sign business acceptance.
 
+Current workflow reference: [System status](current-system-status.md). Use **System Guide → Download HTML** for role procedures, or `pnpm guides:build` for the portable all-role handbook. Instructions are not a substitute for Finance acceptance.
+
 ## Start with Finance setup
 
 1. Sign in as Finance Manager. Open Request Settings → Start / resume initial setup. Direct route: `/#/administration/request-settings`.
@@ -20,6 +22,7 @@ Update 8 November 2026: clearly labelled Finance examples were added on 3 Novemb
 
 | Scenario | Expected evidence |
 | --- | --- |
+| Petty Cash | PHP, strictly below ₱3,000; Department Head → Finance Associate. Finance Associate creates a tax-free voucher; no Finance Manager or ordinary payment flow. |
 | General payment | Submit documents; Department Head approves; Finance Associate accepts required documents and lines, saves tax/accounting; Finance Manager approves the configured route; final approval permits posting and voucher preparation/certification. |
 | Executive route | For unbudgeted requests above PHP 1,000,000: COO → President → Board. Executive More Information goes to Finance Associate and resumes the same stage. Future approvers cannot see/chat before their stage is reached. |
 | Return/correction | Return with destination and reason; requestor edits and resubmits to the applicable stage. Finance Manager can return to Finance Associate and resume Finance Manager review. Fully decline remains distinct. |

@@ -1,5 +1,7 @@
 # Phase 08 dashboard completeness
 
+Current scope: [System status, 10 November 2026](current-system-status.md). Dated pending statements below are historical; later dashboard/reconciliation delivery supersedes them.
+
 The request loader now reads every permitted page before replacing dashboard data. Cards and their detail tables use the same loaded dataset, beyond the previous 100-request limit. A failed later page or repeated request ID raises an error instead of publishing a partial replacement.
 
 Open Request Value shows gross submitted/returned request amounts, excluding cleared payments, verified fund returns and settled liquidations. It is not net unpaid liability. Currency totals remain separate. Returned requests remain open because corrections are outstanding. Voided vouchers remain open because the underlying approved request still requires handling.

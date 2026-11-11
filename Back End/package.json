@@ -51,7 +51,8 @@
     "dev:e2e": "vite --host 127.0.0.1 --port 5178",
     "test:e2e": "playwright test",
     "test:e2e:isolated": "node tests/e2e/run-isolated.js",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "guides:build": "node scripts/build-guides.mjs"
   },
   "dependencies": {
     "lucide-react": "0.468.0",

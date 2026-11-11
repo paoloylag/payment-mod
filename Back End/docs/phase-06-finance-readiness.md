@@ -1,5 +1,7 @@
 # Phase 06 — Finance configuration readiness checklist
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Prepared: 2026-10-13
 Status: Confirmed configuration, accounting and voucher scope implemented for all request types. Finance must select its actual accounts and activate All scope before exercising the shared flow.
 

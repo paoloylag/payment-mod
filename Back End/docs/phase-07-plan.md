@@ -1,7 +1,9 @@
 # Phase 07 — Payment Execution
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date prepared: 2026-08-28  
-Status: Confirmed payment flow and Finance work queue implemented for all request types. Finance acceptance remains open; fund returns and post-release reversals remain deferred.
+Status: Local payment, fund-return and recovery flows implemented. Separate signatory authorization is retired; Petty Cash ends with a Finance Associate voucher. Finance acceptance remains open.
 
 Current closeout: [Phase 05 to 07 development closeout](phase-05-07-closeout.md). Dated increments below retain their delivery history; their earlier pending statements are superseded by the current closeout.
 Depends on: Phase 06 — Finance Validation and Vouchers

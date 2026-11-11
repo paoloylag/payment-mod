@@ -1,5 +1,7 @@
 # Voucher lifecycle and payment authorization validation
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date: 2026-10-13 (Asia/Manila)
 Branch: `codex/phase06-voucher-lifecycle`
 Dependency: `codex/phase06-accounting-workbench`, commit `09e63d9`

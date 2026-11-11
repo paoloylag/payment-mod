@@ -8,15 +8,17 @@ The confirmed approval, Finance and payment flows are implemented. The closeout 
 
 Update 8 November 2026: the signatory gate described in this historical closeout has been removed. Finance Associate prepares and releases payments with evidence; Finance Manager clears them. See [current release flow](signatory-step-removal.md).
 
+Current summary: [10 November system status](current-system-status.md). Petty Cash and guide/error-recovery increments are included there.
+
 ## Delivered scope
 
 | Phase | Current development scope |
 | --- | --- |
 | 05 | Confirmed amount matrix; PHP equivalent and Finance Manager request rate; returns/declines/information response; reached-participant conversation visibility; delegation, reassignment and controlled recovery |
 | 06 | Accepted documents and line reviews; reimbursement physical originals; activated defaults and EWT overrides; balanced accounting and controlled corrections; final-approval posting; official voucher numbering, certification, printing, void/reversal and replacement links |
-| 07 | All request types; multiple payment lines; one independent signatory per line; evidence-backed Finance Associate release and Finance Manager clearing; pickup; unreleased failure/void/replacement; durable balances/history; Finance work queue |
+| 07 | All request types; multiple payment lines; no separate signatory gate; evidence-backed Finance Associate release and Finance Manager clearing; pickup; unreleased failure/void/replacement; durable balances/history; Finance work queue |
 
-Reimbursement and PO Payment inherit General defaults. Cash Advance uses an asset account without VAT/EWT deductions. Liquidation credits the original released advance and pays only a positive excess. Equal expenses need no new payment. Unused advance remains outstanding pending the deferred fund-return process.
+Reimbursement and PO Payment inherit General defaults. Cash Advance uses an asset account without VAT/EWT deductions. Liquidation credits the original released advance and pays only a positive excess. Equal expenses need no new payment. Unused advance remains outstanding until a full fund return is recorded and Finance Manager verifies it.
 
 ## Voucher replacement
 
@@ -34,7 +36,7 @@ Pagination is server controlled, with stable submission-date/request-ID ordering
 
 1. In **Administration → Request Settings**, select General tax defaults, expense/payable, Input VAT/EWT mappings, Cash Advance asset and credit accounts, and voucher prefix/numbering/certification. Check active posting accounts and effective department cost centers.
 2. Save the setup, select **All request types**, enter a reason and activate the saved version/effective date. Old General-only trial activations keep their scope. All-type financial calculations require All activation; the trial path is not an All-type operating configuration.
-3. Exercise one complete request of each type. Verify Finance document acceptance, flagged-line correction, required reimbursement physical originals, EWT overrides, accounting, certification, signatory, release and clearing evidence.
+3. Exercise one complete request of each type. Verify Finance document acceptance, flagged-line correction, required reimbursement physical originals, EWT overrides, accounting, certification, release and clearing evidence. Include Petty Cash voucher creation without Finance Manager or ordinary payment processing.
 4. Exercise Liquidation with expenses above, equal to and below the original advance. Verify only the excess is payable, equality needs no payment, and unused funds remain outstanding.
 5. Review a voided original and its independently approved replacement. Confirm different official numbers and both link directions.
 6. Review the approved amount routes, Finance Manager foreign-rate rerouting and return/information-response behavior. Confirm production voucher wording/layout with Finance.
@@ -57,6 +59,6 @@ The TOJUST Construction PHP 200,000 configuration example has an exact regressio
 Update on 2026-10-15: the owner resumed fund returns and post-release reversals. Full unused-advance returns now use Finance Associate receipts and Finance Manager verification. Full payment recoveries reopen linked replacement payments after independent Finance Manager confirmation, retaining expense/tax accounting. See `finance-configurations.md` for the current operating rules. The fund-return/reversal deferral below records the original 2026-10-14 closeout status.
 
 - Owner-deferred Phase 05 SLA deadlines, reminders and escalation.
-- Owner-deferred unused-advance fund returns and post-release reversals.
-- Phase 08 notification processing/delivery, detailed reconciliation reports, exports, aging/report definitions and reporting performance acceptance.
+- Implemented since 15 October: full fund returns and post-release payment recovery; not deferred.
+- Phase 08 in-app/local notifications and payment/advance/return/recovery reports are implemented. SLA/official overdue policy and production performance acceptance remain separate.
 - Phase 09 deployment, production security/providers, backup/recovery acceptance and live integration enablement.

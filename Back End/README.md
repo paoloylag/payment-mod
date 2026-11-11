@@ -1,27 +1,21 @@
 # Automated Payment System
 
-A front-end workflow prototype for creating, reviewing, approving, tracking, and documenting payment requests. It includes type-specific request forms, approval routing, document requirements, printable payment vouchers, and finance operation views.
+A persistent payment workflow application with a Vite frontend and FastAPI/PostgreSQL backend. It supports requests, approvals, Finance validation/accounting, vouchers, release/clearing, recovery, reporting and role-aware help.
+
+Start with [current system status](docs/current-system-status.md), [Finance acceptance](docs/finance-acceptance-demo.md) and the [guide builder](docs/guide-builder.md). Dated phase records preserve historical evidence.
 
 Live prototype: [https://paoloylag.github.io/payment-mod/](https://paoloylag.github.io/payment-mod/)
 
 ## Open locally
 
-The checked-in HTML and static preview script can run without installing dependencies:
-
-Example:
+Use the backend integration checkout with its API running (see Docker instructions below), then start Vite:
 
 ```bash
-python -m http.server 8766 --bind 127.0.0.1
+pnpm install
+pnpm dev
 ```
 
-Then open [http://127.0.0.1:8766/](http://127.0.0.1:8766/).
-
-For Vite development with automatic reload:
-
-```bash
-npm install
-npm run dev
-```
+A bare static HTTP server is not an API-backed acceptance environment. The separate GitHub Pages prototype is not evidence of backend operation.
 
 Normal development and every production build use the API data source. Sample data is available only through explicit
 developer commands:
@@ -48,7 +42,7 @@ The repository publishes through the GitHub Actions Pages workflow when updates 
 
 Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloylag/payment-mod)
 
-## Phase 0 backend development
+## Local backend development
 
 Docker Compose is the required local environment. It starts PostgreSQL, applies all migrations, runs the deterministic
 foundation seed, and then starts the FastAPI service:
@@ -148,3 +142,7 @@ The frontend can still demonstrate workflow behavior with explicitly enabled dev
 application uses the FastAPI service for authentication, persistent PostgreSQL records, and MinIO-backed local document
 storage. Report exports run in the browser, while email contracts remain templates for later delivery integration. No
 banking connection is planned; any release-bank information is documentary only.
+
+## Staff guides
+
+Open **System Guide** for role-filtered procedures, **Download HTML** or **Print / Save PDF**. Run `pnpm guides:build` to generate portable all-role and role-specific LIFE College guides in outputs/. Procedures share src/guide-data.js; see [maintenance instructions](docs/guide-builder.md).

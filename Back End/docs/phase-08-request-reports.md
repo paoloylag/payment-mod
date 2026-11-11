@@ -1,5 +1,7 @@
 # Phase 08 request transaction reports — 2026-10-20
 
+Current scope: [System status, 10 November 2026](current-system-status.md). Dated pending statements below are historical; later dashboard/reconciliation delivery supersedes them.
+
 Current increment: authoritative gross-request reports and existing Excel/print controls.
 Dashboard financial aggregates and detailed payment/advance reconciliation reports remain separate work.
 

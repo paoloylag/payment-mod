@@ -1,5 +1,7 @@
 # All request-type payment flow and formatting validation
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date: 2026-10-13, Asia/Manila
 Branches: `codex/ui-finance-consistency` → `codex/phase07-all-request-types`
 Formatting commit: `aaadb17`; hosted CI run 38403650393 passed.

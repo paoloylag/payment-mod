@@ -1,5 +1,7 @@
 # Phase 07 payment line execution validation
 
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
 Date: 2026-10-13, Asia/Manila
 Branch: `codex/phase07-payment-execution`
 Dependency: `codex/phase06-voucher-lifecycle`, commit `25f3985`

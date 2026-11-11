@@ -1,19 +1,21 @@
 # Automated Payment System Project Manifest
 
 Status: Approved phased backend implementation scope
-Manifest version: 2.6
-Last updated: 2026-09-28
+Manifest version: 2.7
+Last updated: 2026-11-10
 Primary functional specification: `FSD-Automated-Payment-System-v1.2.docx`
 
 ## Purpose
 
-This manifest records the intended implementation scope for the Automated Payment System. The current repository contains a comprehensive front-end prototype and a minimal FastAPI/PostgreSQL scaffold. The backend capabilities below are approved roadmap items and must be treated as requirements when the prototype is converted into a persistent, backend-enabled system.
+This manifest records the intended implementation scope for the Automated Payment System. The backend integration checkout contains the persistent FastAPI/PostgreSQL implementation and synchronized frontend. See [current development status](docs/current-system-status.md) for delivered behavior, remaining work and dated verification. The approved scope and earlier delivery notes below preserve the implementation history.
 
 This file does not assert that an item is implemented. Completion status must be updated only after code, migrations, tests, and documentation have been reviewed.
 
 This manifest is also the handoff document for continuing the work in a later Codex task or development session. A new contributor should read the current-state, delivery, validation, and continuation sections before editing code.
 
-## Workspace and repository layout
+## Historical workspace and repository layout
+
+The paths, branch names and commit IDs in this section describe the earlier worktree arrangement. Inspect the actual checkout and Git status before editing; the active integration branch for this review is `codex/fund-returns-payment-recovery`, with the application under `Back End/`. Current paths must not be inferred from this historical diagram.
 
 The local workspace currently contains two distinct Git worktrees:
 
