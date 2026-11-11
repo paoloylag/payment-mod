@@ -24,6 +24,8 @@ Reviewed: 10 November 2026 (Asia/Manila). This is the entry point for current de
 4. SLA deadlines, reminders and escalation remain explicitly owner-deferred; current age buckets are informational.
 5. LifeOS SSO and live Procurement/ERP integrations require target contracts and separate implementation/acceptance. Local flows do not prove live integrations.
 
+Email update, 11 November 2026: a disabled-by-default SMTP adapter/configuration scaffold is available. The notification worker remains database-only; live queue delivery is not connected. See [email scaffold](email-delivery-scaffold.md).
+
 ## Production work kept separate
 
 Hosting/TLS/domain, provider credentials and live email, object storage/scanning, security/backup/restore acceptance, retention and volume/operational benchmarks remain in [production preparation](production-preparation.md) and [Phase 09](phase-09-plan.md). Banking integration remains excluded.
