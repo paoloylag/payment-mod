@@ -598,12 +598,13 @@ def create_vendor(
     lock_vendor_directory(db)
     values = payload.model_dump(mode="json")
     if any(
-        item["name"].casefold() == values["name"].casefold() for item in get_vendor_adapter(db).list(active_only=False)
+        item.get("source") == "aps" and item["name"].casefold() == values["name"].casefold()
+        for item in get_vendor_adapter(db).list(active_only=False)
     ):
         raise HTTPException(409, "A vendor with this name already exists")
     values["id"] = "VEND-" + str(uuid4())
     values["version"] = 1
-    db.add(VendorRecord(id=values["id"], payload=values))
+    db.add(VendorRecord(id=values["id"], source_system="aps", payload=values))
     audit(
         db,
         actor_id=actor.id,
@@ -629,14 +630,27 @@ def update_vendor(
     existing = get_vendor_adapter(db).get(vendor_id)
     if existing is None:
         raise HTTPException(404, "Vendor not found")
+    if existing.get("source") == "procurement":
+        raise HTTPException(403, "Procurement vendors are read-only in APS. Manage them in Procurement.")
     if payload.version is not None and payload.version != existing["version"]:
         raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory and reopen this form.")
-    values = {**existing, **payload.model_dump(mode="json", exclude_unset=True, exclude={"version"})}
+    onboarding_record = db.get(VendorRecord, vendor_id)
+    if (
+        onboarding_record
+        and onboarding_record.payload.get("onboarding_request_id")
+        and not onboarding_record.payload.get("validated_at")
+    ):
+        raise HTTPException(409, "Validate supplier documents in the originating request before updating this vendor")
+    values = {
+        **(onboarding_record.payload if onboarding_record else {}),
+        **existing,
+        **payload.model_dump(mode="json", exclude_unset=True, exclude={"version"}),
+    }
     values.pop("code", None)
     values.pop("status", None)
     values["version"] = existing["version"] + 1
     if any(
-        item["id"] != vendor_id and item["name"].casefold() == values["name"].casefold()
+        item["id"] != vendor_id and item.get("source") == "aps" and item["name"].casefold() == values["name"].casefold()
         for item in get_vendor_adapter(db).list(active_only=False)
     ):
         raise HTTPException(409, "A vendor with this name already exists")
@@ -645,7 +659,7 @@ def update_vendor(
     if record:
         record.payload = values
     else:
-        db.add(VendorRecord(id=vendor_id, payload=values))
+        db.add(VendorRecord(id=vendor_id, source_system="aps", payload=values))
     audit(
         db,
         actor_id=actor.id,
@@ -672,6 +686,8 @@ def delete_vendor(
     existing = get_vendor_adapter(db).get(vendor_id)
     if existing is None:
         raise HTTPException(404, "Vendor not found")
+    if existing.get("source") == "procurement":
+        raise HTTPException(403, "Procurement vendors are read-only in APS. Manage them in Procurement.")
     if version is not None and version != existing["version"]:
         raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory before deleting.")
     if db.scalar(select(PaymentRequest.id).where(PaymentRequest.vendor_external_id == vendor_id).limit(1)) or any(
@@ -684,7 +700,7 @@ def delete_vendor(
     if record:
         record.payload = values
     else:
-        db.add(VendorRecord(id=vendor_id, payload=values))
+        db.add(VendorRecord(id=vendor_id, source_system="aps", payload=values))
     audit(
         db,
         actor_id=actor.id,

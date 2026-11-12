@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..outbox import record_workflow_event
 from ..security import current_user
+from ..vendor_onboarding import validate_supplier
 from ..workflow_assignments import assignment_allows, assignment_view, exception_controls
 from ..workflow_assignments import current_assignment as named_assignment
 from ..workflow_policy import PolicyCannotRoute, route_for
@@ -387,6 +388,8 @@ def approve_stage(
             ),
         )
         stage = instance.route_snapshot["stages"][instance.current_stage]
+    if stage["role"] == "finance_associate":
+        validate_supplier(db, item, actor)
     completed_assignment = assignment_view(db, named_assignment(db, instance))
     completed = instance.current_stage
     instance.current_stage += 1

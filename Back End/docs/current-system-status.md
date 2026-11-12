@@ -1,6 +1,6 @@
 # Current system status
 
-Reviewed: 10 November 2026 (Asia/Manila). This is the entry point for current development status. Dated phase plans and validation reports preserve delivery history; their older pending/deferred statements do not override this summary.
+Reviewed: 12 November 2026 (Asia/Manila). This is the entry point for current development status. Dated phase plans and validation reports preserve delivery history; their older pending/deferred statements do not override this summary.
 
 ## Implemented locally
 
@@ -15,6 +15,10 @@ Reviewed: 10 November 2026 (Asia/Manila). This is the entry point for current de
 | Reporting | Server dashboard snapshots, request reports, Finance payment/advance/return/recovery reconciliation, filters, Excel/print and per-currency totals. |
 | Administration and help | User/role and vendor CRUD, master data, cost-center approvers, Finance settings, in-app role guide and portable LIFE College HTML/A4 print guides from shared content. |
 | Error recovery | Retained editable forms on failed saves, inline feedback, load retries, duplicate-submit guard, status-aware errors and session recovery. |
+
+Vendor onboarding update, 11 November 2026: General Payments now owns supplier selection and new-supplier entry, with BIR 2303, SEC/DTI registration and business permit uploads. Pending suppliers become selectable only after Finance Associate document validation and approval. Vendor Administration navigation is available to System Administrator and Finance, with pending-supplier filtering and audited supplier document reviews; Finance Associate request approval remains the activation gate. Migration 0034 enables the additional document types.
+
+Earlier vendor groundwork, 11 November 2026: Finance Associate and Finance Manager can manage APS vendors for General Payments. Procurement vendor references are shown separately, read-only, for PO use; sample data is labelled and no live Procurement API is connected. The server rejects Procurement vendor edits/deletion and non-PO use. Ownership is persisted in the shared PostgreSQL vendor master by migration 20261111_0033; Procurement backend connection is still pending. See [vendor UI](finance-vendor-ui.md).
 
 ## Remaining non-production work
 
@@ -38,3 +42,5 @@ Hosting/TLS/domain, provider credentials and live email, object storage/scanning
 - [Guide builder](guide-builder.md): shared content, role selection, offline export and maintenance.
 
 Validation counts are dated evidence, not a claim that every historical suite was rerun for each subsequent documentation edit.
+
+UI follow-up, 12 November 2026: shared confirmations use native modal semantics with focus/value retention; Finance Manager empty states use permitted actions; vendor verification links submitted originating requests and labels drafts awaiting submission. Payment history uses per-event disclosures preserving full evidence. Frontend Node tests now have a package/CI command; historical migration lint is clean. Finance setup labels reflect actual scope and use neutral payment-control wording. No signatory or approval policy was changed. See [verification](ui-fixes-2026-11-12.md).

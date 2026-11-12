@@ -73,6 +73,11 @@ test("fund return and recovery views handle long text at mobile, tablet and desk
     await card.locator("summary").filter({ hasText: /^Confirm post-release reversal$/ }).click();
     await card.locator("summary").filter({ hasText: /^Supporting evidence/ }).click();
     await card.locator("summary").filter({ hasText: /^Payment history/ }).click();
+    const event = card.locator(".payment-history-event").filter({ hasText: longReason }).first();
+    await event.locator("summary").click();
+    await expect(event.locator("p").first()).toBeVisible();
+    await expect(event).toContainText(longReason);
+    await event.locator("summary").click();
     await check(manager, card);
     await manager.setViewportSize({ width: 390, height: 900 });
     await card.screenshot({ path: "outputs/payment-recovery-review-mobile.png" });

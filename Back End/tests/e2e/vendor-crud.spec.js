@@ -122,8 +122,47 @@ test("stale vendor edits cannot overwrite a colleague's changes and refresh enab
     await first.getByRole("button", { name: "Cancel", exact: true }).click();
     await first.getByRole("button", { name: "Refresh", exact: true }).click();
     await first.locator(`[data-edit-vendor="${item.id}"]`).click(); await expect(first.locator('[name="phone"]')).toHaveValue("09170009999");
-    await first.locator('[name="name"]').fill("Sample BrightTech Supply"); await first.getByRole("button", { name: "Save changes" }).click();
+    await first.locator('[name="name"]').fill("Sample OfficeWorks Trading"); await first.getByRole("button", { name: "Save changes" }).click();
     await expect(first.locator("[data-vendor-error]")).toContainText("already exists");
     await first.keyboard.press("Escape");
   } finally { for (const context of contexts) await context.close(); }
+});
+
+
+test("both Finance roles can manage APS vendors and browse read-only PO vendors", async ({ browser }) => {
+  for (const role of ["finance.associate", "finance.manager"]) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await page.goto("/#/login"); await page.locator("[data-demo-login]").selectOption(`${role}@payment.local`);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL(/#\/dashboard$/);
+    await page.goto("/#/master-data/vendors");
+    await expect(page.getByRole("button", { name: "Add vendor", exact: true })).toBeVisible();
+    await page.locator('[data-vendor-source="procurement"]').click();
+    const provider = page.locator('[data-vendor-row="VEND-DEMO-001"]');
+    await expect(provider).toBeVisible();
+    await expect(page.locator("[data-new-vendor], [data-edit-vendor], [data-toggle-vendor], [data-delete-vendor]")).toHaveCount(0);
+    await expect(page.getByText("Sample Procurement references · Live connection is not configured")).toBeVisible();
+    await provider.getByRole("button", { name: "View", exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("Read only · Managed in Procurement");
+    await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(provider.getByRole("button", { name: "View", exact: true })).toBeFocused();
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+      await page.screenshot({ path: `outputs/vendor-sources-${role}-${width}.png`, fullPage: true });
+    }
+    await page.locator("[data-theme-toggle]").click();
+    await page.screenshot({ path: `outputs/vendor-sources-${role}-dark.png`, fullPage: true });
+    await page.locator('[data-vendor-source="aps"]').click();
+    await expect(page.locator('[data-vendor-row="VEND-DEMO-001"]')).toHaveCount(0);
+    await page.locator("[data-vendor-status]").selectOption("active");
+    await expect(page.locator('[data-vendor-row="VEND-DEMO-002"]')).toBeVisible();
+    await page.locator("[data-vendor-search]").fill("nothing-matches-this");
+    await expect(page.locator("[data-vendor-empty]")).toBeVisible();
+    await page.goto("/#/requests/new/general");
+    await expect(page.locator('[data-vendor-reference] option[value="VEND-DEMO-002"]')).toBeAttached();
+    await expect(page.locator('[data-vendor-reference] option[value="VEND-DEMO-001"]')).toHaveCount(0);
+    await context.close();
+  }
 });

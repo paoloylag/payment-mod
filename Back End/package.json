@@ -52,7 +52,8 @@
     "test:e2e": "playwright test",
     "test:e2e:isolated": "node tests/e2e/run-isolated.js",
     "test:e2e:headed": "playwright test --headed",
-    "guides:build": "node scripts/build-guides.mjs"
+    "guides:build": "node scripts/build-guides.mjs",
+    "test:unit": "node --test tests/*.test.js"
   },
   "dependencies": {
     "lucide-react": "0.468.0",

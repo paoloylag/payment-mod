@@ -1,7 +1,7 @@
 import { expect, request as apiRequest, test } from "@playwright/test";
 import { writeFileSync } from "node:fs";
 
-const emails = { requestor: "requestor", department_head: "department.head", finance_associate: "finance.associate", finance_manager: "finance.manager", coo: "coo", president: "president", board_member: "board.member" };
+const emails = { system_administrator: "admin", requestor: "requestor", department_head: "department.head", finance_associate: "finance.associate", finance_manager: "finance.manager", coo: "coo", president: "president", board_member: "board.member" };
 const proof = name => ({ name, mimeType: "application/pdf", buffer: Buffer.from(`%PDF-1.4\nClick-through evidence ${name}\n%%EOF`) });
 let admin;
 const results = [];
@@ -61,7 +61,19 @@ async function create(page, title, amount = "1120000") {
   await page.goto("/#/requests");
   await page.locator('[data-select-request-type="general"]').click();
   const vendor = page.locator("[data-vendor-reference]");
-  await vendor.selectOption(await vendor.locator("option").nth(1).getAttribute("value"));
+  if (title === "new-supplier") {
+    await page.getByLabel("Supplier option").selectOption("new");
+    await page.getByLabel("Supplier name", { exact: true }).fill("Click-through Supplier " + crypto.randomUUID().slice(0,8));
+    await page.getByLabel("Supplier email", { exact: true }).fill("supplier@example.test");
+    for (const key of ["bir_2303", "business_registration_sec_dti", "business_permit"]) {
+      await page.locator(`[data-request-document="${key}"]`).setInputFiles(proof(`${key}.pdf`));
+    }
+    for (const width of [375, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+      await page.locator(".general-vendor-section").screenshot({ path: `outputs/supplier-form-${width}.png` });
+    }
+  } else await vendor.selectOption(await vendor.locator("option").nth(1).getAttribute("value"));
   await page.locator("#unbudgeted").check();
   const line = page.locator('[data-line-card="0"]');
   await line.locator('[data-line-column="Merchant Name"]').fill("Click-through Vendor");
@@ -83,7 +95,7 @@ async function create(page, title, amount = "1120000") {
     await page.unroute("**/requests/*/documents");
     await mutation(page, `/requests/${draft.id}`, () => clickAction(page.locator("[data-save-draft]")));
   }
-  await expect.poll(async () => (await read(`requests/${draft.id}/documents`)).length, { message: "Request-form uploads must persist real files, not filenames only" }).toBe(2);
+  await expect.poll(async () => (await read(`requests/${draft.id}/documents`)).length, { message: "Request-form uploads must persist real files, not filenames only" }).toBe(title === "new-supplier" ? 5 : 2);
   if (retryFiles) {
     await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: `Remove ${title}-invoice.pdf`, exact: true }).click();
@@ -149,7 +161,7 @@ test.beforeAll(async ({ browser }) => {
   expect(login.ok()).toBeTruthy(); const headers = { "X-CSRF-Token": (await login.json()).csrf_token };
   const ids = [];
   for (const [name, account_type, normal_balance] of [["Expense", "expense", "debit"], ["VAT", "asset", "debit"], ["EWT", "liability", "credit"], ["Payable", "liability", "credit"]]) {
-    const result = await admin.post("/api/v1/chart-of-accounts", { headers, data: { code: `CLICK-${crypto.randomUUID().slice(0,8).toUpperCase()}`, name, account_type, normal_balance, is_posting: true } });
+    const result = await admin.post("/api/v1/chart-of-accounts", { headers, data: { code: `CLICK-${crypto.randomUUID().slice(0,8).toUpperCase()}`, name: `${name} ${crypto.randomUUID().slice(0,8)}`, account_type, normal_balance, is_posting: true } });
     expect(result.ok(), await result.text()).toBeTruthy(); ids.push((await result.json()).id);
   }
   const original = await read("request-settings/finance-setup"), taxes = await read("tax-codes");
@@ -266,5 +278,130 @@ test("mobile uploads survive a partial failure, retry without duplicates, and re
     expect(reopened.status).toBe("draft");
     await expect(manager).toHaveURL(/#\/dashboard$/);
     expect(errors).toEqual([]); results.push({ scenario: "mobile file removal, partial-upload retry, cancel and reopen", request: item.request_number, result: "passed" });
+  } finally { for (const context of contexts) await context.close(); }
+});
+
+
+test("new supplier uploads stay request-bound until Finance validates all documents", async ({ browser }) => {
+  test.setTimeout(180000); const contexts = [], errors = [];
+  try {
+    const owner = await signIn(browser, "requestor", contexts, errors);
+    const item = await create(owner, "new-supplier", "1000");
+    const vendorId = item.vendor_external_id;
+    expect((await read("vendors")).some(vendor => vendor.id === vendorId)).toBe(false);
+    const head = await signIn(browser, "department_head", contexts, errors);
+    await approve(head, item);
+    expect((await read("vendors")).some(vendor => vendor.id === vendorId)).toBe(false);
+    const finance = await signIn(browser, "finance_associate", contexts, errors);
+    for (const role of ["finance_manager", "system_administrator"]) {
+      const viewer = await signIn(browser, role, contexts, errors);
+      await viewer.getByRole("button", { name: "□ Vendor Administration", exact: true }).click();
+      await viewer.locator("[data-vendor-status]").selectOption("pending_validation");
+      await expect(viewer.locator(`[data-vendor-row="${vendorId}"]`)).toContainText("Pending Validation");
+    }
+    await expect(owner.getByRole("button", { name: "□ Vendor Administration", exact: true })).toHaveCount(0);
+    await finance.getByRole("button", { name: "□ Vendor Administration", exact: true }).click();
+    await finance.locator("[data-vendor-status]").selectOption("pending_validation");
+    const vendorRow = finance.locator(`[data-vendor-row="${vendorId}"]`);
+    await expect(vendorRow.locator("[data-edit-vendor], [data-toggle-vendor]")).toHaveCount(0);
+    await vendorRow.getByRole("button", { name: "Verify documents", exact: true }).click();
+    const verification = finance.getByRole("region", { name: "Supplier document verification", exact: true });
+    await expect(verification.locator("[data-vendor-document-review]")).toHaveCount(3);
+    for (const width of [375, 768, 1440]) {
+      await finance.setViewportSize({ width, height: 900 });
+      expect(await finance.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+      await finance.screenshot({ path: `outputs/vendor-verification-${width}.png` });
+    }
+    const permit = verification.getByRole("combobox", { name: "Review Business Permit", exact: true });
+    await permit.selectOption("replacement_required");
+    await finance.locator("[data-action-prompt-input]").fill("Please upload a readable current permit.");
+    await mutation(finance, "/reviews", () => finance.locator("[data-confirm-action-prompt]").click());
+    await expect(verification).toContainText("Replacement Required");
+    for (let index = 0; index < 3; index++) {
+      const control = verification.locator("[data-vendor-document-review]").nth(index);
+      const documentId = await control.getAttribute("data-vendor-document-review");
+      await mutation(finance, `/documents/${documentId}/reviews`, () => control.selectOption("accepted"));
+      await expect(verification.locator(".vendor-verification-card").nth(index)).toContainText("Accepted");
+    }
+    expect((await read("vendors")).some(vendor => vendor.id === vendorId)).toBe(false);
+    await finance.getByRole("button", { name: "Close vendor", exact: true }).click();
+    await finance.getByRole("button", { name: "Switch to dark mode", exact: true }).click();
+    await vendorRow.getByRole("button", { name: "Verify documents", exact: true }).click();
+    await expect(verification).toContainText("Accepted");
+    await finance.screenshot({ path: "outputs/vendor-verification-dark.png" });
+    await verification.getByRole("button", { name: "Open request", exact: true }).click();
+    await expect(finance).toHaveURL(new RegExp(item.request_number));
+    await review(finance, item);
+    await accounting(finance, item);
+    await finance.screenshot({ path: "outputs/supplier-finance-review.png", fullPage: true });
+    await approve(finance, item);
+    const supplier = (await read("vendors")).find(vendor => vendor.id === vendorId);
+    expect(supplier.status).toBe("active"); expect(supplier.businessDocuments.length).toBe(3);
+    await owner.goto("/#/requests"); await owner.reload();
+    await owner.locator('[data-select-request-type="general"]').click();
+    await expect(owner.locator(`[data-vendor-reference] option[value="${vendorId}"]`)).toBeAttached();
+    await owner.locator("[data-vendor-reference]").selectOption(vendorId);
+    expect(errors).toEqual([]);
+    results.push({ scenario: "supplier validation and reuse", request: item.request_number, result: "passed" });
+  } finally { for (const context of contexts) await context.close(); }
+});
+
+
+test("confirmation retains reason across background refresh and contains/restores focus", async ({ browser }) => {
+  test.setTimeout(120000); const contexts = [], errors = [];
+  try {
+    const owner = await signIn(browser, "requestor", contexts, errors);
+    const item = await create(owner, "prompt-state", "1000");
+    const head = await signIn(browser, "department_head", contexts, errors);
+    await head.clock.install();
+    await open(head, item);
+    const opener = head.locator("[data-first-stage-reject-submit]");
+    await opener.click();
+    const modal = head.locator("[data-action-prompt-backdrop]");
+    await expect(modal).toHaveJSProperty("open", true);
+    const selection = modal.locator("[data-action-prompt-select]");
+    const reason = modal.locator("[data-action-prompt-input]");
+    const confirm = modal.locator("[data-confirm-action-prompt]");
+    await selection.selectOption("return:requestor");
+    await reason.fill("Retain this correction reason through notification refresh.");
+    await expect(confirm).toBeEnabled();
+    const refreshed = head.waitForResponse(response => response.url().includes("/notifications"));
+    await head.clock.runFor(31000);
+    await refreshed;
+    await expect(reason).toHaveValue("Retain this correction reason through notification refresh.");
+    await expect(selection).toHaveValue("return:requestor");
+    await expect(confirm).toBeEnabled();
+    await selection.focus(); await head.keyboard.press("Shift+Tab");
+    await expect(confirm).toBeFocused();
+    await head.keyboard.press("Tab"); await expect(selection).toBeFocused();
+    await head.screenshot({ path: "outputs/ui-fixes-prompt-desktop.png" });
+    for (const width of [375, 768]) {
+      await head.setViewportSize({ width, height: 900 });
+      expect(await head.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy();
+      await expect(reason).toHaveValue("Retain this correction reason through notification refresh.");
+      await head.screenshot({ path: `outputs/ui-fixes-prompt-${width}.png` });
+    }
+    await reason.press("Escape");
+    await expect(modal).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    expect((await read(`workflow/${item.id}`)).current_stage).toBe(0);
+    expect(errors).toEqual([]);
+  } finally { for (const context of contexts) await context.close(); }
+});
+
+test("Finance Manager empty dashboard offers its approval queue, not request creation", async ({ browser }) => {
+  const contexts = [], errors = [];
+  try {
+    const page = await signIn(browser, "finance_manager", contexts, errors);
+    await page.getByRole("searchbox", { name: "Search requests, vouchers or payees", exact: true }).fill("NO-MATCH-UI-FIX");
+    await expect(page.getByRole("button", { name: "Create Request", exact: true })).toHaveCount(0);
+    // Prepare a true empty API list; filtered-empty tables use a different existing presentation.
+    await page.route(/\/api\/v1\/requests(?:\?.*)?$/, route => route.fulfill({ json: [], headers: { "X-Total-Count": "0" } }));
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "No payment requests yet", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Request", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Open Approval Queue", exact: true }).click();
+    await expect(page).toHaveURL(/#\/approvals$/);
+    expect(errors).toEqual([]);
   } finally { for (const context of contexts) await context.close(); }
 });

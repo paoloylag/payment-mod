@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -107,5 +108,10 @@ class DocumentType(ReferenceRecordMixin, Base):
 
 class VendorRecord(Base):
     __tablename__ = "vendor_records"
+    __table_args__ = (
+        CheckConstraint("source_system IN ('aps', 'procurement')", name="ck_vendor_records_source_system"),
+        Index("ix_vendor_records_source_system", "source_system"),
+    )
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    source_system: Mapped[str] = mapped_column(String(20), nullable=False, default="aps", server_default="aps")
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)

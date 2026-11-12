@@ -27,6 +27,7 @@ from .models import (
     TaxCode,
     User,
     UserRole,
+    VendorRecord,
     WorkflowEvent,
     WorkflowInstance,
 )
@@ -212,7 +213,8 @@ DOCUMENT_TYPES = (
     ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
     ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
     ("DELIVERY_RECEIPT", "Delivery Receipt", ["poPayment"], "soft"),
-    ("BUSINESS_PERMIT", "Business Permit", ["poPayment"], "soft"),
+    ("BUSINESS_PERMIT", "Business Permit", ["poPayment", "general"], "soft"),
+    ("BUSINESS_REGISTRATION", "Business registration (SEC/DTI)", ["general"], "soft"),
 )
 
 DOCUMENT_REQUIREMENT_RULES = (
@@ -827,6 +829,15 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
     if include_document_requirement_rules is None:
         include_document_requirement_rules = settings.app_env != "test"
     with SessionLocal.begin() as session:
+        if settings.app_env in {"local", "test"}:
+            from copy import deepcopy
+
+            from .vendor_adapter import SAMPLE_VENDOR_PAYLOADS
+
+            for payload in SAMPLE_VENDOR_PAYLOADS:
+                if session.get(VendorRecord, payload["id"]) is None:
+                    session.add(VendorRecord(id=payload["id"], source_system=payload["source"],
+                                             payload=deepcopy(payload)))
         for key, value in SEED_SETTINGS.items():
             setting = session.scalar(select(SystemSetting).where(SystemSetting.key == key))
             if setting is None:

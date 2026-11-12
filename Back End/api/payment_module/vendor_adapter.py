@@ -2,6 +2,8 @@ from copy import deepcopy
 
 SAMPLE_VENDOR_PAYLOAD = {
     "id": "VEND-DEMO-001",
+    "source": "procurement",
+    "is_sample": True,
     "name": "Sample BrightTech Supply",
     "vendorType": "Company",
     "email": "brighttech@example.test",
@@ -39,6 +41,7 @@ SAMPLE_VENDOR_PAYLOADS = (
     {
         **SAMPLE_VENDOR_PAYLOAD,
         "id": "VEND-DEMO-002",
+        "source": "aps",
         "name": "Sample OfficeWorks Trading",
         "email": "officeworks@example.test",
         "contactPerson": "Jamie Reyes",
@@ -77,41 +80,58 @@ SAMPLE_VENDOR_PAYLOADS = (
         "businessDocuments": [],
     },
 )
-SAFE_VENDOR_FIELDS = frozenset(SAMPLE_VENDOR_PAYLOAD) | {"is_active", "version"}
+SAFE_VENDOR_FIELDS = frozenset(SAMPLE_VENDOR_PAYLOAD) | {
+    "is_active",
+    "version",
+    "onboarding_request_id",
+    "validated_at",
+    "validated_by_user_id",
+}
 
 
 def safe_vendor(payload: dict) -> dict:
-    """Normalize a provider payload without exposing bank-account fields."""
+    """Project a vendor profile without exposing bank-account fields."""
     item = {key: deepcopy(value) for key, value in payload.items() if key in SAFE_VENDOR_FIELDS}
     item["id"] = str(item.get("id") or item.get("branchCode") or item.get("taxId") or item["name"])
     item["code"] = str(item.get("branchCode") or item["name"]).upper()
     item["is_active"] = item.get("is_active", True)
     item["version"] = item.get("version", 1)
+    item["source"] = item.get("source", "aps")
+    item["is_sample"] = item.get("is_sample", False)
     item["status"] = (
-        "inactive" if not item["is_active"]
-        else "active" if item.get("informationStatus") == "Information complete"
+        "pending_validation"
+        if item.get("onboarding_request_id") and not item.get("validated_at")
+        else "inactive"
+        if not item["is_active"]
+        else "active"
+        if item.get("informationStatus") == "Information complete"
         else "incomplete"
     )
     return item
 
 
-class MockVendorAdapter:
+class SharedVendorAdapter:
+    """Read canonical shared rows; ownership is a database column, not client JSON."""
+
     def __init__(self, db=None):
         self.db = db
 
     def list(self, search: str = "", active_only: bool = True) -> list[dict]:
-        needle = search.casefold().strip()
+        if self.db is None:
+            return []
+        from sqlalchemy import select
+
         from .config import get_settings
+        from .models import VendorRecord
 
-        samples = SAMPLE_VENDOR_PAYLOADS if get_settings().app_env in {"local", "test"} else ()
-        payloads = {payload["id"]: payload for payload in samples}
-        if self.db is not None:
-            from sqlalchemy import select
-
-            from .models import VendorRecord
-
-            payloads.update({record.id: record.payload for record in self.db.scalars(select(VendorRecord))})
-        items = [safe_vendor(payload) for payload in payloads.values() if not payload.get("deleted_at")]
+        needle = search.casefold().strip()
+        include_samples = get_settings().app_env in {"local", "test"}
+        records = self.db.scalars(select(VendorRecord).order_by(VendorRecord.id))
+        items = [
+            safe_vendor({**record.payload, "id": record.id, "source": record.source_system})
+            for record in records
+            if not record.payload.get("deleted_at") and (include_samples or not record.payload.get("is_sample"))
+        ]
         return [
             item
             for item in items
@@ -123,5 +143,5 @@ class MockVendorAdapter:
         return next((item for item in self.list(active_only=False) if item["id"] == vendor_id), None)
 
 
-def get_vendor_adapter(db=None) -> MockVendorAdapter:
-    return MockVendorAdapter(db)
+def get_vendor_adapter(db=None) -> SharedVendorAdapter:
+    return SharedVendorAdapter(db)

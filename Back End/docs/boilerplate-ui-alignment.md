@@ -103,3 +103,7 @@ Audit validation: 26 Chrome tests across 11 specifications (including six new re
 ## 2026-11-10: Shared staff-guide export
 
 System Guide reuses existing action buttons for Download HTML and Print / Save PDF. Its portable document uses the LIFE College guides skill’s approved reference layout and original red logo; the app shell is unchanged. The existing isolated-print helper now renders from the same role-filtered source as the HTML download and batch builder. This extends the existing app-only print-document pattern, not a new application control variant. No shared boilerplate component gap is asserted.
+
+## 2026-11-11: Finance vendor sources
+
+Vendor Directory reuses existing buttons, grouped fields, disclosure, list cards and modal controls for APS and Procurement source views. Tenant boilerplate src/App.tsx already includes tabs/nav pills, form groups and native modal examples; no new base variant is claimed. Both Finance roles retain APS CRUD; Procurement entries display source/sample labels and read-only details. Only APS vendors appear in non-PO vendor selectors. Shared theme and 44px source controls adapt to phone/tablet widths; keyboard close restores the triggering control. No shared boilerplate gap introduced.

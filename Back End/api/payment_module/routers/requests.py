@@ -49,6 +49,7 @@ from ..schemas import (
 )
 from ..security import current_user
 from ..vendor_adapter import get_vendor_adapter
+from ..vendor_onboarding import pending_for_request, supplier_document_errors, sync_supplier
 from ..workflow_assignments import assignment_allows
 from ..workflow_policy import PolicyCannotRoute
 from ..workflow_service import close_workflow, start_workflow
@@ -273,11 +274,15 @@ def serialize_many(
 def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
     if payload.request_type == "pettyCash" and payload.currency_code != "PHP":
         raise HTTPException(422, "Petty Cash supports PHP only")
+    if payload.request_type == "general" and payload.type_data.get("general_vendor_mode") == "new":
+        payload = payload.model_copy(update={"vendor_external_id": None})
     if payload.vendor_external_id:
         db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
         vendor = get_vendor_adapter(db).get(payload.vendor_external_id)
         if not vendor or vendor["status"] != "active":
             raise HTTPException(422, "Select an active vendor with complete information")
+        if vendor.get("source") == "procurement" and payload.request_type != "poPayment":
+            raise HTTPException(422, "Procurement vendors are available only through P.O. Payments")
     department = db.get(Department, payload.department_id)
     if not department or not department.is_active:
         raise HTTPException(422, "Department does not exist or is inactive")
@@ -313,10 +318,27 @@ def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict
     errors: list[dict[str, str]] = []
     if item.vendor_external_id:
         vendor = get_vendor_adapter(db).get(item.vendor_external_id)
-        if not vendor or vendor["status"] != "active":
+        if (not vendor or vendor["status"] != "active") and not pending_for_request(db, item):
             errors.append(
                 {"field": "vendor_external_id", "message": "Select an active vendor with complete information"}
             )
+
+    if item.vendor_external_id:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id)
+        if vendor and vendor.get("source") == "procurement" and item.request_type != "poPayment":
+            errors.append(
+                {
+                    "field": "vendor_external_id",
+                    "message": "Procurement vendors are available only through P.O. Payments",
+                }
+            )
+
+    if (
+        item.request_type == "general"
+        and data.get("general_vendor_mode") in {"new", "existing"}
+        and not item.vendor_external_id
+    ):
+        errors.append({"field": "vendor_external_id", "message": "Select a vendor or complete the new supplier name"})
 
     # Recheck current master data: a draft may predate a deactivation or expiry.
     department = db.get(Department, item.department_id)
@@ -612,7 +634,7 @@ def lock_submission_constraints(db: Session, item: PaymentRequest) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"ca:{item.requestor_id}"})
 
 
-def record_procurement_snapshot(item: PaymentRequest) -> None:
+def record_procurement_snapshot(db: Session, item: PaymentRequest) -> None:
     """Freeze safe Procurement and vendor facts used to approve a P.O. submission."""
     if item.request_type != "poPayment":
         return
@@ -621,7 +643,7 @@ def record_procurement_snapshot(item: PaymentRequest) -> None:
     purchase_order = get_procurement_adapter().get(reference)
     if not purchase_order:
         return
-    vendor = get_vendor_adapter().get(str(purchase_order.get("vendorId") or ""))
+    vendor = get_vendor_adapter(db).get(str(purchase_order.get("vendorId") or ""))
     data["procurement_snapshot"] = {
         "captured_at": datetime.now(UTC).isoformat(),
         "purchase_order": purchase_order,
@@ -640,11 +662,12 @@ def document_requirement_errors(db: Session, item: PaymentRequest) -> list[dict]
             )
         )
     )
+    supplier_errors = supplier_document_errors(db, item)
     if not rules:
-        return []
+        return supplier_errors
     documents = list(db.scalars(select(Document).where(Document.request_id == item.id, Document.removed_at.is_(None))))
     lines = list(db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)))
-    errors = []
+    errors = list(supplier_errors)
     for rule in rules:
         document_type = db.get(DocumentType, rule.document_type_id)
         conditionally_required = bool(
@@ -809,6 +832,7 @@ def create_payment_request(
     item = PaymentRequest(requestor_id=actor.id, gross_amount=total, **values)
     db.add(item)
     db.flush()
+    sync_supplier(db, item, actor)
     replace_lines(db, item, payload)
     db.flush()
     save_coding(db, item, finance_configuration)
@@ -995,6 +1019,7 @@ def update_payment_request(
     values["type_data"] = system_managed_type_data(payload.type_data)
     for key, value in values.items():
         setattr(item, key, value)
+    sync_supplier(db, item, actor)
     item.gross_amount = total
     item.version += 1
     replace_lines(db, item, payload)
@@ -1312,7 +1337,7 @@ def submit_payment_request(
     ensure_submittable(db, item)
     assign_reimbursement_batch(db, item)
     record_reimbursement_policy_warnings(db, item)
-    record_procurement_snapshot(item)
+    record_procurement_snapshot(db, item)
     record_duplicate_invoice_checks(db, item)
     previous = item.status
     item.status = "submitted"
@@ -1523,7 +1548,7 @@ def resubmit_payment_request(
     ensure_submittable(db, item)
     assign_reimbursement_batch(db, item)
     record_reimbursement_policy_warnings(db, item)
-    record_procurement_snapshot(item)
+    record_procurement_snapshot(db, item)
     record_duplicate_invoice_checks(db, item)
     result = lifecycle_change(
         db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False

@@ -2,7 +2,7 @@ name: Backend CI and delivery package
 
 on:
   push:
-    branches: ["codex/**", "main"]
+    branches: ["codex/**", "main", "staging"]
     paths:
       - "Back End/**"
       - ".github/workflows/backend-ci-cd.yml"
@@ -34,6 +34,8 @@ jobs:
           cache-dependency-path: "Back End/pnpm-lock.yaml"
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
+      - name: Frontend unit tests
+        run: pnpm test:unit
       - name: Build frontend
         run: pnpm run build
 
@@ -71,12 +73,11 @@ jobs:
         run: ruff check api tests migrations
       - name: Upgrade database
         run: alembic upgrade head
+      # Rehearse rollback on an empty database: seeded supplier records are intentionally protected.
+      - name: Test migration rollback and replay
+        run: alembic downgrade base && alembic upgrade head
       - name: Seed database
         run: python -m payment_module.seed
-        env:
-          PYTHONPATH: api
-      - name: Test migration rollback and replay
-        run: alembic downgrade base && alembic upgrade head && python -m payment_module.seed
         env:
           PYTHONPATH: api
       - name: Run backend tests

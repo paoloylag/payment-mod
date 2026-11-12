@@ -6,6 +6,10 @@ Start with [current system status](docs/current-system-status.md), [Finance acce
 
 Live prototype: [https://paoloylag.github.io/payment-mod/](https://paoloylag.github.io/payment-mod/)
 
+## Frontend checks
+
+Run `pnpm test:unit` for the Node-based frontend unit suite and `pnpm build` for compilation/bundling. Tests cover tracker behavior, prompt validation/state, mention boundaries, display labels and API error handling. CI runs the same unit command on pull requests and main/staging/codex branch pushes. Real-browser workflow checks remain under `pnpm test:e2e:isolated`; unit tests do not establish CSS, focus or authorization behavior.
+
 ## Open locally
 
 Use the backend integration checkout with its API running (see Docker instructions below), then start Vite:

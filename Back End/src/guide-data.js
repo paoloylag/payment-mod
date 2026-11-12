@@ -1,5 +1,5 @@
-// Shared source for the in-app guide and portable LIFE College guides.
-export const guideRevision = "2026-11-10";
+// Shared guide content.
+export const guideRevision = "2026-11-11";
 export const guideAudienceLabels = {
   "requestor": "Requestor",
   "department_head": "Department Head",
@@ -508,6 +508,21 @@ export const guideSections = [
           "Select General defaults and the Cash Advance asset mapping; configure basis, rounding, effective date and voucher wording.",
           "Save the draft, resolve blockers and activate the required request-type scope with a reason. Saving alone does not activate.",
           "Finance Manager completes Business review after testing the agreed scenarios. Automated development checks do not sign business acceptance."
+        ]
+      },
+      {
+        "title": "Administer and verify vendors",
+        "audiences": [
+          "finance_associate",
+          "finance_manager",
+          "system_administrator"
+        ],
+        "path": "Vendors → Vendor Administration",
+        "steps": [
+          "Manage APS vendor details in Vendor Administration; Procurement vendors remain read-only.",
+          "Filter Pending Validation and choose Verify documents. View BIR 2303, SEC/DTI registration, and business permit; accept or request a correction with a reason.",
+          "Directory document reviews are audited. Finance Associate must still complete request validation and approval before the supplier becomes selectable.",
+          "Save partial work as a draft. Procurement suppliers remain tied to POs and are unavailable in the General Payment selector."
         ]
       }
     ],

@@ -46,6 +46,7 @@ test("initial Finance setup saves progress, activates all types and records vers
   const activation = guide.locator("[data-finance-activation]");
   await expect(activation.locator('[name="scope"]')).toHaveValue("all");
   await expect(activation.locator('[name="scope"] option')).toHaveCount(1);
+  await expect(activation.getByRole("button")).toHaveText("Activate saved setup for all request types");
   await activation.locator('[name="reason"]').fill("Synthetic initial setup activation");
   await activation.getByRole("button").click();
   await expect(activation.getByRole("button")).toHaveText("Saved version already activated");

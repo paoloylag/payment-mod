@@ -2571,3 +2571,44 @@ input:is([type="checkbox"], [type="radio"]) { accent-color: var(--brand-crimson)
   .app-shell main .notification-panel .notification-read-toggle { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
   .app-shell main .notification-panel .notification-item-title { padding-right: 40px; }
 }
+
+/* Source-separated vendor directory, using shared buttons, fields and panels. */
+.vendor-source-switch { display:flex; flex-wrap:wrap; gap:8px; margin-block:16px 8px; }
+.app-shell main .vendor-source-switch button { display:flex; align-items:center; gap:10px; min-height:44px; white-space:normal; }
+.app-shell main .vendor-source-switch button[aria-pressed="true"] { border-color:var(--primary); color:var(--primary); background:var(--panel-strong); }
+.vendor-source-switch button span { font-size:12px; color:var(--muted); }
+.vendor-source-note { color:var(--muted); font-size:13px; margin-block:8px; }
+.vendor-profile-group { border:0; border-top:1px solid var(--line); padding:16px 0; margin:0; min-width:0; }
+.vendor-profile-group legend { font-size:14px; font-weight:600; padding:0 8px 0 0; }
+.vendor-optional > summary { min-height:44px; cursor:pointer; padding:12px 0; }
+.vendor-error:not(:empty) { padding:12px; color:var(--danger); border:1px solid var(--danger); border-radius:var(--radius); overflow-wrap:anywhere; }
+[data-vendor-backdrop] .identity-modal { max-height:calc(100dvh - 24px); overflow:auto; }
+[data-vendor-backdrop] .identity-form-actions { display:flex; flex-wrap:wrap; gap:8px; }
+@media(max-width:639px) {
+ .vendor-source-switch { display:grid; grid-template-columns:minmax(0,1fr); }
+ .app-shell main .vendor-source-switch button { justify-content:space-between; width:100%; }
+ .app-shell main .vendor-directory .vendor-row-actions { justify-self:stretch; justify-content:flex-start; }
+ .vendor-field-grid { grid-template-columns:minmax(0,1fr); }
+}
+
+/* Supplier onboarding is part of the General request, using the shared form grid. */
+.general-vendor-section { margin-block: 1.25rem; padding-block: 1rem; border-block: 1px solid var(--border-color, #d8d8d8); min-width: 0; }
+.general-vendor-section > label, .general-vendor-section > div > label { display: grid; gap: .4rem; margin-block: .75rem; }
+.general-vendor-section [hidden] { display: none !important; }
+.general-vendor-section input, .general-vendor-section select { width: 100%; min-width: 0; box-sizing: border-box; }
+
+.vendor-verification-card { padding: 1rem; margin-block: .75rem; border: 1px solid var(--border, #ccc); border-radius: var(--radius); overflow-wrap: anywhere; }
+.vendor-verification-actions { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.vendor-verification-actions label { display: grid; gap: .4rem; flex: 1 1 12rem; min-width: 0; }
+.vendor-verification-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding-inline: 1rem; }
+.vendor-verification-actions select { width: 100%; }
+
+.vendor-verification-actions a { text-decoration: none; }
+
+/* Native top-layer confirmation uses the existing correction surface. */
+dialog.correction-modal-backdrop { border: 0; margin: 0; width: 100%; height: 100%; max-width: none; max-height: none; box-sizing: border-box; color: var(--text); }
+dialog.correction-modal-backdrop::backdrop { background: transparent; }
+.vendor-origin { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; margin-block: 1rem; }
+.vendor-origin span { flex: 1 1 12rem; }
+.payment-history-event { margin-block: .65rem; overflow-wrap: anywhere; }
+.payment-history-event > summary { padding-block: .6rem; }

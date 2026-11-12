@@ -3,6 +3,8 @@
 Date recorded: 2026-09-25
 Status: Local mock contract implemented; live transport and complete lifecycle contract still pending.
 
+Ownership update, 11 November 2026: APS owns its General Payment vendor records. Procurement owns PO vendor records, which APS shows read-only and excludes from non-PO vendor selectors. Earlier statements below about all vendors being read-only in APS are historical and superseded. Vendor rows now live in a shared PostgreSQL vendor_records table with a constrained source_system owner. Both applications reference the canonical row IDs; no separate vendor-copy synchronization is intended. Transaction snapshots remain immutable. See [shared database contract](shared-vendor-database.md). See [Finance vendor UI](finance-vendor-ui.md).
+
 ## Purpose
 
 Record the supplied Vendor and finished-P.O. JSON structures as the current development examples for the Procurement-to-APS boundary. The finished P.O. is demonstrative and is not evidence of a real completed transaction.
