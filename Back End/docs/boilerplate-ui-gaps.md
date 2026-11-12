@@ -22,3 +22,13 @@
 ### 12 November follow-up — APS confirmation parity repaired
 
 APS now uses the existing native dialog/showModal pattern with an inert background, explicit Tab wrapping and opener restoration. Prompt values, destination and caret/focus are captured across unrelated app renders. Responsive Actions menus are reopened before restoring their invoking button. Node helper tests and actual delayed-notification-refresh browser tests exercise this behavior at375/768/desktop, alongside returns/declines and nested supplier-document corrections. This repairs app-level parity; no new boilerplate control or shared-project implementation was introduced. See [fix verification](ui-fixes-2026-11-12.md).
+
+### 2026-11-12 follow-up — request attachment failure recovery
+- UI engineer reviewed upload feedback at the user's request. Existing boilerplate upload validation and inline alert controls are implemented; no missing base component identified.
+- APS now adds filename/slot context, accepted-format hints, inline recovery and partial-save feedback. Failed pending files are retained for remove/replace and unchanged failures do not repeat automatic save attempts. Client picker checks supplement strict server media/content checks.
+- Reuse candidate remains the existing recoverable async lifecycle: shared persistent failed-file state, explicit retry and accurate partial-success messaging. This extension is app-only; shared lifecycle coverage remains unverified. Source: `src/document-upload.js`, `src/prototype.js`, document router.
+
+## 2026-11-12 — Supplier summary card parity
+- Coverage: underlying patterns implemented in tenant boilerplate; APS presentation aligned. No missing base component identified.
+- Evidence: tenant `src/styles.css` ops-card (2924ff), upload-document-row (2294ff); `src/App.tsx` document checklist (1200). APS reuses its shared preview-detail-list/status-pill/button tokens and adapts the existing card/checklist hierarchy for a request-bound supplier summary.
+- Result: header with Edit action and saved state; mobile-first metadata grid; Attached/Missing document rows and concise footer. Domain validation remains in APS. No changes to the boilerplate are required.

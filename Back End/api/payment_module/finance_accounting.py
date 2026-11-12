@@ -59,7 +59,9 @@ def build_entries(db, item, tax, overrides=None, strict=False):
                 continue
             key = f"{row['line_id']}:{component}"
             valid_keys.add(key)
-            account_id = overrides.get(key) or mapping.get(account_key)
+            account_id = overrides.get(key) or (
+                line.chart_account_id if component == "expense" and item.request_type == "general" else None
+            ) or mapping.get(account_key)
             if not account_id and component == "expense":
                 account_id = line.chart_account_id
             account = db.get(ChartAccount, UUID(str(account_id))) if account_id else None

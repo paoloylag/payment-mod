@@ -1,3 +1,5 @@
+import { generalRequestVendor } from "./request-vendor.js";
+import { documentAccept, documentFormats, documentSelectionError, documentUploadError } from "./document-upload.js";
 import { promptIncomplete, retainPromptValues, takePromptSubmission, rememberFocus } from "./action-prompt.js";
 import { createUuid } from "./uuid.js";
 import { conversationMessage } from "./conversation-message.js?v=20261030-mention-color-v2";
@@ -22,6 +24,8 @@ const dataSource = createDataSource();
 const mockDraftStorageKey = "payment-module-mock-drafts-v1";
 // File objects stay in memory until the draft and its document uploads are saved.
 const draftUploadBuffers = new Map();
+const draftUploadFailures = new Map();
+const draftSelectionErrors = new Map();
 // Keep unfinished Finance work across route changes without recording an approval.
 const financeLineProgress = new Map();
 const financeUploadProgress = new Map();
@@ -35,6 +39,9 @@ const draftSaveQueue = new Map();
 const draftUploadScope = () => state.activeDraftId || `new:${state.draftType}`;
 const draftUploadSlot = input => input.hasAttribute("data-line-row") ? `line:${input.dataset.lineRow}:${input.dataset.lineColumn}` : `request:${input.dataset.requestDocument}`;
 function rememberDraftFiles(input) {
+  draftUploadFailures.delete(`${draftUploadScope()}:${draftUploadSlot(input)}`);
+  draftSelectionErrors.delete(`${draftUploadScope()}:${draftUploadSlot(input)}`);
+  input.closest(".line-card-attachments, .upload-row")?.querySelector("[data-upload-selection-error]")?.remove();
   const scope = draftUploadScope();
   const buffer = draftUploadBuffers.get(scope) || new Map();
   buffer.set(draftUploadSlot(input), [...(input.files || [])]);
@@ -668,7 +675,7 @@ const fieldInput = (field) => {
     ? `<label class="full">${field.label}<textarea data-request-field="${fieldKey}" placeholder="${field.value}"></textarea></label>`
     : `<label>${field.label}<input data-request-field="${fieldKey}" type="${field.kind === "date" ? "date" : "text"}" ${field.label === "Last Day of the Event" ? "data-event-end-date" : ""} ${field.kind === "date" ? `value="${field.label === "Last Day of the Event" && state.draftType === "cashAdvance" ? state.cashAdvanceEventEnd : field.value}"` : `placeholder="${field.value}"`}></label>`;
 };
-const uploadInput = (documentName) => `<div class="upload-row"><span>${documentName}</span><div class="upload-row-selection"><span class="line-upload-filename" data-request-document-filename>No files selected</span><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(documentName)}"><input type="file" data-request-document="${documentFieldKey(documentName)}" ${documentName.includes("Billing / Quotation / SOA") ? "multiple" : ""} aria-label="Upload ${escapeHtml(documentName)}">${uploadIcon}<span>Upload Files</span></label></div></div>`;
+const uploadInput = (documentName) => `<div class="upload-row"><span>${documentName}</span><div class="upload-row-selection"><span class="line-upload-filename" data-request-document-filename>No files selected</span><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(documentName)}"><input type="file" accept="${documentAccept}" data-request-document="${documentFieldKey(documentName)}" ${documentName.includes("Billing / Quotation / SOA") ? "multiple" : ""} aria-label="Upload ${escapeHtml(documentName)}">${uploadIcon}<span>Upload Files</span></label></div></div>`;
 const lineAttachmentNames = (value) => (Array.isArray(value) ? value : value ? [value] : [])
   .filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim());
 const lineCenterLabel = (value) => (state.masterData["cost-centers"] || []).find((center) => center.id === value || center.code === value)?.name || value || "Choose a cost center";
@@ -1358,11 +1365,13 @@ function updateDraftLineItem(rowIndex, column, value) {
   const lineCard = document.querySelector(`[data-line-card="${rowIndex}"]`);
   if (lineCard) {
     const row = lineItemsByType[state.draftType][rowIndex];
-    const title = row["Merchant Name"] || row.Particulars || row.Supplier || row["P.O. Number"] || `Line item ${rowIndex + 1}`;
+    const title = row.Particulars || row["Merchant Name"] || row.Supplier || row["P.O. Number"] || `Line item ${rowIndex + 1}`;
     const subtitle = lineCenterLabel(row["Department / Cost Center"] || row["Department to Be Charged"]);
-    lineCard.querySelector("[data-line-title]").textContent = title;
+    const titleOutput = lineCard.querySelector("[data-line-title]");
+    if (titleOutput) titleOutput.textContent = title;
     if (lineCard.querySelector("[data-line-subtitle]")) lineCard.querySelector("[data-line-subtitle]").textContent = subtitle;
-    lineCard.querySelector("[data-line-amount]").textContent = money(Number(row.Amount) || 0, state.draftCurrency);
+    const amountLabel = lineCard.querySelector("[data-line-amount]");
+    if (amountLabel) amountLabel.textContent = money(Number(row.Amount) || 0, state.draftCurrency);
     if (lineCard.querySelector("[data-line-file-count]")) lineCard.querySelector("[data-line-file-count]").textContent = `${lineAttachmentNames(state.draftType === "reimbursement" ? row["Proof of Payment"] : row.Attachment || row.Receipt).length} files`;
   }
   const liquidationExpenses = document.getElementById("liquidationExpenses");
@@ -1379,6 +1388,7 @@ function addDraftLineItem() {
   expandedLineIndex = state.lineItemsByType[state.draftType].length;
   const lineItemsByType = { ...state.lineItemsByType, [state.draftType]: [...state.lineItemsByType[state.draftType], emptyItem] };
   setState({ lineItemsByType });
+  document.querySelector(`[data-line-card="${expandedLineIndex}"] .line-card-body input:not([readonly]):not([type="file"]), [data-line-card="${expandedLineIndex}"] .line-card-body select, [data-line-card="${expandedLineIndex}"] .line-card-body textarea`)?.focus();
 }
 
 function removeDraftLineItem(rowIndex) {
@@ -1679,10 +1689,29 @@ async function openCashAdvancePolicy(event) {
     if (modal.isConnected) modal.querySelector("[data-policy-content]").textContent = "The current policy settings could not be loaded. Close this window and try again.";
   }
 }
+function validateDraftFileSelection(input) {
+  const field = input.closest(".line-card-attachments, .upload-row");
+  let message = field?.querySelector("[data-upload-selection-error]");
+  const errors = [...(input.files || [])].map(documentSelectionError).filter(Boolean);
+  const key = `${draftUploadScope()}:${draftUploadSlot(input)}`;
+  if (errors.length) draftSelectionErrors.set(key, errors.join(" "));
+  else draftSelectionErrors.delete(key);
+  if (!message && field) { message = document.createElement("p"); message.dataset.uploadSelectionError = ""; message.className = "field-error"; message.setAttribute("role", "alert"); field.append(message); }
+  if (message) { message.textContent = errors.join(" "); message.hidden = !errors.length; }
+  if (!errors.length) return true;
+  input.value = "";
+  if (message) { message.tabIndex = -1; message.focus({ preventScroll: true }); }
+  return false;
+}
 function renderSelectedFiles(input, names) {
   const field = input.closest(".line-card-attachments, .upload-row");
   const preview = field?.querySelector(".line-upload-filename");
   if (!preview) return;
+  const failure = draftUploadFailures.get(`${draftUploadScope()}:${draftUploadSlot(input)}`) || draftSelectionErrors.get(`${draftUploadScope()}:${draftUploadSlot(input)}`);
+  if (failure && !field.querySelector("[data-upload-selection-error]")) {
+    const message = document.createElement("p"); message.dataset.uploadSelectionError = "";
+    message.className = "field-error"; message.setAttribute("role", "alert"); message.textContent = failure; field.append(message);
+  }
   preview.classList.add("file-upload-selection");
   preview.replaceChildren();
   preview.title = "";
@@ -1725,8 +1754,10 @@ function captureDraftDocuments() {
   ]).filter(([, files]) => files.length));
 }
 
-async function saveDraft({ silent = false } = {}) {
+async function saveDraft({ silent = false, automatic = false } = {}) {
+  if (automatic && [...draftUploadFailures.keys()].some(key => key.startsWith(`${draftUploadScope()}:`))) return null;
   window.clearTimeout(draftAutosaveTimer);
+  const previousScope = draftUploadScope();
   const now = new Date().toISOString();
   const existing = state.drafts.find((draft) => draft.id === state.activeDraftId);
   const fields = captureDraftFields();
@@ -1759,6 +1790,13 @@ async function saveDraft({ silent = false } = {}) {
   if (pending) { draftUploadBuffers.set(draft.id, pending); if (draftUploadScope() !== draft.id) draftUploadBuffers.delete(draftUploadScope()); }
   const removals = draftFileRemovals.get(draftUploadScope());
   if (removals) { draftFileRemovals.set(draft.id, removals); if (draftUploadScope() !== draft.id) draftFileRemovals.delete(draftUploadScope()); }
+  for (const errors of [draftUploadFailures, draftSelectionErrors]) {
+    for (const [key, message] of errors) {
+      if (previousScope !== draft.id && key.startsWith(`${previousScope}:`)) {
+        errors.delete(key); errors.set(`${draft.id}:${key.slice(previousScope.length + 1)}`, message);
+      }
+    }
+  }
   state.activeDraftId = draft.id;
   state.draftDirty = false;
   const buttons = [...document.querySelectorAll("[data-save-draft], [data-submit-current], [data-save-and-leave]")];
@@ -1767,7 +1805,7 @@ async function saveDraft({ silent = false } = {}) {
   catch (error) {
     state.draftDirty = true;
     buttons.forEach(button => { button.disabled = false; });
-    showErrorToast(error.message || "The draft or its files could not be saved. Retry saving before submitting.", "Draft not saved");
+    showErrorToast(error.message || "The draft or its files could not be saved. Retry saving before submitting.", error.requestDetailsSaved ? "Attachment not saved" : "Draft not saved");
     return null;
   }
   buttons.forEach(button => { button.disabled = false; });
@@ -1805,6 +1843,7 @@ function restoreDraftControls(liveFields = null) {
 }
 
 function openDraft(id) {
+  expandedLineIndex = 0;
   const draft = state.drafts.find((item) => item.id === id);
   if (!draft) return;
   state = {
@@ -3257,9 +3296,9 @@ function apiDraftPayload(draft) {
       id: row.backendLineId || null,
       invoice_date: valueFor(row, ["Invoice Date"]) || null,
       invoice_number: valueFor(row, ["Invoice Number", "P.O. Number"]) || (draft.type === "poPayment" ? poRecord?.id : null),
-      vendor_name: valueFor(row, ["Merchant Name", "Supplier"]) || (draft.type === "poPayment" ? poRecord?.payee || "" : ""),
+      vendor_name: draft.type === "general" ? generalRequestVendor(fields, state.masterData.vendors || []).name : valueFor(row, ["Merchant Name", "Supplier"]) || (draft.type === "poPayment" ? poRecord?.payee || "" : ""),
       particulars: valueFor(row, ["Particulars"]),
-      chart_account_id: resolveId(accounts, valueFor(row, ["Expense Account"])),
+      chart_account_id: resolveId(accounts, valueFor(row, ["Expense Account"])) || (draft.type === "general" ? state.financeSetup?.activation?.active?.debit?.id || null : null),
       cost_center_id: resolveId(centers, valueFor(row, ["Department / Cost Center", "Department to Be Charged"])),
       amount: Number(row.Amount) || (draft.type === "poPayment" && draft.lineItems.length === 1 ? poRecord?.amount || 0 : 0),
       currency_code: currency,
@@ -3313,7 +3352,22 @@ async function persistDraft(draft) {
         const lineId = slot.startsWith("line:") ? lineItems[Number(index)]?.backendLineId : null;
         if (slot.startsWith("line:") && !lineId) throw new Error("Save the line before attaching its files.");
         while (files.length) {
-          await dataSource.uploadDocument(saved.id, files[0], typeFor(slot), lineId, state.csrfToken);
+          const file = files[0];
+          try { await dataSource.uploadDocument(saved.id, file, typeFor(slot), lineId, state.csrfToken); }
+          catch (error) {
+            const input = [...document.querySelectorAll('[data-line-row][type="file"], [data-request-document]')].find(control => draftUploadSlot(control) === slot);
+            const field = input?.closest(".line-card-attachments, .upload-row");
+            let message = field?.querySelector("[data-upload-selection-error]");
+            if (!message && field) { message = document.createElement("p"); message.dataset.uploadSelectionError = ""; message.className = "field-error"; message.setAttribute("role", "alert"); field.append(message); }
+            const location = input?.getAttribute("aria-label")?.replace(/^Upload /, "")
+              || (slot.startsWith("line:") ? `Line ${Number(index) + 1}` : "Request document");
+            const feedback = `${location}: ${documentUploadError(file, error)} Remove or replace this file, then save again. Allowed: ${documentFormats}.`;
+            draftUploadFailures.set(`${draft.id}:${slot}`, feedback);
+            if (message) { message.hidden = false; message.textContent = feedback; }
+            error.requestDetailsSaved = true;
+            error.message = `Request details saved. ${feedback}`;
+            throw error;
+          }
           files.shift();
         }
         pending.delete(slot);
@@ -3468,6 +3522,7 @@ function requestBuilder() {
   const poRecords = purchaseOrderRecords();
   const poRecord = poRecords.find((record) => record.id === state.selectedPO) || poRecords[0];
   const effectiveAmount = isPoPayment ? poRecord.amount : draftAmount;
+  const multipleItems = lineItems.length > 1;
   const currencyOptions = state.draftType === "pettyCash" ? [{code:"PHP",name:"Philippine Peso",php_per_unit:1}] : state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso", php_per_unit: 1 }];
   const currencyField = `<label><span class="currency-label">Currency${state.draftCurrency && state.draftCurrency !== "PHP" ? `<span class="currency-warning" tabindex="0" role="img" aria-label="Foreign currency conversion information"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.3 3.9-8.6 15a2 2 0 0 0 1.7 3h17.2a2 2 0 0 0 1.7-3l-8.6-15a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg><span class="currency-warning-tooltip" role="tooltip">For foreign currency, Finance Manager confirms the PHP conversion rate when processing this request.</span></span>` : ""}</span><select aria-label="Currency" data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => {
     return `<option value="${escapeHtml(item.code)}" ${state.draftCurrency === item.code ? "selected" : ""}>${escapeHtml(item.code)} — ${escapeHtml(item.name)}</option>`;
@@ -3485,7 +3540,7 @@ function requestBuilder() {
     : isPoPayment
     ? `<label>P.O. Reference Number <small>(From Procurement)</small><select data-po-reference data-request-field="po_reference">${poRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id} · ${escapeHtml(record.payee)}</option>`).join("")}</select></label><label>Requestor<input data-request-field="requestor_name" value="${requestorName}"></label><label>Payee / Vendor <small>(System Generated)</small><input data-request-field="payee_name" value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><output id="draftAmount" class="calculated-amount">${money(poRecord.amount, state.draftCurrency)}</output></label>${currencyField}<label>Department / Cost Center <small>(From Procurement)</small><input value="${poRecord.department}" readonly></label><label>P.O. Status <small>(From Procurement)</small><input value="${escapeHtml(statusLabel(poRecord.status))}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
     : `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Calculated Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount, state.draftCurrency)}</output></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}`;
-  const generalVendorSection = state.draftType === "general" ? `<section class="general-vendor-section" aria-labelledby="general-vendor-heading"><div class="panel-header"><h3 id="general-vendor-heading">Vendor</h3></div><label>Supplier option<select data-request-field="general_vendor_mode" data-general-vendor-mode><option value="existing">Select existing vendor</option><option value="new">Add new vendor</option></select></label><div data-general-existing-vendor><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).filter(vendor => vendor.status === "active" && vendor.source !== "procurement").map(vendor => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><small>Finance-validated APS suppliers.</small></div><div data-general-new-vendor hidden><p class="field-help">Available to other requestors after Finance Associate accepts the supplier documents.</p><div class="field-grid">${[["name", "Supplier name", 160], ["taxId", "TIN", 80], ["contactPerson", "Contact person", 160], ["email", "Supplier email", 254], ["phone", "Phone", 80], ["businessRegistration", "SEC/DTI registration number", 160], ["street", "Street address", 300], ["city", "City", 160]].map(([key, label, limit]) => `<label>${label}<input data-request-field="general_vendor_${key}" maxlength="${limit}" type="${key === "email" ? "email" : "text"}"></label>`).join("")}</div><h4>Required supplier documents</h4><div class="upload-list">${["BIR 2303", "Business registration (SEC/DTI)", "Business permit"].map(uploadInput).join("")}</div></div></section>` : "";
+  const generalVendorSection = state.draftType === "general" ? `<section class="general-vendor-section" aria-labelledby="general-vendor-heading"><div class="panel-header"><h3 id="general-vendor-heading">Vendor</h3></div><label>Supplier option<select data-request-field="general_vendor_mode" data-general-vendor-mode><option value="existing">Select existing vendor</option><option value="new">Add new vendor</option></select></label><div data-general-existing-vendor><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).filter(vendor => vendor.status === "active" && vendor.source !== "procurement").map(vendor => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><small>Finance-validated APS suppliers.</small></div><div data-general-new-vendor hidden><div data-request-vendor-summary aria-live="polite"></div><button type="button" data-open-request-vendor>Edit new vendor</button><dialog class="finance-upload-modal" data-request-vendor-dialog aria-labelledby="request-vendor-dialog-title"><header><h3 id="request-vendor-dialog-title">Add vendor</h3><button type="button" class="close-icon-button" data-close-request-vendor aria-label="Close vendor">${closeIcon}</button></header><div class="finance-upload-modal-body"><p class="field-help">Available to other requestors after Finance Associate accepts the supplier documents.</p><div class="field-grid">${[["name", "Supplier name", 160], ["taxId", "TIN", 80], ["contactPerson", "Contact person", 160], ["email", "Supplier email", 254], ["phone", "Phone", 80], ["businessRegistration", "SEC/DTI registration number", 160], ["street", "Street address", 300], ["city", "City", 160]].map(([key, label, limit]) => `<label>${label}<input data-request-field="general_vendor_${key}" maxlength="${limit}" type="${key === "email" ? "email" : "text"}"></label>`).join("")}</div><h4>Required supplier documents</h4><div class="upload-list">${["BIR 2303", "Business registration (SEC/DTI)", "Business permit"].map(uploadInput).join("")}</div><div class="identity-form-actions"><button type="button" class="primary-button" data-save-request-vendor>Save vendor details</button></div></div></dialog></div></section>` : "";
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><label>Amount Returned Offline<input id="liquidationReturnAmount" type="number" min="0" step="0.01" value="${state.liquidationReturnAmount || ""}" placeholder="0.00"><small>Enter the amount returned directly to Finance. No proof-of-return upload is required.</small></label></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
   const reimbursementTiming = state.draftType === "reimbursement" ? `<section class="cash-advance-policy"><h4>Finance processing guidance</h4><ul><li>Submit complete requests at least 15 days before the required payment date.</li><li>Submit invoices within 30 days of the invoice date.</li><li>Low-value expenses remain Reimbursement requests in this module.</li><li>${state.reimbursementBatchSetting?.cutoff_days?.length ? `Monthly processing cutoff days: ${state.reimbursementBatchSetting.cutoff_days.map(day => escapeHtml(String(day))).join(" and ")}. If a cutoff day does not exist, the last calendar day is used. Submissions after a cutoff move to the next batch.` : "The processing schedule is currently unavailable. Your batch date will be assigned when you submit."}</li></ul></section>` : "";
@@ -3493,20 +3548,25 @@ function requestBuilder() {
   return `<section class="request-form-page" data-request-form-type="${state.draftType}" data-request-form-draft="${state.activeDraftId || ""}"><div class="request-navigation-row"><button type="button" class="back-button" data-back-request-types>← Back to Request Types</button><button type="button" data-view-drafts>My Drafts (${state.drafts.filter((draft) => draft.requestor === activeRequestor()).length})</button></div><section class="form-layout"><div class="panel request-form-panel"><div class="panel-header request-details-header"><div><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3>${state.activeDraftId ? `<small class="draft-save-state">Draft saved · Auto-save enabled</small>` : ""}</div></div>${state.persona === "financeAssociate" ? `<div class="independent-validation-notice"><p>The system will assign document validation to another Finance Associate.</p></div>` : ""}
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${generalVendorSection}${poSupplierNotice}${liquidationSummary}
     ${isCashAdvance || isLiquidation || state.draftType === "pettyCash" ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted Request</label>`}
-    <div class="line-items-section"><div class="line-items-header"><div><span class="eyebrow">Request Breakdown</span><h4>Line Items</h4></div></div><div class="line-card-list">
-      ${lineItems.map((item, rowIndex) => `<details class="line-item-card" data-line-card="${rowIndex}" ${rowIndex === expandedLineIndex ? "open" : ""}><summary><span class="line-card-number">${rowIndex + 1}</span><span class="line-card-summary"><strong data-line-title>${escapeHtml(item["Merchant Name"] || item.Particulars || item.Supplier || item["P.O. Number"] || `Line item ${rowIndex + 1}`)}</strong>${config.lineColumns.some((column) => column.includes("Department")) ? `<small data-line-subtitle>${escapeHtml(lineCenterLabel(item["Department / Cost Center"] || item["Department to Be Charged"]))}</small>` : ""}</span><span class="line-card-meta"><strong data-line-amount>${money(Number(item.Amount) || 0, state.draftCurrency)}</strong>${config.lineColumns.includes("Attachment") || config.lineColumns.includes("Receipt") || config.lineColumns.includes("Proof of Payment") ? `<small data-line-file-count>${lineAttachmentNames(state.draftType === "reimbursement" ? item["Proof of Payment"] : item.Attachment || item.Receipt).length} files</small>` : ""}</span><span class="line-card-chevron" aria-hidden="true">⌄</span></summary><div class="line-card-body"><div class="line-card-fields">${config.lineColumns.map((column) => {
+    <div class="line-items-section ${multipleItems ? "" : "single-item-section"}">${multipleItems ? `<div class="line-items-header"><div><span class="eyebrow">Request Breakdown</span><h4>Line Items</h4></div></div>` : ""}<div class="line-card-list">
+      ${lineItems.map((item, rowIndex) => `<${multipleItems ? "details" : "div"} class="${multipleItems ? "line-item-card" : "single-request-item"}" data-line-card="${rowIndex}" ${multipleItems && rowIndex === expandedLineIndex ? "open" : ""}>${multipleItems ? `<summary><span class="line-card-number">${rowIndex + 1}</span><span class="line-card-summary"><strong data-line-title>${escapeHtml(item.Particulars || item["Merchant Name"] || item.Supplier || item["P.O. Number"] || `Line item ${rowIndex + 1}`)}</strong>${config.lineColumns.some((column) => column.includes("Department")) ? `<small data-line-subtitle>${escapeHtml(lineCenterLabel(item["Department / Cost Center"] || item["Department to Be Charged"]))}</small>` : ""}</span><span class="line-card-meta"><strong data-line-amount>${money(Number(item.Amount) || 0, state.draftCurrency)}</strong>${config.lineColumns.includes("Attachment") || config.lineColumns.includes("Receipt") || config.lineColumns.includes("Proof of Payment") ? `<small data-line-file-count>${lineAttachmentNames(state.draftType === "reimbursement" ? item["Proof of Payment"] : item.Attachment || item.Receipt).length} files</small>` : ""}</span><span class="line-card-chevron" aria-hidden="true">⌄</span></summary>` : ""}<div class="line-card-body"><div class="line-card-fields">${config.lineColumns.map((column) => {
         const isFile = column === "Receipt" || column === "Attachment" || column === "Proof of Payment";
         const example = lineItemExamples[state.draftType]?.[0]?.[column] ?? column;
+        if (state.draftType === "general" && column === "Merchant Name") return `<label class="line-card-field">Vendor<input data-general-line-vendor readonly placeholder="Select a vendor above"><small data-general-line-vendor-status></small></label>`;
         const references = column === "Expense Account" ? (state.masterData["chart-of-accounts"] || []) : column.includes("Department") ? (state.masterData["cost-centers"] || []) : null;
-        if (autoGeneralCoding() && references) return `<label class="line-card-field">${escapeHtml(column)}<input readonly value="${escapeHtml(column === "Expense Account" ? `${state.financeSetup.activation.active.debit.code} — ${state.financeSetup.activation.active.debit.name}` : "Automatically follows the request department")}"><small>Assigned by active Finance setup</small></label>`;
+        if (autoGeneralCoding() && references && column !== "Expense Account") return `<label class="line-card-field">${escapeHtml(column)}<input readonly value="${escapeHtml(column === "Expense Account" ? `${state.financeSetup.activation.active.debit.code} — ${state.financeSetup.activation.active.debit.name}` : "Automatically follows the request department")}"><small>Assigned by active Finance setup</small></label>`;
         if (isFile) {
           const fileNames = lineAttachmentNames(item[column]);
-          return `<div class="line-card-field line-card-attachments"><span class="line-card-label">${escapeHtml(column.replace("P.O.", "Purchase Order"))}</span><div class="line-card-upload"><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}"><input type="file" multiple data-line-row="${rowIndex}" data-line-column="${column}" aria-label="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}">${uploadIcon}<span>Upload Files</span></label><span class="line-upload-filename" title="${escapeHtml(fileNames.join(", "))}">${fileNames.length ? fileNames.map(escapeHtml).join("<br>") : "No files selected"}</span></div></div>`;
+          return `<div class="line-card-field line-card-attachments"><span class="line-card-label">${escapeHtml(column.replace("P.O.", "Purchase Order"))}</span><div class="line-card-upload"><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}"><input type="file" accept="${documentAccept}" multiple data-line-row="${rowIndex}" data-line-column="${column}" aria-label="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}">${uploadIcon}<span>Upload Files</span></label><span class="line-upload-filename" title="${escapeHtml(fileNames.join(", "))}">${fileNames.length ? fileNames.map(escapeHtml).join("<br>") : "No files selected"}</span></div></div>`;
+        }
+        if (references && column === "Expense Account" && autoGeneralCoding()) {
+          const selected = item[column] || state.financeSetup.activation.active.debit.id;
+          return `<label class="line-card-field">Expense Account<select data-line-row="${rowIndex}" data-line-column="${column}"><option value="">Select expense account</option>${references.filter(entry => entry.is_active !== false && entry.is_posting !== false).map(entry => `<option value="${escapeHtml(entry.id)}" ${selected === entry.id || selected === entry.code ? "selected" : ""}>${escapeHtml(entry.code)} — ${escapeHtml(entry.name)}</option>`).join("")}</select></label>`;
         }
         if (references) return `<label class="line-card-field">${escapeHtml(column.replace("P.O.", "Purchase Order"))}<select data-line-row="${rowIndex}" data-line-column="${column}"><option value="">Select</option>${references.filter((entry) => entry.is_active !== false).map((entry) => `<option value="${escapeHtml(entry.id)}" ${item[column] === entry.id || item[column] === entry.code ? "selected" : ""}>${escapeHtml(entry.name)} (${escapeHtml(entry.code)})</option>`).join("")}</select></label>`;
         return `<label class="line-card-field">${escapeHtml(column.replace("P.O.", "Purchase Order"))}<input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${escapeHtml(String(item[column] || ""))}" placeholder="${escapeHtml(String(example))}"></label>`;
-      }).join("")}</div><div class="line-card-actions"><button type="button" class="remove-line-button" data-remove-line="${rowIndex}" ${lineItems.length === 1 ? "disabled" : ""}>Remove line</button></div></div></details>`).join("")}
-    </div><div class="line-card-footer"><button type="button" class="add-line-button" data-add-line="true">+ Add Line Item</button><div class="line-card-total"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "Purchase Order amount" : "Total"}</span><strong data-line-total>${money(effectiveAmount, state.draftCurrency)}</strong></div></div></div>${reimbursementTiming}${accountability}</div>
+      }).join("")}</div>${multipleItems ? `<div class="line-card-actions"><button type="button" class="remove-line-button" data-remove-line="${rowIndex}">Remove item</button></div>` : ""}</div></${multipleItems ? "details" : "div"}>`).join("")}
+    </div><div class="line-card-footer"><button type="button" class="add-line-button" data-add-line="true">${multipleItems ? "+ Add item" : "+ Add another item"}</button><div class="line-card-total"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "Purchase Order amount" : "Total"}</span><strong data-line-total>${money(effectiveAmount, state.draftCurrency)}</strong></div></div></div>${reimbursementTiming}${accountability}</div>
     <div class="panel"><div class="panel-header validation-preview-header"><h3>Validation Preview</h3><span class="count" data-validation-count>0/${config.required.length}</span></div><ul class="check-list">${config.required.map((item) => `<li data-validation-requirement="${item}"><span class="warn">!</span>${item}</li>`).join("")}</ul>
     ${state.draftType === "reimbursement" || isPoPayment ? `<div class="line-attachment-notice"><strong>Documents are attached per line item.</strong><p>${isPoPayment ? "Approved Purchase Order, quotation/contract, and supplier records are retrieved from Procurement. Upload the Delivery Receipt or Business Permit here when applicable." : "Add the corresponding invoice or receipt and proof of payment in each reimbursement line."}</p></div>${state.draftType === "reimbursement" ? `<h4>Request Documents</h4><div class="upload-list">${uploadInput("Other Supporting Document")}</div>` : `<h4>Request Documents</h4><div class="upload-list">${config.uploadDocuments.filter(name => state.draftType !== "general" || !name.includes("BIR 2303")).map(uploadInput).join("")}</div>`}` : isLiquidation ? `<div class="line-attachment-notice"><strong>Receipt uploads are optional.</strong><p>You may attach invoices or receipts to each breakdown line. Original hard copies will be submitted to Finance offline.</p></div>` : `<h4>Document Uploads</h4><div class="upload-list">${config.uploadDocuments.filter(name => state.draftType !== "general" || !name.includes("BIR 2303")).map(uploadInput).join("")}</div>`}
     <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: effectiveAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div></div><div class="panel request-action-footer"><div><span class="eyebrow">Request Actions</span></div><div class="request-submit-actions"><button type="button" data-save-draft>Save as Draft</button><button type="button" class="confirmation-button" data-submit-current>Submit to Department Head</button></div></div></section>${leaveRequestModal()}</section>`;
@@ -4222,6 +4282,8 @@ function render() {
       if (attribute) actionPromptFocus = { attribute, start: active.selectionStart, end: active.selectionEnd };
     }
   }
+  const requestVendorDialogOpen = Boolean(document.querySelector("[data-request-vendor-dialog][open]"));
+  const requestVendorFocus = document.activeElement?.dataset?.requestField;
   const currentRequestForm = document.querySelector("[data-request-form-type]");
   const liveRequestFields = state.tab === "request" && state.requestMode === "new"
     && currentRequestForm?.dataset.requestFormType === state.draftType
@@ -4907,6 +4969,9 @@ function render() {
   document.querySelectorAll("[data-select-request-type]").forEach((button) => button.addEventListener("click", () => {
     draftUploadBuffers.delete(`new:${button.dataset.selectRequestType}`);
     draftFileRemovals.delete(`new:${button.dataset.selectRequestType}`);
+    expandedLineIndex = 0;
+    const type = button.dataset.selectRequestType;
+    state.lineItemsByType = { ...state.lineItemsByType, [type]: initialLineItems[type].map(row => ({ ...row })) };
     state = { ...state, activeDraftId: null, draftDirty: false, requestTypeSelection: false, requestFieldBuffer: {}, requestDocumentBuffer: {} };
     navigate(`/requests/new/${button.dataset.selectRequestType}`);
   }));
@@ -5421,10 +5486,15 @@ function render() {
   });
   document.querySelector("[data-retry-request-references]")?.addEventListener("click", () => loadRequestReferenceData());
   document.querySelectorAll("[data-line-card]").forEach((card) => card.addEventListener("toggle", () => {
-    if (card.open) expandedLineIndex = Number(card.dataset.lineCard);
+    const index = Number(card.dataset.lineCard);
+    if (card.open) {
+      expandedLineIndex = index;
+      document.querySelectorAll("[data-line-card]").forEach(other => { if (other !== card) other.open = false; });
+    } else if (expandedLineIndex === index) expandedLineIndex = -1;
   }));
   document.querySelectorAll("[data-remove-line]").forEach((button) => button.addEventListener("click", () => removeDraftLineItem(Number(button.dataset.removeLine))));
   document.querySelectorAll("[data-line-row]").forEach((input) => input.addEventListener(input.tagName === "SELECT" || input.type === "file" ? "change" : "input", () => {
+    if (input.type === "file" && !validateDraftFileSelection(input)) return;
     const value = input.type === "file" ? [...(input.files || [])].map((file) => file.name).slice(0, 20) : input.value;
     updateDraftLineItem(Number(input.dataset.lineRow), input.dataset.lineColumn, value);
     if (input.type === "file") {
@@ -5434,6 +5504,7 @@ function render() {
     }
   }));
   document.querySelectorAll("[data-request-document]").forEach((input) => input.addEventListener("change", () => {
+    if (!validateDraftFileSelection(input)) return;
     const names = [...(input.files || [])].map((file) => file.name);
     state.requestDocumentBuffer[input.dataset.requestDocument] = names;
     rememberDraftFiles(input);
@@ -5461,15 +5532,78 @@ function render() {
   });
   restoreDraftControls(liveRequestFields);
   const supplierMode = document.querySelector("[data-general-vendor-mode]");
+  const syncLineVendors = () => {
+    if (state.draftType !== "general") return;
+    const vendor = generalRequestVendor(captureDraftFields(), state.masterData.vendors || []);
+    state.lineItemsByType.general = state.lineItemsByType.general.map(row => ({ ...row, "Merchant Name": vendor.name }));
+    document.querySelectorAll("[data-general-line-vendor]").forEach(input => { input.value = vendor.name; });
+    document.querySelectorAll("[data-general-line-vendor-status]").forEach(label => {
+      label.textContent = vendor.name ? vendor.pending ? "Pending Finance validation" : "From selected vendor" : "Select or add the vendor above";
+    });
+    state.lineItemsByType.general.forEach((row, index) => {
+      const title = document.querySelector(`[data-line-card="${index}"] [data-line-title]`);
+      if (title) title.textContent = row.Particulars || vendor.name || `Line item ${index + 1}`;
+      refreshLineRequirements(index);
+    });
+    refreshValidationPreview();
+  };
+  document.querySelector("[data-vendor-reference]")?.addEventListener("change", syncLineVendors);
+  document.querySelector('[data-request-field="general_vendor_name"]')?.addEventListener("input", syncLineVendors);
   const updateSupplierMode = () => {
     const isNew = supplierMode?.value === "new";
     const existing = document.querySelector("[data-general-existing-vendor]");
     const added = document.querySelector("[data-general-new-vendor]");
     if (existing) existing.hidden = isNew;
     if (added) added.hidden = !isNew;
+    syncLineVendors();
   };
-  supplierMode?.addEventListener("change", updateSupplierMode);
+  const vendorDialog = document.querySelector("[data-request-vendor-dialog]");
+  const vendorOpener = document.querySelector("[data-open-request-vendor]");
+  let vendorDialogOpener = vendorOpener;
+  const openRequestVendor = (opener) => {
+    vendorDialogOpener = opener;
+    vendorDetailsSaved = false;
+    if (vendorDialog && !vendorDialog.open) vendorDialog.showModal();
+  };
+  supplierMode?.addEventListener("change", () => {
+    updateSupplierMode();
+    if (supplierMode.value === "new") openRequestVendor(supplierMode);
+  });
+  vendorOpener?.addEventListener("click", () => openRequestVendor(vendorOpener));
+  let vendorDetailsSaved = false;
+  const updateVendorSummary = (saved = vendorDetailsSaved) => {
+    vendorDetailsSaved = saved;
+    const summary = document.querySelector("[data-request-vendor-summary]");
+    if (!summary) return;
+    const fields = captureDraftFields();
+    const documents = { ...(state.drafts.find(item => item.id === state.activeDraftId)?.documents || {}), ...state.requestDocumentBuffer, ...captureDraftDocuments() };
+    const required = ["BIR 2303", "Business registration (SEC/DTI)", "Business permit"];
+    const attached = required.filter(name => documents[documentFieldKey(name)]?.length);
+    const name = fields.general_vendor_name?.trim();
+    summary.innerHTML = `<article class="request-vendor-summary" aria-label="New supplier summary"><header class="request-vendor-summary-header"><div><span class="eyebrow">New supplier</span><h4>${escapeHtml(name || "Supplier details needed")}</h4><span class="status-pill ${saved ? "success" : ""}" role="status">${saved ? "Saved to draft" : name ? "Draft details" : "Incomplete"}</span></div><div data-vendor-summary-actions></div></header>${name ? `<dl class="preview-detail-list request-vendor-details">${[["TIN", "taxId"], ["Contact person", "contactPerson"], ["Email", "email"], ["Phone", "phone"], ["SEC/DTI registration", "businessRegistration"], ["Street", "street"], ["City", "city"]].filter(([,key]) => fields[`general_vendor_${key}`]?.trim()).map(([label,key]) => `<div><dt>${label}</dt><dd>${escapeHtml(fields[`general_vendor_${key}`])}</dd></div>`).join("")}</dl>` : ""}<section class="request-vendor-documents" aria-label="Supplier documents"><div class="request-vendor-documents-heading"><h4>Supplier documents</h4><span class="status-pill ${attached.length === 3 ? "success" : "danger"}">${attached.length}/3 attached</span></div><div class="request-vendor-document-list">${required.map(label => { const files = documents[documentFieldKey(label)] || []; return `<div class="request-vendor-document-row ${files.length ? "is-attached" : "is-missing"}"><div><strong>${escapeHtml(label)}</strong>${files.length ? `<small>${files.map(escapeHtml).join(", ")}</small>` : ""}</div><span class="status-pill ${files.length ? "success" : "danger"}">${files.length ? "Attached" : "Missing"}</span></div>`; }).join("")}</div></section><footer>${attached.length === 3 && name ? "Ready for request submission · Finance validation required" : "Complete the missing supplier details and documents before submission."}</footer></article>`;
+    const actions = summary.querySelector("[data-vendor-summary-actions]");
+    if (actions && vendorOpener) { vendorOpener.textContent = "Edit vendor"; actions.append(vendorOpener); }
+  };
+  document.querySelectorAll("[data-close-request-vendor]").forEach(button => button.addEventListener("click", () => vendorDialog?.close()));
+  document.querySelector("[data-save-request-vendor]")?.addEventListener("click", async event => {
+    const button = event.currentTarget;
+    const name = vendorDialog.querySelector('[data-request-field="general_vendor_name"]');
+    if (!name.value.trim()) { name.setCustomValidity("Enter the supplier name."); name.reportValidity(); name.addEventListener("input", () => name.setCustomValidity(""), { once: true }); return; }
+    if ([...vendorDialog.querySelectorAll("input:not([type=file])")].some(input => !input.reportValidity())) return;
+    button.disabled = true; button.textContent = "Saving…";
+    const saved = await saveDraft({ silent: true });
+    button.disabled = false; button.textContent = "Save vendor details";
+    if (!saved) return;
+    updateVendorSummary(true);
+    vendorDialog.close();
+  });
+  vendorDialog?.addEventListener("close", () => { syncLineVendors(); updateVendorSummary(); vendorDialogOpener?.focus(); });
   updateSupplierMode();
+  updateVendorSummary();
+  if (requestVendorDialogOpen && vendorDialog && !vendorDialog.open) {
+    vendorDialog.showModal();
+    if (requestVendorFocus) vendorDialog.querySelector(`[data-request-field="${CSS.escape(requestVendorFocus)}"]`)?.focus();
+  }
   refreshValidationPreview();
   const requestPage = document.querySelector(".request-form-page");
   requestPage?.addEventListener("input", refreshValidationPreview);
@@ -5480,7 +5614,7 @@ function render() {
       state.draftDirty = true;
       window.clearTimeout(draftAutosaveTimer);
       draftAutosaveTimer = window.setTimeout(() => {
-        if (state.tab === "request" && state.requestMode === "new" && state.draftDirty && document.querySelector(".request-form-panel")) void saveDraft({ silent: true });
+        if (state.tab === "request" && state.requestMode === "new" && state.draftDirty && document.querySelector(".request-form-panel")) void saveDraft({ silent: true, automatic: true });
       }, 2000);
     };
     draftForm.addEventListener("input", trackDraftChange);

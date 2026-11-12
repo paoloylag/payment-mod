@@ -777,6 +777,16 @@ def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
 
 
 def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
+    # One General Payment has one payee; line merchant names cannot contradict it.
+    request_vendor = None
+    if item.request_type == "general" and (item.type_data or {}).get("general_vendor_mode") in {"new", "existing"}:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id) if item.vendor_external_id else None
+        request_vendor = (
+            str((item.type_data or {}).get("general_vendor_name") or "").strip()
+            if (item.type_data or {}).get("general_vendor_mode") == "new"
+            else vendor["name"] if vendor else item.payee_name
+        )
+        item.payee_name = request_vendor
     existing = {
         line.id: line for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
     }
@@ -793,6 +803,8 @@ def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCrea
     db.flush()
     for position, line in enumerate(payload.lines, 1):
         values = line.model_dump(exclude={"id"})
+        if request_vendor is not None:
+            values["vendor_name"] = request_vendor
         if line.id is not None:
             saved = existing[line.id]
             saved.position = position

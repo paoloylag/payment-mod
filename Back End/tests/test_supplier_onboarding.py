@@ -184,3 +184,19 @@ def test_duplicate_supplier_names_are_blocked_and_procurement_stays_separate(cli
         json={**payload, "vendor_external_id": "VEND-DEMO-001", "type_data": {"general_vendor_mode": "existing"}},
     )
     assert response.status_code == 422
+
+
+def test_general_lines_follow_request_supplier_and_rename(client):
+    item, payload, auth = create(client)
+    assert item["lines"][0]["vendor_name"] == item["payee_name"] == payload["type_data"]["general_vendor_name"]
+    payload["payee_name"] = "Forged payee"
+    payload["type_data"]["general_vendor_name"] = "Renamed supplier " + str(uuid4())
+    payload["lines"][0]["vendor_name"] = "Different merchant"
+    payload["lines"].append({"particulars": "Second line", "vendor_name": "Another merchant",
+                             "amount": 500, "currency_code": "PHP"})
+    result = client.patch(f"/api/v1/requests/{item['id']}", headers=auth,
+                          json={**payload, "version": item["version"]})
+    assert result.status_code == 200, result.text
+    updated = result.json()
+    assert updated["payee_name"] == payload["type_data"]["general_vendor_name"]
+    assert all(line["vendor_name"] == updated["payee_name"] for line in updated["lines"])

@@ -141,7 +141,13 @@ def apply_payload(db, payload):
         return payload, None
     accounts, center = mapping_for_department(db, configuration, payload.department_id, payload.request_type)
     lines = [
-        line.model_copy(update={"chart_account_id": accounts["debit"].id, "cost_center_id": center.id})
+        line.model_copy(
+            update={
+                "chart_account_id": (line.chart_account_id or accounts["debit"].id)
+                if payload.request_type == "general" else accounts["debit"].id,
+                "cost_center_id": center.id,
+            }
+        )
         for line in payload.lines
     ]
     return payload.model_copy(update={"lines": lines}), configuration
@@ -152,7 +158,8 @@ def apply_submission(db, item):
     if configuration:
         accounts, center = mapping_for_department(db, configuration, item.department_id, item.request_type)
         for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)):
-            line.chart_account_id = accounts["debit"].id
+            if item.request_type != "general" or not line.chart_account_id:
+                line.chart_account_id = accounts["debit"].id
             line.cost_center_id = center.id
         db.flush()
     return configuration
@@ -187,6 +194,8 @@ def save_coding(db, item, configuration):
                         "position": line.position,
                         "amount": str(line.amount),
                         "particulars": line.particulars,
+                        "account": reference(db.get(ChartAccount, line.chart_account_id))
+                        if line.chart_account_id else None,
                     }
                     for line in lines
                 ],

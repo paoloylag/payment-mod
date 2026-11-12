@@ -185,3 +185,45 @@ def test_activation_requires_accounts_for_applicable_taxes(client, configuration
     )
     blocked = activate(client, manager)
     assert blocked.status_code == 409
+
+
+def test_general_selected_expense_account_survives_save_and_submit(client, configuration_fixture):
+    config, body = configuration_fixture
+    manager = login(client, "finance.manager@payment.local")
+    save_setup(client, manager, config)
+    assert activate(client, manager).status_code == 200
+    with SessionLocal.begin() as db:
+        account = ChartAccount(code=f"CHOICE-{uuid4().hex[:8]}", name=f"Requestor selected expense {uuid4().hex[:8]}",
+                               account_type="expense", normal_balance="debit", is_posting=True)
+        db.add(account)
+        db.flush()
+        selected_id = account.id
+    try:
+        owner = login(client)
+        body["lines"][0]["chart_account_id"] = str(selected_id)
+        response = client.post("/api/v1/requests", json=body, headers=owner)
+        assert response.status_code == 201, response.text
+        item = response.json()
+        assert item["lines"][0]["chart_account_id"] == str(selected_id)
+        response = client.patch(
+            f"/api/v1/requests/{item['id']}", json={**body, "version": item["version"]}, headers=owner
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["lines"][0]["chart_account_id"] == str(selected_id)
+        response = client.post(f"/api/v1/requests/{item['id']}/submit",
+                              json={"version": response.json()["version"]},
+                              headers={**owner, "Idempotency-Key": str(uuid4())})
+        assert response.status_code == 200, response.text
+        assert response.json()["lines"][0]["chart_account_id"] == str(selected_id)
+        with SessionLocal() as db:
+            coding = db.scalar(select(FinanceCodingSnapshot).where(
+                FinanceCodingSnapshot.request_id == UUID(item["id"])
+            ).order_by(FinanceCodingSnapshot.request_version.desc()))
+            assert coding.result["lines"][0]["account"]["id"] == str(selected_id)
+        with SessionLocal.begin() as db:
+            db.get(ChartAccount, selected_id).is_active = False
+        assert client.post("/api/v1/requests", json=body, headers=owner).status_code == 422
+    finally:
+        with SessionLocal.begin() as db:
+            db.execute(delete(PaymentRequest).where(PaymentRequest.id == UUID(item["id"])))
+            db.execute(delete(ChartAccount).where(ChartAccount.id == selected_id))

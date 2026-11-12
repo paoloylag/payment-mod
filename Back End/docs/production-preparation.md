@@ -1,8 +1,10 @@
 # Production preparation — 2026-10-19
 
 Status: preparation in progress; not authorized or validated for live operation.
+
+**Updated deployment direction (12 November 2026):** Finance pilot first, using the Events AWS pattern in Singapore. See [the current AWS deployment plan](aws-deployment-plan-2026-11-12.md) for the reference architecture, APS-specific code gaps, staging gates and cutover/rollback sequence. Earlier selection tasks below are historical preparation notes; current account resources and costs still require validation.
 Planned production hostname: **payment.life.edu.ph**. An AWS account exists. DNS control, certificate,
-AWS region, runtime, network boundaries, and operational owners still need verification/selection.
+AWS resources, network boundaries, DNS access and operational owners still need verification. The current planning baseline is Singapore and ECS Fargate, following Events.
 
 ## Prepared locally
 

@@ -2612,3 +2612,32 @@ dialog.correction-modal-backdrop::backdrop { background: transparent; }
 .vendor-origin span { flex: 1 1 12rem; }
 .payment-history-event { margin-block: .65rem; overflow-wrap: anywhere; }
 .payment-history-event > summary { padding-block: .6rem; }
+
+/* Supplier summary: existing card / metadata grid / upload-checklist patterns. */
+.request-vendor-summary { min-width:0; margin-block:16px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); overflow:hidden; overflow-wrap:anywhere; }
+.request-vendor-summary-header { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px; background:var(--panel-strong); border-bottom:1px solid var(--line); }
+.request-vendor-summary-header > div { min-width:0; }
+.request-vendor-summary-header h4 { margin:4px 0 10px; font-size:18px; line-height:1.35; color:var(--text); }
+.request-vendor-summary-header button { margin:0; }
+.request-vendor-summary .request-vendor-details { display:grid; grid-template-columns:minmax(0,1fr); gap:16px 24px; padding:16px; margin:0; }
+.request-vendor-summary .request-vendor-details dt { font-size:12px; color:var(--muted); }
+.request-vendor-summary .request-vendor-details dd { margin:4px 0 0; font-size:14px; font-weight:500; line-height:1.5; }
+.request-vendor-summary .request-vendor-documents { margin:0; padding:16px; border-top:1px solid var(--line); }
+.request-vendor-documents-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+.request-vendor-documents-heading h4 { margin:0; font-size:14px; }
+.request-vendor-document-list { display:grid; gap:8px; }
+.request-vendor-document-row { display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid var(--line); border-left:3px solid var(--brand-khaki); border-radius:7px; padding:12px; min-width:0; }
+.request-vendor-document-row.is-attached { border-left-color:var(--success); }
+.request-vendor-document-row > div { min-width:0; }
+.request-vendor-document-row strong { display:block; font-size:13px; font-weight:500; }
+.request-vendor-document-row small { display:block; margin-top:4px; color:var(--muted); overflow-wrap:anywhere; }
+.request-vendor-document-row .status-pill { flex-shrink:0; }
+.request-vendor-summary > footer { margin:0; padding:12px 16px; border-top:1px solid var(--line); background:var(--panel-strong); color:var(--muted); font-size:12px; line-height:1.5; }
+@media(min-width:640px) { .request-vendor-summary .request-vendor-details { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(min-width:1100px) { .request-vendor-summary .request-vendor-details { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+
+/* A single expense uses ordinary form fields; multiple expenses use existing cards. */
+.single-item-section { margin-top:20px; padding-top:20px; border-top:1px solid var(--line); }
+.single-request-item { min-width:0; }
+.single-request-item > .line-card-body { padding:0; border:0; }
+.single-item-section .line-card-footer { margin-top:16px; }

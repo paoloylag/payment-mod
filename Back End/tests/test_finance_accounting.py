@@ -257,3 +257,29 @@ def test_no_ewt_omits_withholding_entry_and_unbalanced_post_is_blocked(client, a
     blocked = command(client, request_id, "post", manager, {**body, "version": 1})
     assert blocked.status_code == 409
     assert "not balanced" in blocked.text
+
+
+def test_general_journal_uses_requestor_account_before_default_and_finance_override(client, accounting_request):
+    request_id, line_id, accounts, associate = accounting_request
+    with SessionLocal.begin() as db:
+        alternate = ChartAccount(code=f"SELECT-{uuid4().hex[:8]}", name=f"Selected request expense {uuid4().hex[:8]}",
+                                 account_type="expense", normal_balance="debit", is_posting=True)
+        db.add(alternate)
+        db.flush()
+        alternate_id = alternate.id
+        db.get(PaymentRequestLine, line_id).chart_account_id = alternate_id
+    try:
+        preview = client.get(f"/api/v1/finance-accounting/{request_id}").json()["preview"]
+        expense = next(row for row in preview["entries"] if row["component"] == "expense")
+        assert expense["account"]["id"] == str(alternate_id)
+        response = command(client, request_id, "draft", associate, {
+            "request_version": 2, "version": 0, "tax_version": 1, "reason": "Finance reviewed account",
+            "account_overrides": {f"{line_id}:expense": accounts[0]},
+        })
+        assert response.status_code == 200, response.text
+    finally:
+        with SessionLocal.begin() as db:
+            db.get(PaymentRequestLine, line_id).chart_account_id = UUID(accounts[0])
+            db.flush()
+            db.execute(delete(FinanceJournalSnapshot).where(FinanceJournalSnapshot.request_id == request_id))
+            db.execute(delete(ChartAccount).where(ChartAccount.id == alternate_id))

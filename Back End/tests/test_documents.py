@@ -216,6 +216,18 @@ def test_document_validation_authorization_and_submitted_replacement(client, mon
         files={"file": ("script.exe", b"bad", "application/octet-stream")},
     )
     assert invalid.status_code == 422
+    assert "script.exe" in invalid.json()["detail"]
+    assert "PDF, JPG, JPEG, PNG, XLSX, XLS, DOCX or DOC" in invalid.json()["detail"]
+    for name, content, media, expected in (
+        ("renamed.pdf", b"not a PDF", "application/pdf", "does not match"),
+        ("empty.pdf", b"", "application/pdf", "empty"),
+        ("wrong-type.pdf", b"%PDF-1.7", "text/plain", "unsupported"),
+    ):
+        rejected = client.post(f"/api/v1/requests/{request_id}/documents", headers=headers,
+                               files={"file": (name, content, media)})
+        assert rejected.status_code == 422, rejected.text
+        assert name in rejected.json()["detail"]
+        assert expected in rejected.json()["detail"]
     uploaded = client.post(
         f"/api/v1/requests/{request_id}/documents",
         headers=headers,

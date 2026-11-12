@@ -224,7 +224,12 @@ def _prepare(file: UploadFile):
         or suffix not in ALLOWED
         or media_type not in ALLOWED[suffix]
     ):
-        raise HTTPException(422, "Unsupported file extension or media type")
+        raise HTTPException(
+            422,
+            f"File {filename!r} has an unsupported extension or media type. "
+            "Allowed: PDF, JPG, JPEG, PNG, XLSX, XLS, DOCX or DOC. "
+            "Export the file in an allowed format; changing its name is not enough.",
+        )
     limit = settings.document_max_file_mb * 1024 * 1024
     total = 0
     digest = hashlib.sha256()
@@ -234,17 +239,19 @@ def _prepare(file: UploadFile):
         total += len(chunk)
         if total > limit:
             spool.close()
-            raise HTTPException(413, f"File exceeds the {settings.document_max_file_mb} MB limit")
+            raise HTTPException(413, f"File {filename!r} exceeds the {settings.document_max_file_mb} MB limit")
         digest.update(chunk)
         if len(signature) < 16:
             signature += chunk[: 16 - len(signature)]
         spool.write(chunk)
     if total == 0:
         spool.close()
-        raise HTTPException(422, "Empty files are not allowed")
+        raise HTTPException(422, f"File {filename!r} is empty. Choose a file containing your document.")
     if not any(signature.startswith(prefix) for prefix in SIGNATURES[suffix]):
         spool.close()
-        raise HTTPException(422, "File content does not match its declared format")
+        raise HTTPException(
+            422, f"File {filename!r} does not match its declared format. Export it again; do not just rename it."
+        )
     spool.seek(0)
     return filename, media_type, total, digest.hexdigest(), spool
 
