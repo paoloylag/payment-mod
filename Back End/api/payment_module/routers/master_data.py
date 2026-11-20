@@ -1,0 +1,713 @@
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from ..audit import audit
+from ..database import get_db
+from ..models import (
+    ChartAccount,
+    Currency,
+    DocumentType,
+    PaymentMethod,
+    PaymentRequest,
+    TaxCode,
+    User,
+    VendorRecord,
+)
+from ..procurement_adapter import get_procurement_adapter
+from ..schemas import (
+    ChartAccountCreate,
+    ChartAccountUpdate,
+    CurrencyCreate,
+    CurrencyUpdate,
+    DocumentTypeCreate,
+    DocumentTypeUpdate,
+    PaymentMethodCreate,
+    PaymentMethodUpdate,
+    TaxCodeCreate,
+    TaxCodeUpdate,
+)
+from ..security import require_permission
+from ..services.master_data import ensure_account_parent, ensure_unique, normalized
+from ..vendor_adapter import get_vendor_adapter, safe_vendor
+
+router = APIRouter(prefix="/api/v1", tags=["master data"])
+
+
+def row(item) -> dict:
+    result = {column.name: getattr(item, column.name) for column in item.__table__.columns}
+    for key, value in tuple(result.items()):
+        if isinstance(value, UUID):
+            result[key] = str(value)
+        elif isinstance(value, Decimal):
+            result[key] = str(value) if key == "php_per_unit" else float(value)
+        elif isinstance(value, date | datetime):
+            result[key] = value.isoformat()
+    return result
+
+
+def json_values(values: dict) -> dict:
+    result = {}
+    for key, value in values.items():
+        if isinstance(value, date | datetime):
+            value = value.isoformat()
+        elif isinstance(value, UUID):
+            value = str(value)
+        elif isinstance(value, Decimal):
+            value = str(value)
+        result[key] = value
+    return result
+
+
+def list_rows(
+    db: Session, model, search: str, active: bool | None, page: int, page_size: int, response: Response
+) -> list[dict]:
+    query = select(model)
+    if search:
+        query = query.where(or_(model.code.ilike(f"%{search.strip()}%"), model.name.ilike(f"%{search.strip()}%")))
+    if active is not None:
+        query = query.where(model.is_active == active)
+    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return [
+        row(item)
+        for item in db.scalars(query.order_by(model.name, model.code).offset((page - 1) * page_size).limit(page_size))
+    ]
+
+
+def create_reference(
+    db: Session, model, payload, request: Request, actor: User, entity: str, extra: dict | None = None
+) -> dict:
+    values = normalized(payload.model_dump())
+    if extra:
+        values.update(extra)
+    ensure_unique(db, model, values["code"], values["name"])
+    item = model(**values)
+    db.add(item)
+    db.flush()
+    audit(
+        db,
+        actor_id=actor.id,
+        action=f"{entity}.created",
+        entity_type=entity,
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        after=row(item),
+    )
+    db.commit()
+    return row(item)
+
+
+def update_reference(db: Session, model, item_id: UUID, payload, request: Request, actor: User, entity: str) -> dict:
+    item = db.get(model, item_id)
+    if not item:
+        raise HTTPException(404, f"{entity.replace('_', ' ').title()} not found")
+    changes = normalized(payload.model_dump(exclude_unset=True))
+    ensure_unique(db, model, changes.get("code", item.code), changes.get("name", item.name), item.id)
+    before = row(item)
+    for key, value in changes.items():
+        setattr(item, key, value)
+    audit(
+        db,
+        actor_id=actor.id,
+        action=f"{entity}.updated",
+        entity_type=entity,
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=before,
+        after=json_values(changes),
+    )
+    db.commit()
+    return row(item)
+
+
+def delete_reference(db: Session, model, item_id: UUID, request: Request, actor: User, entity: str) -> None:
+    item = db.get(model, item_id)
+    if not item:
+        raise HTTPException(404, f"{entity.replace('_', ' ').title()} not found")
+    audit(
+        db,
+        actor_id=actor.id,
+        action=f"{entity}.deleted",
+        entity_type=entity,
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=row(item),
+    )
+    try:
+        db.delete(item)
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(409, "Referenced records must be deactivated rather than deleted") from error
+
+
+@router.get("/cost-centers")
+def cost_centers(
+    response: Response,
+    search: str = "",
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
+):
+    from ..models import CostCenter
+
+    rows = list_rows(db, CostCenter, search, active, page, page_size, response)
+    for entry in rows:
+        approver = db.get(User, entry["approver_user_id"]) if entry["approver_user_id"] else None
+        entry["approver_name"] = approver.display_name if approver else None
+    return rows
+
+
+@router.get("/cost-center-approvers")
+def cost_center_approvers(_: User = Depends(require_permission("master_data.manage")), db: Session = Depends(get_db)):
+    from ..cost_center_approvals import eligible_approver
+
+    return [
+        {"id": str(user.id), "display_name": user.display_name}
+        for user in db.scalars(select(User).order_by(User.display_name))
+        if eligible_approver(db, user)
+    ]
+
+
+class CostCenterApprover(BaseModel):
+    approver_user_id: UUID | None = None
+
+
+@router.patch("/cost-centers/{center_id}/approver")
+def set_cost_center_approver(
+    center_id: UUID,
+    payload: CostCenterApprover,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    from ..cost_center_approvals import eligible_approver
+    from ..models import CostCenter
+
+    center = db.scalar(select(CostCenter).where(CostCenter.id == center_id).with_for_update())
+    if center is None:
+        raise HTTPException(404, "Cost center not found")
+    user = db.get(User, payload.approver_user_id) if payload.approver_user_id else None
+    if payload.approver_user_id and not eligible_approver(db, user):
+        raise HTTPException(422, "Choose an active user with the Department Head role and approval permission")
+    before = str(center.approver_user_id) if center.approver_user_id else None
+    center.approver_user_id = payload.approver_user_id
+    audit(
+        db,
+        actor_id=actor.id,
+        action="cost_center.approver_changed",
+        entity_type="cost_center",
+        entity_id=center.id,
+        request_id=request.state.request_id,
+        before={"approver_user_id": before},
+        after={"approver_user_id": str(user.id) if user else None},
+    )
+    db.commit()
+    return {**row(center), "approver_name": user.display_name if user else None}
+
+
+@router.get("/chart-of-accounts")
+def accounts(
+    response: Response,
+    search: str = "",
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("accounts.read")),
+    db: Session = Depends(get_db),
+):
+    return list_rows(db, ChartAccount, search, active, page, page_size, response)
+
+
+@router.post("/chart-of-accounts", status_code=201)
+def create_account(
+    payload: ChartAccountCreate,
+    request: Request,
+    actor: User = Depends(require_permission("accounts.manage")),
+    db: Session = Depends(get_db),
+):
+    ensure_account_parent(db, None, payload.parent_id)
+    return create_reference(db, ChartAccount, payload, request, actor, "chart_account")
+
+
+@router.patch("/chart-of-accounts/{item_id}")
+def update_account(
+    item_id: UUID,
+    payload: ChartAccountUpdate,
+    request: Request,
+    actor: User = Depends(require_permission("accounts.manage")),
+    db: Session = Depends(get_db),
+):
+    if "parent_id" in payload.model_fields_set:
+        ensure_account_parent(db, item_id, payload.parent_id)
+    return update_reference(db, ChartAccount, item_id, payload, request, actor, "chart_account")
+
+
+@router.delete("/chart-of-accounts/{item_id}", status_code=204)
+def delete_account(
+    item_id: UUID,
+    request: Request,
+    actor: User = Depends(require_permission("accounts.manage")),
+    db: Session = Depends(get_db),
+):
+    delete_reference(db, ChartAccount, item_id, request, actor, "chart_account")
+
+
+@router.get("/tax-codes")
+def tax_codes(
+    response: Response,
+    search: str = "",
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
+):
+    return list_rows(db, TaxCode, search, active, page, page_size, response)
+
+
+@router.post("/tax-codes", status_code=201)
+def create_tax(
+    payload: TaxCodeCreate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return create_reference(db, TaxCode, payload, request, actor, "tax_code")
+
+
+@router.patch("/tax-codes/{item_id}")
+def update_tax(
+    item_id: UUID,
+    payload: TaxCodeUpdate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return update_reference(db, TaxCode, item_id, payload, request, actor, "tax_code")
+
+
+@router.delete("/tax-codes/{item_id}", status_code=204)
+def delete_tax(
+    item_id: UUID,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    delete_reference(db, TaxCode, item_id, request, actor, "tax_code")
+
+
+@router.get("/currencies")
+def currencies(
+    response: Response,
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
+):
+    query = select(Currency)
+    if active is not None:
+        query = query.where(Currency.is_active == active)
+    response.headers["X-Total-Count"] = str(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return [
+        row(item) for item in db.scalars(query.order_by(Currency.code).offset((page - 1) * page_size).limit(page_size))
+    ]
+
+
+@router.post("/currencies", status_code=201)
+def create_currency(
+    payload: CurrencyCreate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    values = normalized(payload.model_dump())
+    if values["code"] == "PHP":
+        if values["php_per_unit"] not in (None, Decimal("1")):
+            raise HTTPException(422, "PHP conversion rate must be 1")
+        values["php_per_unit"] = Decimal("1")
+    item = Currency(**values)
+    if db.get(Currency, item.code) or db.scalar(select(Currency).where(Currency.name == item.name)):
+        raise HTTPException(409, "Currency code or name already exists")
+    db.add(item)
+    db.flush()
+    audit(
+        db,
+        actor_id=actor.id,
+        action="currency.created",
+        entity_type="currency",
+        entity_id=None,
+        request_id=request.state.request_id,
+        after=row(item),
+    )
+    db.commit()
+    return row(item)
+
+
+@router.patch("/currencies/{code}")
+def update_currency(
+    code: str,
+    payload: CurrencyUpdate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    item = db.get(Currency, code.upper())
+    if not item:
+        raise HTTPException(404, "Currency not found")
+    before = row(item)
+    changes = normalized(payload.model_dump(exclude_unset=True))
+    if item.code == "PHP" and "php_per_unit" in changes and changes["php_per_unit"] != Decimal("1"):
+        raise HTTPException(422, "PHP conversion rate must be 1")
+    for key, value in changes.items():
+        setattr(item, key, value)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="currency.updated",
+        entity_type="currency",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before=before,
+        after=json_values(changes),
+    )
+    db.commit()
+    return row(item)
+
+
+@router.get("/payment-methods")
+def payment_methods(
+    response: Response,
+    search: str = "",
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
+):
+    return list_rows(db, PaymentMethod, search, active, page, page_size, response)
+
+
+@router.post("/payment-methods", status_code=201)
+def create_method(
+    payload: PaymentMethodCreate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return create_reference(db, PaymentMethod, payload, request, actor, "payment_method")
+
+
+@router.patch("/payment-methods/{item_id}")
+def update_method(
+    item_id: UUID,
+    payload: PaymentMethodUpdate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return update_reference(db, PaymentMethod, item_id, payload, request, actor, "payment_method")
+
+
+@router.delete("/payment-methods/{item_id}", status_code=204)
+def delete_method(
+    item_id: UUID,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    delete_reference(db, PaymentMethod, item_id, request, actor, "payment_method")
+
+
+@router.get("/document-types")
+def document_types(
+    response: Response,
+    search: str = "",
+    active: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("master_data.read")),
+    db: Session = Depends(get_db),
+):
+    return list_rows(db, DocumentType, search, active, page, page_size, response)
+
+
+@router.post("/document-types", status_code=201)
+def create_document_type(
+    payload: DocumentTypeCreate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return create_reference(db, DocumentType, payload, request, actor, "document_type")
+
+
+@router.patch("/document-types/{item_id}")
+def update_document_type(
+    item_id: UUID,
+    payload: DocumentTypeUpdate,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    return update_reference(db, DocumentType, item_id, payload, request, actor, "document_type")
+
+
+@router.delete("/document-types/{item_id}", status_code=204)
+def delete_document_type(
+    item_id: UUID,
+    request: Request,
+    actor: User = Depends(require_permission("master_data.manage")),
+    db: Session = Depends(get_db),
+):
+    delete_reference(db, DocumentType, item_id, request, actor, "document_type")
+
+
+@router.get("/vendors")
+def vendors(
+    response: Response,
+    search: str = "",
+    active_only: bool = True,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("vendors.read")),
+    db: Session = Depends(get_db),
+):
+    items = get_vendor_adapter(db).list(search, active_only)
+    response.headers["X-Total-Count"] = str(len(items))
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return items[(page - 1) * page_size : page * page_size]
+
+
+@router.get("/vendors/{vendor_id}")
+def vendor(vendor_id: str, _: User = Depends(require_permission("vendors.read")), db: Session = Depends(get_db)):
+    item = get_vendor_adapter(db).get(vendor_id)
+    if not item:
+        raise HTTPException(404, "Vendor not found")
+    return item
+
+
+@router.get("/purchase-orders")
+def purchase_orders(
+    response: Response,
+    search: str = "",
+    eligible_only: bool = True,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    _: User = Depends(require_permission("procurement.read")),
+):
+    items = get_procurement_adapter().list(search, eligible_only)
+    response.headers["X-Total-Count"] = str(len(items))
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    return items[(page - 1) * page_size : page * page_size]
+
+
+@router.get("/purchase-orders/{po_number}")
+def purchase_order(po_number: str, _: User = Depends(require_permission("procurement.read"))):
+    item = get_procurement_adapter().get(po_number)
+    if not item:
+        raise HTTPException(404, "Purchase order not found")
+    return item
+
+
+class VendorCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=160)
+    vendorType: str = Field(default="Company", max_length=40)
+    email: str = Field(default="", max_length=254)
+    contactPerson: str = Field(default="", max_length=160)
+    phone: str = Field(default="", max_length=80)
+    street: str = Field(default="", max_length=250)
+    street2: str = Field(default="", max_length=250)
+    city: str = Field(default="", max_length=100)
+    state: str = Field(default="", max_length=100)
+    zip: str = Field(default="", max_length=30)
+    country: str = Field(default="Philippines", max_length=100)
+    taxId: str = Field(default="", max_length=80)
+    branchCode: str = Field(default="", max_length=80)
+    businessRegistration: str = Field(default="", max_length=100)
+    website: str = Field(default="", max_length=250)
+    terms: str = Field(default="", max_length=100)
+    lead: str = Field(default="", max_length=100)
+    rating: str = Field(default="", max_length=100)
+    tags: str = Field(default="", max_length=250)
+    notes: str = Field(default="", max_length=4000)
+    informationStatus: str = Field(
+        default="Information complete", pattern="^(Information complete|Information requested)$"
+    )
+    informationRequestedAt: datetime | None = None
+    businessDocuments: list[dict] = Field(default_factory=list, max_length=30)
+    is_active: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value):
+        return " ".join(value.split())
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value):
+        import re
+
+        if value and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+    @field_validator("website")
+    @classmethod
+    def validate_website(cls, value):
+        from urllib.parse import urlsplit
+
+        if value and (urlsplit(value).scheme not in {"http", "https"} or not urlsplit(value).netloc):
+            raise ValueError("Website must be an http or https URL")
+        return value
+
+
+class VendorUpdate(VendorCreate):
+    name: str = Field(default="", min_length=1, max_length=160)
+    version: int | None = Field(default=None, ge=1)
+
+
+def lock_vendor_directory(db):
+    # Also serializes edits of provider fixtures that do not yet have a local override row.
+    db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
+
+
+@router.post("/vendors", status_code=201)
+def create_vendor(
+    payload: VendorCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    lock_vendor_directory(db)
+    values = payload.model_dump(mode="json")
+    if any(
+        item.get("source") == "aps" and item["name"].casefold() == values["name"].casefold()
+        for item in get_vendor_adapter(db).list(active_only=False)
+    ):
+        raise HTTPException(409, "A vendor with this name already exists")
+    values["id"] = "VEND-" + str(uuid4())
+    values["version"] = 1
+    db.add(VendorRecord(id=values["id"], source_system="aps", payload=values))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.created",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        after={"vendor_id": values["id"], **safe_vendor(values)},
+    )
+    db.commit()
+    return safe_vendor(values)
+
+
+@router.patch("/vendors/{vendor_id}")
+def update_vendor(
+    vendor_id: str,
+    payload: VendorUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    lock_vendor_directory(db)
+    existing = get_vendor_adapter(db).get(vendor_id)
+    if existing is None:
+        raise HTTPException(404, "Vendor not found")
+    if existing.get("source") == "procurement":
+        raise HTTPException(403, "Procurement vendors are read-only in APS. Manage them in Procurement.")
+    if payload.version is not None and payload.version != existing["version"]:
+        raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory and reopen this form.")
+    onboarding_record = db.get(VendorRecord, vendor_id)
+    if (
+        onboarding_record
+        and onboarding_record.payload.get("onboarding_request_id")
+        and not onboarding_record.payload.get("validated_at")
+    ):
+        raise HTTPException(409, "Validate supplier documents in the originating request before updating this vendor")
+    values = {
+        **(onboarding_record.payload if onboarding_record else {}),
+        **existing,
+        **payload.model_dump(mode="json", exclude_unset=True, exclude={"version"}),
+    }
+    values.pop("code", None)
+    values.pop("status", None)
+    values["version"] = existing["version"] + 1
+    if any(
+        item["id"] != vendor_id and item.get("source") == "aps" and item["name"].casefold() == values["name"].casefold()
+        for item in get_vendor_adapter(db).list(active_only=False)
+    ):
+        raise HTTPException(409, "A vendor with this name already exists")
+    values["id"] = vendor_id
+    record = db.get(VendorRecord, vendor_id)
+    if record:
+        record.payload = values
+    else:
+        db.add(VendorRecord(id=vendor_id, source_system="aps", payload=values))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.updated",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before={"vendor_id": vendor_id, **existing},
+        after={"vendor_id": vendor_id, **safe_vendor(values)},
+    )
+    db.commit()
+    return safe_vendor(values)
+
+
+@router.delete("/vendors/{vendor_id}", status_code=204)
+def delete_vendor(
+    vendor_id: str,
+    request: Request,
+    version: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permission("vendors.manage")),
+):
+    lock_vendor_directory(db)
+    existing = get_vendor_adapter(db).get(vendor_id)
+    if existing is None:
+        raise HTTPException(404, "Vendor not found")
+    if existing.get("source") == "procurement":
+        raise HTTPException(403, "Procurement vendors are read-only in APS. Manage them in Procurement.")
+    if version is not None and version != existing["version"]:
+        raise HTTPException(409, "This vendor was updated elsewhere. Refresh the directory before deleting.")
+    if db.scalar(select(PaymentRequest.id).where(PaymentRequest.vendor_external_id == vendor_id).limit(1)) or any(
+        order.get("vendorId") == vendor_id for order in get_procurement_adapter().list(eligible_only=False)
+    ):
+        raise HTTPException(409, "This vendor is used by a request or purchase order. Deactivate it instead.")
+    # A tombstone also prevents bundled/provider records from reappearing after deletion.
+    values = {**existing, "deleted_at": datetime.now(UTC).isoformat(), "version": existing["version"] + 1}
+    record = db.get(VendorRecord, vendor_id)
+    if record:
+        record.payload = values
+    else:
+        db.add(VendorRecord(id=vendor_id, source_system="aps", payload=values))
+    audit(
+        db,
+        actor_id=actor.id,
+        action="vendor.deleted",
+        entity_type="vendor",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before={"vendor_id": vendor_id, **existing},
+    )
+    db.commit()

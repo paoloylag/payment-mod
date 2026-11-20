@@ -1,0 +1,59 @@
+# Phase 06 — Finance configuration readiness checklist
+
+Current reference (10 November 2026): [System status](current-system-status.md). Dated implementation and validation entries below retain historical scope; older signatory/deferred statements are superseded by the current reference.
+
+Prepared: 2026-10-13
+Status: Confirmed configuration, accounting and voucher scope implemented for all request types. Finance must select its actual accounts and activate All scope before exercising the shared flow.
+
+Current closeout: [Phase 05 to 07 development closeout](phase-05-07-closeout.md). Dated increments below retain their delivery history; their earlier pending statements are superseded by the current closeout.
+
+## Saved configuration draft
+
+General configuration activation is now available in Request Settings. It validates the General tax choices and distinct posting accounts, records Finance's reason and effective date, and freezes a version. After activation, General request creation/submission checks the active references and department cost center and assigns the configured accounts automatically. Draft changes require a new activation before they affect account assignments. Previously submitted coding snapshots retain their source configuration. The following broader checklist still applies to the remaining request types, accounting entries, and vouchers.
+
+General request EWT is now supported: the saved General tax default supplies VAT treatment and initial EWT; Finance Associate saves request-level EWT and optional line overrides, including explicit No EWT. These selections affect EWT only. Saved calculations retain their own configuration and rates. Configured General requests require a current saved calculation at Finance Associate approval. The draft status below continues to apply to account/voucher activation and other request types, not to this confirmed General EWT feature.
+
+Administration → Request Settings → Finance Setup Draft now saves partial Finance choices with a version and audit event. Finance Managers and System Administrators can edit; Finance Associates can view. Options cover VAT/EWT bases, rounding, rule dates, tax and debit/credit account defaults by request type, voucher numbering and certification, voucher authority, and the proposed sign-off scope. Only active tax codes and active posting accounts can be selected.
+
+The draft reports missing choices. Even a fully filled draft is not activated: detailed vendor/line applicability, department-specific mappings, sign-off records, calculation snapshots, and the creation/submission gate still require implementation and Finance confirmation. The scope selector records the intended scope; it does not yet create separate department configurations.
+
+The owner confirmed that Finance must finish the required setup before an affected request can be created or submitted. Tax and account settings should then apply automatically; Finance Associate reviews the resulting classification and coding later. A missing applicable rule must be shown as a configuration blocker, never treated as a zero tax rate or an uncoded line.
+
+The Finance Setup response now includes a live `readiness` report, displayed below its form. It checks current effective tax/account references, distinct debit/credit accounts, effective department cost centers, missing choices, and certification wording. `ready` and `enforced` remain false while policy activation is pending. A completed draft is not represented as an active setup. Request creation/editing and submission enforce active departments, effective posting accounts, and effective cost centers belonging to the request department; the submission check catches master data changed after a draft was saved.
+
+## Checks that can be enforced from the current data model
+
+| Area | Proposed readiness check | Current behavior |
+|---|---|---|
+| Department and currency | The request department exists; its currency is active. A foreign currency needs a configured conversion to be selectable in the request UI, except the confirmed Finance Manager per-request rate path. | Creation validates department/currency; request currency selection and Finance Manager rate handling exist. |
+| Cost center | An active, effective cost center exists for the department when the request type requires cost-center coding. | Required line IDs are checked at submission for Reimbursement, Liquidation, P.O. Payment, and General requests. A department-wide readiness check is not implemented. |
+| Expense account | At least one active, effective posting account is available when the request type requires expense coding. | Required line IDs are checked at submission for those same types. A system-wide readiness check is not implemented. |
+| Document rules | Each required document rule is configured for the request type and required uploads are present. | Current active rules and uploads are checked at submission; Finance Associate must accept every current required document before approval. |
+| Finance request policies | Cash Advance cap, liquidation deadline, reimbursement age handling, and one-outstanding setting have valid saved values. | Settings have defaults and validation, but there is no explicit Finance sign-off state. |
+
+## Rules Finance must supply before the full creation/submission gate
+
+1. **Tax applicability:** Which request types, vendor classes, line types, and dates require VAT, EWT, or explicit No EWT; which tax code applies to each combination; and which requests are exempt. An active tax code alone cannot prove that an applicable rule exists.
+2. **Account mapping:** The default debit and credit account for each supported transaction and tax outcome; how department/cost center affects the mapping; and who may correct a mapping after automatic application.
+3. **Effective dates and versions:** When new tax/account settings become effective, whether drafts use the current version at creation or submission, and how a returned request is recalculated.
+4. **Voucher controls:** Numbering scope and reset rule, mandatory payment method fields, certification wording, and create/post/void authority.
+5. **Readiness scope:** Whether Finance signs off once for the whole tenant or separately by request type, department, and effective date. The gate must name every missing item and the Finance screen where it can be fixed.
+
+## Implementation order
+
+1. Add an authenticated readiness report that returns each check, status, applicable request types, and a plain-language missing-setting message. Finance sees the full checklist; requestors see only actionable blockers.
+2. Enforce the confirmed master-data and document checks at creation and submission without silently substituting defaults. Keep existing per-line validation and the Finance Associate review gate.
+3. After Finance confirms the tax/account matrix, add versioned applicability and mapping records; apply them automatically and persist the selected rule, rates, accounts, inputs, and results in a request snapshot.
+4. Add exact calculation fixtures and tests for every approved example, including No EWT, rounding boundaries, and the PHP 200,000 TOJUST case. Then enable the tax/account readiness gate and voucher workbench.
+
+Until the applicability and mapping matrix is approved, a generic “at least one tax code exists” check is insufficient to declare Finance configuration ready.
+
+
+## General accounting readiness update — 2026-10-13
+
+General activation now requires input VAT and EWT payable posting accounts when the default tax code applies those taxes. Active request creation/submission checks their current validity. Finance Associate may correct individual draft entry accounts with a reason; Finance Manager posts only after final request approval and current Finance validation. Unbalanced or stale entries cannot post. Posted accounting and document decisions are frozen. Voucher preparation uses the posted accounting snapshot and preserves its source versions. Other request-type tax/account applicability, formal voucher numbering/printing/certification, reversals, void/replacement and payment authorization are still open.
+
+
+## Voucher controls now enforced — 2026-10-13
+
+Formal General voucher issuance requires saved prefix, numbering period, certification wording and the supported creator/poster/void roles. Missing choices block issuance with a Request Settings message. Finance Manager certifies the issued version; later draft settings cannot rewrite its print output. Finance Associate then prepares a full payment instruction and selects an eligible independent signatory. Authorized Signatory authorization is recorded separately from payment release. Void/reversal preserves the financial history. Remaining rules cover other request types, partial/multiple payments, signatory thresholds, replacements and settlement.

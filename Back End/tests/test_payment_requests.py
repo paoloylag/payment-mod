@@ -1,0 +1,1250 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from decimal import Decimal
+from threading import Barrier
+from time import perf_counter
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from payment_module.database import SessionLocal, engine
+from payment_module.main import app
+from payment_module.models import (
+    AuditEvent,
+    ChartAccount,
+    CostCenter,
+    Currency,
+    Department,
+    Document,
+    PaymentRequest,
+    PaymentRequestLine,
+    Permission,
+    SystemSetting,
+    User,
+    UserPermissionOverride,
+    WorkflowInstance,
+)
+from payment_module.routers.requests import academic_year_start, reimbursement_batch_date
+from payment_module.seed import SEED_SETTINGS
+from payment_module.seed import seed as seed_base
+from sqlalchemy import event, func, select
+
+PASSWORD = "Phase01-Test-Only!"
+
+
+def seed():
+    """Keep Phase 03 lifecycle tests independent of Phase 04 upload requirements."""
+    seed_base(include_document_requirement_rules=False)
+    with SessionLocal.begin() as db:
+        for key, value in SEED_SETTINGS.items():
+            if key.startswith("requests."):
+                db.scalar(select(SystemSetting).where(SystemSetting.key == key)).value = value
+
+
+def login(client, email="requestor@payment.local"):
+    response = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+    assert response.status_code == 200
+    return {"X-CSRF-Token": response.json()["csrf_token"]}
+
+
+def payload(currency="PHP"):
+    with SessionLocal() as db:
+        department_id = db.scalar(select(Department.id).where(Department.code == "MKTG"))
+        cost_center_id = db.scalar(select(CostCenter.id).where(CostCenter.code == "MKTG"))
+        chart_account = db.scalar(select(ChartAccount).where(ChartAccount.code == "TEST-EXPENSE"))
+        if chart_account is None:
+            chart_account = ChartAccount(
+                code="TEST-EXPENSE",
+                name="Test Expense Account",
+                description="Isolated automated-test account",
+                account_type="expense",
+                is_posting=True,
+                normal_balance="debit",
+            )
+            db.add(chart_account)
+            db.commit()
+            db.refresh(chart_account)
+        chart_account_id = chart_account.id
+    return {
+        "request_type": "reimbursement",
+        "department_id": str(department_id),
+        "payee_name": "Sample Merchant",
+        "purpose": "Phase 03 automated request test",
+        "currency_code": currency,
+        "type_data": {"source": "test", "proof_of_payment_refs": ["proof-of-payment.pdf"]},
+        "lines": [
+            {
+                "invoice_number": f"INV-{uuid4()}",
+                "invoice_date": "2026-09-01",
+                "vendor_name": "Sample Merchant",
+                "particulars": "Supplies",
+                "chart_account_id": str(chart_account_id),
+                "cost_center_id": str(cost_center_id),
+                "amount": "1250.50",
+                "currency_code": currency,
+                "attachment_refs": ["invoice.pdf"],
+            }
+        ],
+    }
+
+
+def payload_for_type(request_type: str):
+    result = payload()
+    result["request_type"] = request_type
+    result["lines"][0]["invoice_number"] = f"REF-{uuid4()}"
+    if request_type == "cashAdvance":
+        result["payee_name"] = "Mara Reyes"
+        result["type_data"] = {
+            "event_end_date": "2026-09-15",
+            "liquidation_due_date": "2026-09-30",
+            "accountability_acknowledged": True,
+        }
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": None,
+                "vendor_name": "",
+                "chart_account_id": None,
+                "cost_center_id": None,
+                "attachment_refs": [],
+            }
+        )
+    elif request_type == "liquidation":
+        result["type_data"] = {
+            "cash_advance_reference": "CA-2026-000049",
+            "liquidation_due_date": "2026-09-30",
+            "actual_liquidation_date": "2026-09-28",
+            "liquidation_advance_amount": "1500.00",
+            "liquidation_return_amount": "249.50",
+        }
+        result["lines"][0]["attachment_refs"] = []
+    elif request_type == "poPayment":
+        result["payee_name"] = "Sample BrightTech Supply"
+        result["type_data"] = {"po_reference": "PO-DEMO-1001"}
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": "PO-DEMO-1001",
+                "vendor_name": "Sample BrightTech Supply",
+                "particulars": "Two sample staff laptops",
+                "amount": "89000.00",
+                "attachment_refs": ["approved-po.pdf"],
+            }
+        )
+    elif request_type == "general":
+        result["payee_name"] = "Utility Provider"
+        result["type_data"] = {"billing_document_refs": ["utility-bill.pdf"]}
+        result["lines"][0].update(
+            {
+                "invoice_date": None,
+                "invoice_number": None,
+                "vendor_name": "Utility Provider",
+                "attachment_refs": ["utility-bill.pdf"],
+            }
+        )
+    return result
+
+
+def test_edit_reorders_retained_lines_without_deleting_their_documents(client):
+    seed()
+    headers = login(client)
+    body = payload()
+    body["lines"].append({**body["lines"][0], "particulars": "Second item"})
+    created = client.post("/api/v1/requests", json=body, headers=headers).json()
+    first, second = created["lines"]
+    with SessionLocal.begin() as db:
+        item = db.get(PaymentRequest, UUID(created["id"]))
+        document = Document(request_id=item.id, line_id=UUID(first["id"]), owner_user_id=item.requestor_id)
+        db.add(document)
+        db.flush()
+        document_id = document.id
+    body.update(version=created["version"], lines=[{**second, "particulars": "Moved second"}, first])
+    edited = client.patch(f"/api/v1/requests/{created['id']}", json=body, headers=headers)
+    assert edited.status_code == 200, edited.text
+    assert [line["id"] for line in edited.json()["lines"]] == [second["id"], first["id"]]
+    with SessionLocal() as db:
+        assert db.get(Document, document_id).line_id == UUID(first["id"])
+    # Removing another row must leave the retained row and its evidence intact.
+    body.update(version=edited.json()["version"], lines=[first])
+    removed = client.patch(f"/api/v1/requests/{created['id']}", json=body, headers=headers)
+    assert removed.status_code == 200, removed.text
+    with SessionLocal() as db:
+        assert db.get(Document, document_id).line_id == UUID(first["id"])
+        assert db.get(PaymentRequestLine, UUID(second["id"])) is None
+
+
+@pytest.mark.parametrize("invalid_kind", ["foreign", "duplicate"])
+def test_edit_cannot_reuse_foreign_or_duplicate_line_ids(client, invalid_kind):
+    seed()
+    headers = login(client)
+    body = payload()
+    first = client.post("/api/v1/requests", json=body, headers=headers).json()
+    second = client.post("/api/v1/requests", json=body, headers=headers).json()
+    invalid_lines = [second["lines"][0]] if invalid_kind == "foreign" else first["lines"] * 2
+    edited = client.patch(
+        f"/api/v1/requests/{first['id']}",
+        json={**body, "version": first["version"], "lines": invalid_lines},
+        headers=headers,
+    )
+    assert edited.status_code == 422
+    saved = client.get(f"/api/v1/requests/{first['id']}", headers=headers).json()
+    assert saved["version"] == first["version"]
+    assert saved["lines"][0]["id"] == first["lines"][0]["id"]
+
+
+def test_request_crud_optimistic_lock_and_idempotent_submit(client):
+    seed()
+    headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=headers)
+    assert created.status_code == 201
+    draft = created.json()
+    assert draft["status"] == "draft" and draft["gross_amount"] == 1250.5
+    assert draft["draft_expires_at"]
+    assert draft["draft_retention_warning"] is False
+
+    changed = payload()
+    changed["version"] = draft["version"]
+    changed["purpose"] = "Updated purpose"
+    updated = client.patch(f"/api/v1/requests/{draft['id']}", json=changed, headers=headers)
+    assert updated.status_code == 200 and updated.json()["version"] == 2
+    assert client.patch(f"/api/v1/requests/{draft['id']}", json=changed, headers=headers).status_code == 409
+
+    submit_headers = {**headers, "Idempotency-Key": str(uuid4())}
+    submitted = client.post(f"/api/v1/requests/{draft['id']}/submit", json={"version": 2}, headers=submit_headers)
+    repeated = client.post(f"/api/v1/requests/{draft['id']}/submit", json={"version": 2}, headers=submit_headers)
+    assert submitted.status_code == 200
+    assert repeated.json()["request_number"] == submitted.json()["request_number"]
+    assert submitted.json()["request_number"].startswith("PR-2026-")
+    assert repeated.json()["voucher_number"] == submitted.json()["voucher_number"]
+    assert submitted.json()["voucher_number"] == submitted.json()["request_number"].replace("PR-", "VCH-", 1)
+    assert submitted.json()["draft_expires_at"] is None
+    assert submitted.json()["draft_retention_warning"] is False
+
+
+@pytest.mark.parametrize("request_type", ["reimbursement", "cashAdvance", "liquidation", "poPayment", "general"])
+def test_request_creation_date_is_system_generated(client, request_type):
+    seed()
+    headers = login(client)
+    request_payload = payload_for_type(request_type)
+    request_payload["type_data"]["request_date"] = "1999-01-01"
+    request_payload["type_data"]["fields"] = {"request_date": "1999-01-01"}
+
+    response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert response.status_code == 201, response.text
+    created = response.json()
+    assert created["created_at"]
+    assert "request_date" not in created["type_data"]
+    assert "request_date" not in created["type_data"]["fields"]
+
+
+def test_mixed_currency_rejected_and_visibility_enforced(client):
+    seed()
+    headers = login(client)
+    mixed = payload()
+    mixed["lines"][0]["currency_code"] = "USD"
+    assert client.post("/api/v1/requests", json=mixed, headers=headers).status_code == 422
+
+    created = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    client.cookies.clear()
+    other_headers = login(client, "coo@payment.local")
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=other_headers).status_code == 404
+
+
+def test_duplicate_invoice_checks_distinguish_exact_and_warning_matches(client):
+    seed()
+    headers = login(client)
+    invoice_number = f"INV-DUP-{uuid4()}"
+
+    original_payload = payload()
+    original_payload["lines"][0]["invoice_number"] = invoice_number
+    original = client.post("/api/v1/requests", json=original_payload, headers=headers).json()
+    original = client.post(
+        f"/api/v1/requests/{original['id']}/submit",
+        json={"version": original["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    assert original["type_data"]["duplicate_invoice_review_status"] == "no_match"
+
+    exact_payload = payload()
+    exact_payload["lines"][0]["invoice_number"] = f"  {invoice_number.lower()}  "
+    exact = client.post("/api/v1/requests", json=exact_payload, headers=headers).json()
+    exact = client.post(
+        f"/api/v1/requests/{exact['id']}/submit",
+        json={"version": exact["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    exact_checks = exact["type_data"]["duplicate_invoice_checks"]
+    assert exact["type_data"]["duplicate_invoice_review_status"] == "finance_verification_required"
+    assert any(check["match_level"] == "exact" for check in exact_checks)
+    assert all(check["finance_verification_required"] is True for check in exact_checks)
+
+    changed_payload = payload()
+    changed_payload["lines"][0].update({"invoice_number": invoice_number, "amount": "900.00"})
+    changed = client.post("/api/v1/requests", json=changed_payload, headers=headers).json()
+    changed = client.post(
+        f"/api/v1/requests/{changed['id']}/submit",
+        json={"version": changed["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    warning_checks = changed["type_data"]["duplicate_invoice_checks"]
+    assert warning_checks
+    assert all(check["match_level"] == "warning" for check in warning_checks)
+    assert all("amount" in check["differing_fields"] for check in warning_checks)
+
+
+def test_foreign_currency_amount_is_logged_without_conversion(client):
+    seed()
+    headers = login(client)
+    invoice_number = f"INV-CURRENCY-{uuid4()}"
+
+    php_payload = payload("PHP")
+    php_payload["lines"][0]["invoice_number"] = invoice_number
+    php = client.post("/api/v1/requests", json=php_payload, headers=headers).json()
+    submitted_php = client.post(
+        f"/api/v1/requests/{php['id']}/submit",
+        json={"version": php["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_php.status_code == 200
+
+    usd_payload = payload("USD")
+    usd_payload["lines"][0].update({"invoice_number": invoice_number, "amount": "1250.50"})
+    usd = client.post("/api/v1/requests", json=usd_payload, headers=headers).json()
+    submitted_usd = client.post(
+        f"/api/v1/requests/{usd['id']}/submit",
+        json={"version": usd["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_usd.status_code == 200
+    result = submitted_usd.json()
+    assert result["currency_code"] == "USD" and result["gross_amount"] == 1250.5
+    assert result["lines"][0]["currency_code"] == "USD" and result["lines"][0]["amount"] == 1250.5
+    assert "converted_amount" not in result and "exchange_rate" not in result
+    checks = result["type_data"]["duplicate_invoice_checks"]
+    assert checks and all(check["match_level"] == "warning" for check in checks)
+    assert all("currency_code" in check["differing_fields"] for check in checks)
+
+
+def test_configured_currency_rate_is_only_suggested_when_submitting(client):
+    seed()
+    with SessionLocal.begin() as db:
+        currency = db.get(Currency, "USD")
+        previous_rate = currency.php_per_unit
+        currency.php_per_unit = Decimal("50")
+    try:
+        headers = login(client)
+        draft_payload = payload("USD")
+        draft_payload["type_data"]["budgeted"] = False
+        draft_payload["lines"][0]["amount"] = "20000.0001"
+        created = client.post("/api/v1/requests", json=draft_payload, headers=headers)
+        assert created.status_code == 201
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 200
+        with SessionLocal() as db:
+            workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == created.json()["id"]))
+            assert workflow.state == "active"
+            assert workflow.route_snapshot["php_amount"] is None
+            assert Decimal(workflow.route_snapshot["suggested_php_per_unit"]) == Decimal("50")
+            assert workflow.route_snapshot["stages"][-1]["role"] == "finance_manager"
+    finally:
+        with SessionLocal.begin() as db:
+            db.get(Currency, "USD").php_per_unit = previous_rate
+
+
+def test_first_stage_return_allows_requestor_to_edit_and_resubmit(client):
+    seed()
+    request_payload = payload()
+    owner_headers = login(client)
+    created = client.post("/api/v1/requests", json=request_payload, headers=owner_headers).json()
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    path = f"/api/v1/workflow/{created['id']}/reject"
+    decision = {"version": 1, "decision": "return", "note": "Correct the expense purpose."}
+    returned = client.post(path, json=decision, headers={**head_headers, "Idempotency-Key": "first-return"})
+    assert returned.status_code == 200
+    assert returned.json()["request_status"] == "returned"
+    repeated = client.post(path, json=decision, headers={**head_headers, "Idempotency-Key": "first-return"})
+    assert repeated.status_code == 200 and repeated.json() == returned.json()
+    switched = client.post(
+        path, json={**decision, "decision": "decline"}, headers={**head_headers, "Idempotency-Key": "first-return"}
+    )
+    assert switched.status_code == 409
+
+    client.cookies.clear()
+    owner_headers = login(client)
+    request_payload["purpose"] = "Corrected expense purpose"
+    edited = client.patch(
+        f"/api/v1/requests/{created['id']}",
+        json={**request_payload, "version": returned.json()["request_version"]},
+        headers=owner_headers,
+    )
+    assert edited.status_code == 200 and edited.json()["purpose"] == "Corrected expense purpose"
+    resubmitted = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": edited.json()["version"], "note": "Purpose corrected."},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert resubmitted.status_code == 200 and resubmitted.json()["status"] == "submitted"
+
+
+def test_first_stage_decline_is_terminal_for_requestor(client):
+    seed()
+    request_payload = payload()
+    owner_headers = login(client)
+    created = client.post("/api/v1/requests", json=request_payload, headers=owner_headers).json()
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    declined = client.post(
+        f"/api/v1/workflow/{created['id']}/reject",
+        json={"version": 1, "decision": "decline", "note": "Expense is outside the approved purpose."},
+        headers={**head_headers, "Idempotency-Key": "first-decline"},
+    )
+    assert declined.status_code == 200 and declined.json()["request_status"] == "declined"
+    assert declined.json()["state"] == "declined"
+    client.cookies.clear()
+    owner_headers = login(client)
+    change = client.patch(
+        f"/api/v1/requests/{created['id']}",
+        json={**request_payload, "version": declined.json()["request_version"]},
+        headers=owner_headers,
+    )
+    assert change.status_code == 409
+    resubmit = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": declined.json()["request_version"], "note": "Please reconsider"},
+        headers={**owner_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert resubmit.status_code == 409
+
+
+def test_department_head_can_return_submitted_department_request(client):
+    seed()
+    headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    returned = client.post(
+        f"/api/v1/requests/{created['id']}/return",
+        json={"version": submitted["version"], "note": "Please attach the official receipt."},
+        headers=head_headers,
+    )
+    assert returned.status_code == 200 and returned.json()["status"] == "returned"
+
+
+def test_request_lifecycle_return_resubmit_cancel_and_reopen(client):
+    seed()
+    requestor_headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
+    with SessionLocal() as db:
+        expected_requestor = db.scalar(select(User.display_name).where(User.email == "requestor@payment.local"))
+    assert created["requestor_name"] == expected_requestor
+    assert created["department_name"] == "Marketing"
+    submitted = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+
+    client.cookies.clear()
+    head_headers = login(client, "department.head@payment.local")
+    returned = client.post(
+        f"/api/v1/requests/{created['id']}/return",
+        json={"version": submitted["version"], "note": "Please correct the supporting details."},
+        headers=head_headers,
+    )
+    assert returned.status_code == 200 and returned.json()["status"] == "returned"
+
+    client.cookies.clear()
+    requestor_headers = login(client)
+    resubmit_headers = {**requestor_headers, "Idempotency-Key": str(uuid4())}
+    resubmitted = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": returned.json()["version"], "note": "Supporting details corrected."},
+        headers=resubmit_headers,
+    )
+    repeated = client.post(
+        f"/api/v1/requests/{created['id']}/resubmit",
+        json={"version": returned.json()["version"], "note": "Supporting details corrected."},
+        headers=resubmit_headers,
+    )
+    assert resubmitted.status_code == 200 and resubmitted.json()["status"] == "submitted"
+    assert repeated.status_code == 200 and repeated.json()["version"] == resubmitted.json()["version"]
+
+    cancelled = client.post(
+        f"/api/v1/requests/{created['id']}/cancel",
+        json={"version": resubmitted.json()["version"], "note": "Request is no longer needed."},
+        headers=requestor_headers,
+    )
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.manager@payment.local")
+    reopened = client.post(
+        f"/api/v1/requests/{created['id']}/reopen",
+        json={"version": cancelled.json()["version"], "note": "Reopened after requestor confirmation."},
+        headers=finance_headers,
+    )
+    assert reopened.status_code == 200 and reopened.json()["status"] == "draft"
+    history = client.get(f"/api/v1/requests/{created['id']}/history")
+    assert history.status_code == 200
+    assert [entry["to_status"] for entry in history.json()] == [
+        "submitted",
+        "returned",
+        "submitted",
+        "cancelled",
+        "draft",
+    ]
+    assert all(entry["actor_user_id"] and entry["occurred_at"] for entry in history.json())
+
+
+def test_academic_year_numbering_boundary_and_finance_setting(client):
+    seed()
+    assert academic_year_start(datetime(2027, 6, 30, tzinfo=UTC), 7) == 2026
+    assert academic_year_start(datetime(2027, 7, 1, tzinfo=UTC), 7) == 2027
+
+    requestor_headers = login(client)
+    current = client.get("/api/v1/request-settings/numbering")
+    assert current.status_code == 200 and current.json()["reset_month"] == 7
+    denied = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=requestor_headers)
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    associate_headers = login(client, "finance.associate@payment.local")
+    denied_associate = client.put(
+        "/api/v1/request-settings/numbering",
+        json={"reset_month": 8},
+        headers=associate_headers,
+    )
+    assert denied_associate.status_code == 403
+
+    client.cookies.clear()
+    finance_headers = login(client, "finance.manager@payment.local")
+    changed = client.put("/api/v1/request-settings/numbering", json={"reset_month": 8}, headers=finance_headers)
+    assert changed.status_code == 200 and changed.json()["reset_month"] == 8
+    seed_base(include_document_requirement_rules=False)
+    assert client.get("/api/v1/request-settings/numbering").json()["reset_month"] == 8
+    restored = client.put("/api/v1/request-settings/numbering", json={"reset_month": 7}, headers=finance_headers)
+    assert restored.status_code == 200
+
+
+def test_reimbursement_batch_schedule_is_viewable_and_finance_managed(client):
+    seed()
+    requestor_headers = login(client)
+    current = client.get("/api/v1/request-settings/reimbursement-batches", headers=requestor_headers)
+    assert current.status_code == 200
+    assert current.json() == {
+        "cutoff_days": [15, 30],
+        "month_end_fallback": True,
+        "late_submission_handling": "next_batch",
+    }
+    denied = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=requestor_headers,
+    )
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    associate_headers = login(client, "finance.associate@payment.local")
+    assert client.get("/api/v1/request-settings/reimbursement-batches", headers=associate_headers).status_code == 200
+    associate_update = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=associate_headers,
+    )
+    assert associate_update.status_code == 403
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    duplicate = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [15, 15]},
+        headers=manager_headers,
+    )
+    assert duplicate.status_code == 422
+    changed = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [10, 25]},
+        headers=manager_headers,
+    )
+    assert changed.status_code == 200
+    assert changed.json()["cutoff_days"] == [10, 25]
+    assert client.get("/api/v1/request-settings/reimbursement-batches").json()["cutoff_days"] == [10, 25]
+
+    restored = client.put(
+        "/api/v1/request-settings/reimbursement-batches",
+        json={"cutoff_days": [15, 30]},
+        headers=manager_headers,
+    )
+    assert restored.status_code == 200
+
+
+def test_reimbursement_batch_date_uses_cutoffs_and_month_end_fallback():
+    assert reimbursement_batch_date(datetime(2026, 9, 15, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-15"
+    assert reimbursement_batch_date(datetime(2026, 9, 16, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-30"
+    assert reimbursement_batch_date(datetime(2026, 9, 30, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-09-30"
+    assert reimbursement_batch_date(datetime(2026, 10, 31, tzinfo=UTC).date(), [15, 30]).isoformat() == "2026-11-15"
+    assert reimbursement_batch_date(datetime(2027, 2, 16, tzinfo=UTC).date(), [15, 30]).isoformat() == "2027-02-28"
+
+
+def test_finance_request_policies_are_role_managed_audited_and_enforced(client):
+    seed()
+    defaults = {
+        "cash_advance_limit_amount": "40000.00",
+        "cash_advance_limit_currency": "PHP",
+        "cash_advance_one_outstanding": True,
+        "cash_advance_liquidation_days": 15,
+        "reimbursement_invoice_age_days": 30,
+        "reimbursement_invoice_age_action": "warning",
+    }
+    requestor_headers = login(client)
+    assert client.get("/api/v1/request-settings/finance-policies", headers=requestor_headers).json() == defaults
+    denied = client.put("/api/v1/request-settings/finance-policies", json=defaults, headers=requestor_headers)
+    assert denied.status_code == 403
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    invalid = client.put(
+        "/api/v1/request-settings/finance-policies",
+        json={**defaults, "cash_advance_liquidation_days": 0},
+        headers=manager_headers,
+    )
+    assert invalid.status_code == 422
+    configured = {
+        **defaults,
+        "cash_advance_limit_amount": "5000.00",
+        "cash_advance_one_outstanding": False,
+        "cash_advance_liquidation_days": 10,
+        "reimbursement_invoice_age_days": 1,
+        "reimbursement_invoice_age_action": "block",
+    }
+    changed = client.put("/api/v1/request-settings/finance-policies", json=configured, headers=manager_headers)
+    assert changed.status_code == 200 and changed.json() == configured
+    with SessionLocal() as db:
+        policy_audits = db.scalar(
+            select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "finance_request_policy.updated")
+        )
+        assert policy_audits >= 1
+
+    client.cookies.clear()
+    requestor_headers = login(client)
+    over_limit = payload_for_type("cashAdvance")
+    over_limit["lines"][0]["amount"] = "5000.01"
+    over_limit["type_data"]["liquidation_due_date"] = "2026-09-25"
+    created = client.post("/api/v1/requests", json=over_limit, headers=requestor_headers).json()
+    blocked_limit = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked_limit.status_code == 422 and "PHP 5,000.00" in blocked_limit.text
+
+    old_invoice = payload_for_type("reimbursement")
+    old_draft = client.post("/api/v1/requests", json=old_invoice, headers=requestor_headers).json()
+    blocked_age = client.post(
+        f"/api/v1/requests/{old_draft['id']}/submit",
+        json={"version": old_draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked_age.status_code == 422 and "configured 1-day limit" in blocked_age.text
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    warning_policy = {**configured, "reimbursement_invoice_age_action": "warning"}
+    warning_update = client.put(
+        "/api/v1/request-settings/finance-policies", json=warning_policy, headers=manager_headers
+    )
+    assert warning_update.status_code == 200
+    client.cookies.clear()
+    requestor_headers = login(client)
+    submitted_warning = client.post(
+        f"/api/v1/requests/{old_draft['id']}/submit",
+        json={"version": old_draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted_warning.status_code == 200
+    assert submitted_warning.json()["type_data"]["finance_policy_warnings"][0]["code"] == "invoice_age"
+
+    client.cookies.clear()
+    manager_headers = login(client, "finance.manager@payment.local")
+    restored = client.put("/api/v1/request-settings/finance-policies", json=defaults, headers=manager_headers)
+    assert restored.status_code == 200
+
+
+def test_cash_advance_options_only_include_current_users_submitted_advances(client):
+    seed()
+    requestor_headers = login(client)
+    before = client.get("/api/v1/requests/cash-advance-options").json()
+    draft = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=requestor_headers).json()
+    assert client.get("/api/v1/requests/cash-advance-options").json() == before
+
+    submitted = client.post(
+        f"/api/v1/requests/{draft['id']}/submit",
+        json={"version": draft["version"]},
+        headers={**requestor_headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200, submitted.text
+    options = client.get("/api/v1/requests/cash-advance-options").json()
+    assert submitted.json()["request_number"] in [option["request_number"] for option in options]
+
+    client.cookies.clear()
+    login(client, "department.head@payment.local")
+    other_user_options = client.get("/api/v1/requests/cash-advance-options").json()
+    assert submitted.json()["request_number"] not in [option["request_number"] for option in other_user_options]
+
+
+def test_all_five_request_types_pass_confirmed_submission_rules(client):
+    seed()
+    headers = login(client)
+    for request_type in ("reimbursement", "cashAdvance", "liquidation", "poPayment", "general"):
+        created = client.post("/api/v1/requests", json=payload_for_type(request_type), headers=headers)
+        assert created.status_code == 201, (request_type, created.text)
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 200, (request_type, submitted.text)
+        assert submitted.json()["status"] == "submitted"
+
+
+def test_po_submission_uses_authoritative_procurement_data_and_safe_snapshot(client):
+    seed()
+    headers = login(client)
+    created = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200, submitted.text
+    snapshot = submitted.json()["type_data"]["procurement_snapshot"]
+    assert snapshot["purchase_order"]["poNumber"] == "PO-DEMO-1001"
+    assert snapshot["purchase_order"]["paymentEligible"] is True
+    assert snapshot["vendor"]["id"] == "VEND-DEMO-001"
+    assert not any("bank" in key.casefold() for key in snapshot["vendor"])
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_field"),
+    (
+        (lambda body: body["type_data"].update({"po_reference": "PO-DEMO-1003"}), "type_data.po_reference"),
+        (lambda body: body["lines"][0].update({"amount": "88000.00"}), "gross_amount"),
+        (
+            lambda body: body.update({"currency_code": "USD", "lines": [{**body["lines"][0], "currency_code": "USD"}]}),
+            "currency_code",
+        ),
+        (lambda body: body.update({"payee_name": "Different Vendor"}), "payee_name"),
+    ),
+)
+def test_po_submission_rejects_procurement_mismatches(client, mutate, expected_field):
+    seed()
+    headers = login(client)
+    request_payload = payload_for_type("poPayment")
+    mutate(request_payload)
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+    assert created.status_code == 201, created.text
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 422
+    assert expected_field in {error["field"] for error in submitted.json()["errors"]}
+
+
+def test_po_cannot_be_submitted_twice(client):
+    seed()
+    headers = login(client)
+    first = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers).json()
+    second = client.post("/api/v1/requests", json=payload_for_type("poPayment"), headers=headers).json()
+    first_submit = client.post(
+        f"/api/v1/requests/{first['id']}/submit",
+        json={"version": first["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    second_submit = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert first_submit.status_code == 200
+    assert second_submit.status_code == 422
+    assert "already linked" in second_submit.text
+
+
+def test_cash_advance_enforces_limit_due_date_and_one_outstanding_request(client):
+    seed()
+    headers = login(client)
+
+    over_limit = payload_for_type("cashAdvance")
+    over_limit["lines"][0]["amount"] = "40000.01"
+    created = client.post("/api/v1/requests", json=over_limit, headers=headers).json()
+    response = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert response.status_code == 422 and "PHP 40,000" in response.text
+
+    wrong_due_date = payload_for_type("cashAdvance")
+    wrong_due_date["type_data"]["liquidation_due_date"] = "2026-09-29"
+    created = client.post("/api/v1/requests", json=wrong_due_date, headers=headers).json()
+    response = client.post(
+        f"/api/v1/requests/{created['id']}/submit",
+        json={"version": created["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert response.status_code == 422 and "15 calendar days" in response.text
+
+    first = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    first = client.post(
+        f"/api/v1/requests/{first['id']}/submit",
+        json={"version": first["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    second = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    blocked = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert blocked.status_code == 422 and "outstanding Cash Advance" in blocked.text
+
+    liquidation = payload_for_type("liquidation")
+    liquidation["type_data"]["cash_advance_reference"] = first["request_number"]
+    liquidation["type_data"]["liquidation_advance_amount"] = "1250.50"
+    liquidation["type_data"]["liquidation_return_amount"] = "0.00"
+    liquidation_draft = client.post("/api/v1/requests", json=liquidation, headers=headers).json()
+    liquidation_submit = client.post(
+        f"/api/v1/requests/{liquidation_draft['id']}/submit",
+        json={"version": liquidation_draft["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert liquidation_submit.status_code == 200, liquidation_submit.text
+    allowed = client.post(
+        f"/api/v1/requests/{second['id']}/submit",
+        json={"version": second["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_type_specific_submission_errors_are_field_scoped(client):
+    seed()
+    headers = login(client)
+    cases = []
+    reimbursement = payload_for_type("reimbursement")
+    reimbursement["lines"][0]["attachment_refs"] = []
+    cases.append((reimbursement, "lines.0.attachment_refs"))
+    cash_advance = payload_for_type("cashAdvance")
+    cash_advance["type_data"]["accountability_acknowledged"] = False
+    cases.append((cash_advance, "type_data.accountability_acknowledged"))
+    liquidation = payload_for_type("liquidation")
+    liquidation["type_data"].pop("cash_advance_reference")
+    cases.append((liquidation, "type_data.cash_advance_reference"))
+    liquidation_return = payload_for_type("liquidation")
+    liquidation_return["type_data"]["liquidation_advance_amount"] = "3000.00"
+    liquidation_return["type_data"]["liquidation_return_amount"] = "0.00"
+    cases.append((liquidation_return, "type_data.liquidation_return_amount"))
+    po_payment = payload_for_type("poPayment")
+    po_payment["type_data"].pop("po_reference")
+    cases.append((po_payment, "type_data.po_reference"))
+    general = payload_for_type("general")
+    general["type_data"]["billing_document_refs"] = []
+    general["lines"][0]["attachment_refs"] = []
+    cases.append((general, "type_data.billing_document_refs"))
+
+    for request_payload, expected_field in cases:
+        created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+        assert created.status_code == 201
+        submitted = client.post(
+            f"/api/v1/requests/{created.json()['id']}/submit",
+            json={"version": created.json()["version"]},
+            headers={**headers, "Idempotency-Key": str(uuid4())},
+        )
+        assert submitted.status_code == 422
+        assert expected_field in {error["field"] for error in submitted.json()["errors"]}
+
+
+def test_general_payment_uses_complete_breakdown_rows_without_request_level_particulars(client):
+    seed()
+    headers = login(client)
+    complete = payload_for_type("general")
+    complete["purpose"] = ""
+    created = client.post("/api/v1/requests", json=complete, headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 200
+
+    incomplete = payload_for_type("general")
+    incomplete["purpose"] = ""
+    incomplete["lines"][0].update({"particulars": "", "chart_account_id": None, "cost_center_id": None})
+    created = client.post("/api/v1/requests", json=incomplete, headers=headers)
+    assert created.status_code == 201
+    submitted = client.post(
+        f"/api/v1/requests/{created.json()['id']}/submit",
+        json={"version": created.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert submitted.status_code == 422
+    fields = {error["field"] for error in submitted.json()["errors"]}
+    assert {"lines.0.particulars", "lines.0.chart_account_id", "lines.0.cost_center_id"} <= fields
+
+
+def test_line_totals_reconcile_with_exact_four_decimal_precision(client):
+    seed()
+    headers = login(client)
+    request_payload = payload()
+    second_line = dict(request_payload["lines"][0])
+    request_payload["lines"][0]["amount"] = "10.0050"
+    second_line.update({"invoice_number": f"INV-{uuid4()}", "amount": "0.0050"})
+    request_payload["lines"].append(second_line)
+
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert created.status_code == 201
+    assert created.json()["gross_amount"] == 10.01
+    assert sum(Decimal(str(line["amount"])) for line in created.json()["lines"]) == Decimal("10.010")
+    with SessionLocal() as db:
+        stored_total = db.scalar(select(PaymentRequest.gross_amount).where(PaymentRequest.id == created.json()["id"]))
+        stored_line_total = db.scalar(
+            select(func.sum(PaymentRequestLine.amount)).where(PaymentRequestLine.request_id == created.json()["id"])
+        )
+    assert stored_total == Decimal("10.0100")
+    assert stored_line_total == stored_total
+
+
+def test_amounts_beyond_supported_precision_are_rejected(client):
+    seed()
+    headers = login(client)
+    request_payload = payload()
+    request_payload["lines"][0]["amount"] = "1.00001"
+
+    response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+
+    assert response.status_code == 422
+
+
+def _concurrent_request(barrier: Barrier, method: str, path: str, *, json: dict, idempotency_key: str | None = None):
+    with TestClient(app) as concurrent_client:
+        headers = login(concurrent_client)
+        if idempotency_key:
+            headers["Idempotency-Key"] = idempotency_key
+        barrier.wait()
+        return concurrent_client.request(method, path, json=json, headers=headers)
+
+
+def test_simultaneous_edits_allow_exactly_one_version_to_commit(client):
+    seed()
+    headers = login(client)
+    draft = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    changes = []
+    for purpose in ("Concurrent edit A", "Concurrent edit B"):
+        changed = payload()
+        changed.update({"version": draft["version"], "purpose": purpose})
+        changes.append(changed)
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(
+            pool.map(
+                lambda changed: _concurrent_request(barrier, "PATCH", f"/api/v1/requests/{draft['id']}", json=changed),
+                changes,
+            )
+        )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    assert next(response for response in responses if response.status_code == 200).json()["version"] == 2
+
+
+def test_duplicate_submission_race_is_idempotent(client):
+    seed()
+    headers = login(client)
+    draft = client.post("/api/v1/requests", json=payload(), headers=headers).json()
+    idempotency_key = str(uuid4())
+    barrier = Barrier(2)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(
+                _concurrent_request,
+                barrier,
+                "POST",
+                f"/api/v1/requests/{draft['id']}/submit",
+                json={"version": draft["version"]},
+                idempotency_key=idempotency_key,
+            )
+            for _ in range(2)
+        ]
+        responses = [future.result() for future in futures]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert len({response.json()["request_number"] for response in responses}) == 1
+    assert len({response.json()["version"] for response in responses}) == 1
+
+
+def test_concurrent_submissions_receive_unique_sequential_numbers(client):
+    seed()
+    headers = login(client)
+    drafts = [client.post("/api/v1/requests", json=payload(), headers=headers).json() for _ in range(6)]
+    barrier = Barrier(len(drafts))
+
+    with ThreadPoolExecutor(max_workers=len(drafts)) as pool:
+        futures = [
+            pool.submit(
+                _concurrent_request,
+                barrier,
+                "POST",
+                f"/api/v1/requests/{draft['id']}/submit",
+                json={"version": draft["version"]},
+                idempotency_key=str(uuid4()),
+            )
+            for draft in drafts
+        ]
+        responses = [future.result() for future in futures]
+
+    assert all(response.status_code == 200 for response in responses)
+    sequence_values = sorted(int(response.json()["request_number"].rsplit("-", 1)[1]) for response in responses)
+    assert len(set(sequence_values)) == len(drafts)
+    assert sequence_values == list(range(sequence_values[0], sequence_values[0] + len(drafts)))
+
+
+def test_large_request_list_is_bounded_paginated_and_query_efficient(client):
+    seed()
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        department_id = db.scalar(select(Department.id).where(Department.code == "MKTG"))
+        baseline = db.scalar(
+            select(func.count()).select_from(PaymentRequest).where(PaymentRequest.requestor_id == requestor.id)
+        )
+        records = [
+            PaymentRequest(
+                request_type="reimbursement",
+                requestor_id=requestor.id,
+                department_id=department_id,
+                payee_name="Pagination Vendor",
+                purpose=f"Pagination performance fixture {index:03d}",
+                currency_code="PHP",
+                gross_amount=Decimal("1.0000"),
+                type_data={},
+            )
+            for index in range(130)
+        ]
+        db.add_all(records)
+        db.flush()
+        db.add_all(
+            PaymentRequestLine(
+                request_id=record.id,
+                position=1,
+                vendor_name="Pagination Vendor",
+                particulars="Performance fixture",
+                amount=Decimal("1.0000"),
+                currency_code="PHP",
+                attachment_refs=[],
+            )
+            for record in records
+        )
+
+    headers = login(client)
+    query_count = 0
+
+    def count_query(*_args):
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(engine, "before_cursor_execute", count_query)
+    started_at = perf_counter()
+    try:
+        first_page = client.get("/api/v1/requests?page=1&page_size=50", headers=headers)
+        second_page = client.get("/api/v1/requests?page=2&page_size=50", headers=headers)
+    finally:
+        elapsed = perf_counter() - started_at
+        event.remove(engine, "before_cursor_execute", count_query)
+
+    assert first_page.status_code == 200 and second_page.status_code == 200
+    assert len(first_page.json()) == len(second_page.json()) == 50
+    assert first_page.headers["X-Total-Count"] == str(baseline + 130)
+    assert first_page.headers["X-Page"] == "1" and second_page.headers["X-Page"] == "2"
+    assert {item["id"] for item in first_page.json()}.isdisjoint(item["id"] for item in second_page.json())
+    # Authentication, permission resolution, pagination metadata, the page,
+    # and three batched relationship queries remain constant as rows grow.
+    assert query_count <= 24
+    assert elapsed < 3.0
+
+
+def test_request_list_search_filters_sorting_and_amount_bounds(client):
+    seed()
+    headers = login(client)
+    created = []
+    for request_type, payee, amount in (
+        ("reimbursement", "Alpha Search Merchant", "1250.50"),
+        ("general", "Beta Utility Provider", "500.00"),
+        ("poPayment", "Gamma Approved Supplier", "2500.00"),
+    ):
+        request_payload = payload_for_type(request_type)
+        request_payload["payee_name"] = payee
+        request_payload["lines"][0]["amount"] = amount
+        response = client.post("/api/v1/requests", json=request_payload, headers=headers)
+        assert response.status_code == 201
+        created.append(response.json())
+
+    searched = client.get("/api/v1/requests?search=Alpha%20Search", headers=headers)
+    assert searched.status_code == 200
+    assert [item["payee_name"] for item in searched.json()] == ["Alpha Search Merchant"]
+
+    filtered = client.get(
+        "/api/v1/requests?request_type=poPayment&status=draft&department=MKTG&min_amount=2000&max_amount=3000",
+        headers=headers,
+    )
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()] == [created[2]["id"]]
+    assert filtered.headers["X-Total-Count"] == "1"
+
+    sorted_response = client.get(
+        "/api/v1/requests?min_amount=500&sort_by=amount&sort_direction=asc",
+        headers=headers,
+    )
+    amounts = [item["gross_amount"] for item in sorted_response.json() if item["id"] in {row["id"] for row in created}]
+    assert amounts == sorted(amounts)
+    assert client.get("/api/v1/requests?min_amount=10&max_amount=1", headers=headers).status_code == 422
+
+
+@pytest.mark.parametrize("currency", ["PHP", "USD", "EUR"])
+def test_supported_currency_line_totals_reconcile(currency, client):
+    seed()
+    headers = login(client)
+    request_payload = payload(currency)
+    request_payload["lines"][0]["amount"] = "0.0001"
+    created = client.post("/api/v1/requests", json=request_payload, headers=headers)
+    assert created.status_code == 201
+    assert created.json()["currency_code"] == currency
+    with SessionLocal() as db:
+        assert db.get(PaymentRequest, created.json()["id"]).gross_amount == Decimal("0.0001")
+
+
+def test_zero_negative_and_maximum_amount_boundaries(client):
+    seed()
+    headers = login(client)
+    zero = payload()
+    zero["lines"][0]["amount"] = "0.0000"
+    zero_draft = client.post("/api/v1/requests", json=zero, headers=headers)
+    assert zero_draft.status_code == 201
+    zero_submit = client.post(
+        f"/api/v1/requests/{zero_draft.json()['id']}/submit",
+        json={"version": zero_draft.json()["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    )
+    assert zero_submit.status_code == 422
+
+    negative = payload()
+    negative["lines"][0]["amount"] = "-0.0001"
+    assert client.post("/api/v1/requests", json=negative, headers=headers).status_code == 422
+
+    maximum = payload()
+    maximum["lines"][0]["amount"] = "999999999999999.9999"
+    assert client.post("/api/v1/requests", json=maximum, headers=headers).status_code == 201
+
+
+def test_manager_scope_explicit_deny_privileged_audit_and_unauthorized_lifecycle(client):
+    seed()
+    requestor_headers = login(client)
+    created = client.post("/api/v1/requests", json=payload(), headers=requestor_headers).json()
+    denied_return = client.post(
+        f"/api/v1/requests/{created['id']}/return",
+        json={"version": created["version"], "note": "Not authorized"},
+        headers=requestor_headers,
+    )
+    assert denied_return.status_code == 403
+
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        manager = db.scalar(select(User).where(User.email == "department.head@payment.local"))
+        operations = db.scalar(select(Department).where(Department.code == "OPS"))
+        original_department, original_manager = requestor.department_id, requestor.manager_id
+        requestor.department_id = operations.id
+        requestor.manager_id = manager.id
+        item = db.get(PaymentRequest, created["id"])
+        item.department_id = operations.id
+
+    client.cookies.clear()
+    manager_headers = login(client, "department.head@payment.local")
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=manager_headers).status_code == 200
+
+    client.cookies.clear()
+    admin_headers = login(client, "admin@payment.local")
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=admin_headers).status_code == 200
+    with SessionLocal.begin() as db:
+        admin = db.scalar(select(User).where(User.email == "admin@payment.local"))
+        read_all = db.scalar(select(Permission).where(Permission.code == "requests.read_all"))
+        assert db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.actor_user_id == admin.id,
+                AuditEvent.entity_id == created["id"],
+                AuditEvent.action == "payment_request.privileged_read",
+            )
+        )
+        db.add(UserPermissionOverride(user_id=admin.id, permission_id=read_all.id, is_allowed=False))
+
+    assert client.get(f"/api/v1/requests/{created['id']}", headers=admin_headers).status_code == 404
+
+    with SessionLocal.begin() as db:
+        requestor = db.scalar(select(User).where(User.email == "requestor@payment.local"))
+        requestor.department_id, requestor.manager_id = original_department, original_manager
+        db.query(UserPermissionOverride).filter(UserPermissionOverride.user_id == admin.id).delete()
+
+
+def test_request_settings_editor_can_be_assigned_and_revoked(client):
+    from payment_module.models import UserRole
+    from payment_module.seed import stable_id
+
+    seed()
+    headers = login(client, "finance.associate@payment.local")
+    url = "/api/v1/request-settings/numbering"
+    original = client.get(url).json()["reset_month"]
+    payload = {"reset_month": original}
+    assert client.put(url, json=payload, headers=headers).status_code == 403
+    assignment_id = uuid4()
+    try:
+        with SessionLocal.begin() as db:
+            db.add(
+                UserRole(
+                    id=assignment_id,
+                    user_id=stable_id("user", "finance.associate@payment.local"),
+                    role_id=stable_id("role", "request_settings_editor"),
+                )
+            )
+        assert client.put(url, json=payload, headers=headers).status_code == 200
+    finally:
+        with SessionLocal.begin() as db:
+            assignment = db.get(UserRole, assignment_id)
+            if assignment:
+                db.delete(assignment)
+    assert client.put(url, json=payload, headers=headers).status_code == 403

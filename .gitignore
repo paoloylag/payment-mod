@@ -1,6 +1,14 @@
-node_modules/
-dist/
+/.venv/
+/node_modules/
+/dist/
+/api/
+
+# Local worktrees, caches and generated evidence
+.worktrees/
+.pnpm-store/
+outputs/
+output/
+tmp/
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
-

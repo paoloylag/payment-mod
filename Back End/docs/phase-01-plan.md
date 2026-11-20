@@ -1,0 +1,113 @@
+# Phase 01 — Authentication and RBAC plan
+
+Date: 2026-08-26
+Branch: `codex/backend-integration`
+Status: Validated for local development
+Reviewed implementation commit: `44e876e`
+
+## Local closeout — 2026-10-07
+
+The current identity and RBAC implementation passed a browser-first walkthrough for Requestor, Department Head,
+Finance Associate, Finance Manager, and System Administrator, followed by the complete 99-test PostgreSQL regression,
+reversible migration replay, deterministic seed, Ruff, dependency audits, and the production frontend build. The
+development/test register records the current evidence. Hosted identity, proxy, and production accessibility checks
+remain Phase 09 production-readiness work and do not block this local validation.
+
+## Confirmed decisions
+
+- Local email/password authentication is permanent and must remain available after LifeOS SAML is introduced.
+- Browser authentication uses database-backed, revocable sessions with HTTP-only cookies and CSRF protection.
+- Sessions have a one-hour inactivity timeout and an eight-hour absolute lifetime.
+- Logout revokes the current session. Suspension or deactivation revokes every active session for that user.
+- A user initially has one primary department; the authorization design may be extended for additional department access.
+- Explicit user permission denials take precedence over role permission grants.
+- System Administrators may manage users, roles, permission overrides, activation, suspension, and departments, but may not edit audit records.
+- Initial departments are DT, Operations, Marketing, Finance, Academics, and P&C. New departments can be added through an audited API and administration page.
+- The frontend retains `mock`, `hybrid`, and `api` data-source modes, but API is the default and mock/hybrid require explicit development-only activation.
+- Identity-related frontend additions are developed on this branch and must be reviewed before synchronization to `codex/frontend-only-prototype`.
+
+## Delivery slices
+
+### 01A — Identity persistence
+
+- Migration `20260825_0002` for departments, users, roles, permissions, role grants, overrides, sessions, and audit events.
+- Deterministic UUIDs for reference identities and access-control records.
+- Reversible upgrade/downgrade and repeatable seed behavior.
+
+### 01B — Local authentication and sessions
+
+- Salted scrypt password hashing.
+- Login, logout, and current-session endpoints.
+- HTTP-only session cookie, separate CSRF token, server-side revocation, idle expiry, and absolute expiry.
+- Inactive and suspended account rejection.
+- Local authentication remains an independent provider when SAML is added later.
+- Automated tests remove only the sessions they create. A disabled-by-default maintenance command can remove invalid
+  sessions after 30 days in local/test environments and hard-refuses staging and production.
+
+### 01C — Authorization and administration
+
+- Current-user and permission dependencies for protected endpoints.
+- Initial nine-role catalog and stable permission catalog.
+- User listing/creation/update, role replacement, permission overrides, role listing, and department listing/creation.
+- Server-side enforcement remains authoritative; frontend visibility is not an authorization control.
+
+### 01D — Audit controls
+
+- Append-only events for department creation and user, role, permission, activation, and suspension changes.
+- Actor, entity, before/after values, request ID, and Philippine-time database timestamp.
+- No ordinary update or delete route for audit events.
+
+### 01E — Frontend identity pages
+
+- Login and session-restoration page.
+- Authenticated user chip and logout action.
+- Role-driven navigation and unauthorized states.
+- User Administration page.
+- Roles & Permissions page.
+- Departments page with future department creation.
+- Preserve explicitly invoked standalone mock and hybrid developer modes; production builds reject both.
+
+## Current verification
+
+- Ruff: passed.
+- Backend suite: 28 passed; 90.59% statement coverage (85% required) against the isolated
+  `payment_module_test` PostgreSQL database.
+- Migration downgrade/replay: passed against PostgreSQL 16.
+- Deterministic identity seed: passed.
+- Live Docker login, session, six-department listing, and logout: passed.
+- Vite 7.3.6 production build: passed.
+- Login page DOM, visual layout, and console: passed.
+- Session cleanup dry run, active-session preservation, batching, audit event, test teardown, and production refusal:
+  passed.
+- Authenticated administration walkthrough, list/menu/modal alignment, and desktop horizontal-overflow audit: passed.
+- Reviewed release archive generated from the exact implementation commit: `payment-module-phase-01-44e876e.zip`.
+- Release archive SHA-256: `62391B98303C4AD9AE8732C896B77DC2F5CDDDFA0A58F43FE4B2E40E678B0952`.
+- Concurrent logins, fresh cookie issuance, multi-session suspension revocation, and restart continuity: passed.
+- Cleanup of 2,005 expired sessions in 500-row batches while retaining an active session: passed.
+- PostgreSQL custom-format backup/restore with migration and sampled table-count comparison: passed.
+- Bandit API static scan: passed with zero findings across 1,269 lines of code.
+- Integrated frontend build and Vite-proxy login/logout smoke test on port 5176: passed; port 5175 was not used.
+- `pip-audit` and `pnpm audit`: passed with no known vulnerabilities after dependency remediation.
+- Interactive administration, responsive/modal containment, accessible labels, standalone Chrome rendering, and
+  console-error checks: passed.
+- Finance-filtered Excel download: passed; Summary and Transactions sheets contained two Finance rows totaling
+  PHP 113,850 with no workbook formula errors.
+
+## Accepted limitations and follow-up validation
+
+- Observe and record GitHub CI for the evidence commit. Local Docker packaging and restart continuity pass after
+  rebuilding the local image from the remediated source.
+- Firefox and Safari are not installed on the Windows validation host. Complete those browser checks, penetration
+  testing, and production proxy/HTTPS validation before production promotion.
+- Phase 01 development items, 36 repeatable test scripts/executions, and eight acceptance gates are
+  recorded in `outputs/development-test-register/APS-Development-and-Test-Register-Phase-01.xlsx`.
+
+Phase 01 is locally validated with the external browser and production-environment checks above recorded as accepted
+limitations. No automatic staging or production deployment is enabled, and retained-session cleanup hard-refuses both
+environments.
+
+On 2026-09-23, the current Docker image and PostgreSQL 16 stack revalidated login, authenticated session continuity
+across an application-container restart, logout/revocation, the full identity regression, cleanup protections, and a
+logical backup/restore. The full current backend suite passed 60 tests. Production proxy/HTTPS, penetration testing,
+Firefox, Safari, LifeOS SAML, and full accessibility remain non-local gates; see
+`docs/local-docker-acceptance-2026-09-23.md`.

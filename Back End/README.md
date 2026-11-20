@@ -1,0 +1,152 @@
+# Automated Payment System
+
+A persistent payment workflow application with a Vite frontend and FastAPI/PostgreSQL backend. It supports requests, approvals, Finance validation/accounting, vouchers, release/clearing, recovery, reporting and role-aware help.
+
+Start with [current system status](docs/current-system-status.md), [Finance acceptance](docs/finance-acceptance-demo.md) and the [guide builder](docs/guide-builder.md). Dated phase records preserve historical evidence.
+
+Live prototype: [https://paoloylag.github.io/payment-mod/](https://paoloylag.github.io/payment-mod/)
+
+## Frontend checks
+
+Run `pnpm test:unit` for the Node-based frontend unit suite and `pnpm build` for compilation/bundling. Tests cover tracker behavior, prompt validation/state, mention boundaries, display labels and API error handling. CI runs the same unit command on pull requests and main/staging/codex branch pushes. Real-browser workflow checks remain under `pnpm test:e2e:isolated`; unit tests do not establish CSS, focus or authorization behavior.
+
+## Open locally
+
+Use the backend integration checkout with its API running (see Docker instructions below), then start Vite:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+A bare static HTTP server is not an API-backed acceptance environment. The separate GitHub Pages prototype is not evidence of backend operation.
+
+Normal development and every production build use the API data source. Sample data is available only through explicit
+developer commands:
+
+```bash
+pnpm dev:mock
+pnpm dev:hybrid
+```
+
+`dev:mock` runs entirely on sample data. `dev:hybrid` is a developer troubleshooting mode that may substitute sample
+read data when the API is unavailable. Production builds reject both modes, and an ordinary `pnpm dev` session never
+falls back to mock records.
+
+Create and preview a production build with:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Publish with GitHub Pages
+
+The repository publishes through the GitHub Actions Pages workflow when updates reach `main`. Deployment status is available in the repository's **Actions** and **Deployments** views.
+
+Repository: [https://github.com/paoloylag/payment-mod](https://github.com/paoloylag/payment-mod)
+
+## Local backend development
+
+Docker Compose is the required local environment. It starts PostgreSQL, applies all migrations, runs the deterministic
+foundation seed, and then starts the FastAPI service:
+
+```bash
+docker compose up --build
+```
+
+The API is available at `http://127.0.0.1:8002`. Use `/healthz` for process liveness, `/readyz` for database readiness,
+and `/api/v1/system/status` for the prototype's backend indicator. Stop the environment with `docker compose down`.
+Use `docker compose down -v` only when intentionally discarding the local database volume.
+
+### Development/test session cleanup
+
+Automated tests remove only the authentication sessions they create. Set `TEST_DATABASE_URL` to route the suite to a
+dedicated test database; when it is present, it replaces `DATABASE_URL` before the application is imported.
+
+Old invalid sessions can be previewed and removed locally after the 30-day retention window:
+
+```bash
+docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_module.maintenance cleanup-sessions --dry-run
+docker compose run --rm -e SESSION_CLEANUP_ENABLED=true app python -m payment_module.maintenance cleanup-sessions
+```
+
+Archive request drafts older than the confirmed 90-day retention period only after reviewing the dry run:
+
+```powershell
+docker compose run --rm -e DRAFT_ARCHIVAL_ENABLED=true app python -m payment_module.maintenance archive-drafts --dry-run
+docker compose run --rm -e DRAFT_ARCHIVAL_ENABLED=true app python -m payment_module.maintenance archive-drafts
+```
+
+Draft archival is disabled by default, retains the request and its audit history, and is safe to schedule in production
+only after operations enables the setting. The Phase 03 API contract is documented in `docs/phase-03-api.md`.
+
+The command is disabled by default and hard-refuses `APP_ENV=staging` and `APP_ENV=production`. It is intentionally not
+scheduled by the API or Docker Compose, so enabling local cleanup cannot introduce a production background job.
+
+CI runs linting, migrations, deterministic seeding, migration rollback/replay, backend tests, and a Docker image build
+for pushes to `codex/backend-integration` and `main`, and for pull requests that affect the backend. The image is
+packaged as a workflow artifact; deployment remains intentionally gated until a target environment is confirmed.
+
+## Project structure
+
+- `index.html` loads the static browser prototype.
+- `src/prototype.js` is the runtime used by the deployed static preview.
+- `src/App.jsx` contains the synchronized React implementation.
+- `src/styles.css` contains the shared screen, theme, component, and print styling.
+- `src/responsive.css` contains the final mobile, half-desktop, drawer-navigation, and desktop layout rules.
+- `docs/database-design.md` defines the proposed PostgreSQL schema, workflow records, audit requirements, and Philippine Time timestamp policy.
+- `docs/database-design-readable.md` explains the proposed database and workflow in plain language.
+- `.github/workflows/pages.yml` defines the GitHub Pages deployment.
+
+## Covered workflow
+
+- Payment request creation for reimbursement, liquidation, cash advance, P.O. payment, and general payment requests.
+- A request-type landing page that protects form input from accidental type switching, plus a dedicated My Drafts workspace with seeded examples for every request type.
+- Draft saving, auto-save continuation, deletion, and submission to the Department Head, with the permanent request reference generated only after submission.
+- Dynamic validation previews that update from completed fields, line-item accounting details, acknowledgements, and document uploads.
+- Form structures based on the supplied LCI reimbursement, liquidation, and cash advance references.
+- Placeholder-based text inputs, calculated totals, multiple line items, and department/cost-center allocation.
+- PHP, USD, EUR, and custom currency selection with currency-aware request displays.
+- Reimbursement and liquidation breakdowns with expense account, department-to-charge, and line-level attachments.
+- Cash Advance liquidation dates calculated automatically as 15 days after the event end date.
+- P.O.-system reference selection with generated requestor, vendor, department, and amount fields.
+- Security Bank return instructions for excess cash advances and P.O.-system BIR 2303 reminders for new suppliers.
+- General Payment breakdowns without duplicate supplier fields and support for multiple billing/quotation/SOA files.
+- Type-specific validation rules and required or conditional document uploads.
+- Grouped navigation for overview, requests, processing, and records.
+- Persona-based prototype views for Requestor, Finance Associate, Finance Manager, COO, and President, with the original all-access view retained.
+- Responsive persona views with overlay drawer navigation for mobile and compact desktop windows, while retaining the full desktop sidebar layout.
+- Accessible light and dark themes with consistent card contrast, theme-aware logos and icons, and standardized single-row page headers.
+- Clickable dashboard metrics with dedicated request lists and detail views.
+- Role-scoped dashboards, navigation, request visibility, and approval queues.
+- Finance department filters with Excel-compatible CSV export and print/PDF transaction reports.
+- Aging-day indicators with overdue highlighting across live request tables.
+- Requestor editing before Document Validation and audited authorized unlocking for urgent later changes.
+- A modal full-workflow view that preserves the selected request and dashboard context.
+- Department Head, Finance Associate, Finance Manager, COO, President, and Board Member review paths.
+- Finance Associate document validation with VAT and EWT classification, copy receipt status, hard-copy reminders, accounting entries, completion date, and optional check number.
+- Philippine VAT-inclusive computation using gross / 1.12 for the net-of-VAT/EWT base, selected EWT applied to that base, and amount due calculated as gross less EWT. No EWT remains an explicit classification.
+- Business validation samples for TOJUST Construction at PHP 200,000.00 and its PHP 100,000.00 50% downpayment.
+- Standardized approval actions for consistent approver views.
+- Threshold routing for budgeted and unbudgeted payments, including Board Member approval only for unbudgeted payments above PHP 1,000,000.
+- Adaptive full-page printable payment vouchers with payment details, amount summaries, and compact digital approval certification.
+- Workflow email samples, including a backend-ready completion notification for both the requestor and vendor.
+- Standardized View Request email calls to action that open the specific request in the recipient role's approval, validation, or tracking view.
+- Separate backend-ready Request Returned and Request Declined email notifications with reviewer comments and requestor-specific links.
+- Clickable bank-approval and signatory-approval statuses with recorded actors and timestamps.
+- Backend-ready vendor processing and payment pick-up emails, including Finance personnel audit details.
+- Payment Available for Pick-up actions with automatic requestor/vendor notification records.
+- Clickable Payment Tracker rows with dedicated request and workflow details.
+- Unclaimed-check reporting and completed payment tracking.
+
+## Prototype scope
+
+The frontend can still demonstrate workflow behavior with explicitly enabled development sample data. The normal
+application uses the FastAPI service for authentication, persistent PostgreSQL records, and MinIO-backed local document
+storage. Report exports run in the browser, while email contracts remain templates for later delivery integration. No
+banking connection is planned; any release-bank information is documentary only.
+
+## Staff guides
+
+Open **System Guide** for role-filtered procedures, **Download HTML** or **Print / Save PDF**. Run `pnpm guides:build` to generate portable all-role and role-specific LIFE College guides in outputs/. Procedures share src/guide-data.js; see [maintenance instructions](docs/guide-builder.md).

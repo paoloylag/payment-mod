@@ -1,0 +1,1583 @@
+from calendar import monthrange
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+from typing import Literal
+from uuid import UUID
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from sqlalchemy import String, and_, func, or_, select, text
+from sqlalchemy.orm import Session
+
+from ..audit import audit
+from ..config import get_settings
+from ..cost_center_approvals import department_participant, routing_approver
+from ..database import get_db
+from ..finance_configuration import active_configuration, apply_payload, apply_submission, request_coding, save_coding
+from ..finance_readiness import effective, finance_date
+from ..models import (
+    ChartAccount,
+    CostCenter,
+    Currency,
+    Department,
+    Document,
+    DocumentRequirementRule,
+    DocumentType,
+    PaymentInstruction,
+    PaymentRequest,
+    PaymentRequestLine,
+    PaymentRequestStatusHistory,
+    PaymentRequestVersion,
+    PettyCashVoucher,
+    RequestCommand,
+    RequestSequence,
+    Role,
+    SystemSetting,
+    User,
+    UserRole,
+    WorkflowInstance,
+)
+from ..payment_execution import request_payment_summaries
+from ..procurement_adapter import get_procurement_adapter
+from ..schemas import (
+    FinanceRequestPolicyUpdate,
+    PaymentRequestCreate,
+    PaymentRequestUpdate,
+    ReimbursementBatchSettingUpdate,
+    RequestNumberingSettingUpdate,
+    RequestTransition,
+)
+from ..security import current_user
+from ..vendor_adapter import get_vendor_adapter
+from ..vendor_onboarding import pending_for_request, supplier_document_errors, sync_supplier
+from ..workflow_assignments import assignment_allows
+from ..workflow_policy import PolicyCannotRoute
+from ..workflow_service import close_workflow, start_workflow
+from ..workflow_visibility import reached_stages
+
+router = APIRouter(prefix="/api/v1/requests", tags=["payment requests"])
+settings_router = APIRouter(prefix="/api/v1/request-settings", tags=["payment request settings"])
+NUMBERING_RESET_MONTH_KEY = "requests.numbering_reset_month"
+REIMBURSEMENT_BATCH_CUTOFFS_KEY = "requests.reimbursement_batch_cutoffs"
+FINANCE_POLICY_DEFAULTS = {
+    "cash_advance_limit_amount": "40000.00",
+    "cash_advance_limit_currency": "PHP",
+    "cash_advance_one_outstanding": "true",
+    "cash_advance_liquidation_days": "15",
+    "reimbursement_invoice_age_days": "30",
+    "reimbursement_invoice_age_action": "warning",
+}
+app_settings = get_settings()
+
+
+def permissions(request: Request) -> set[str]:
+    return getattr(request.state, "permissions", set())
+
+
+def visible_query(db: Session, request: Request, actor: User):
+    codes = permissions(request)
+    query = select(PaymentRequest)
+    if "requests.read_all" in codes:
+        return query
+    visible = [PaymentRequest.requestor_id == actor.id]
+    if "vouchers.read" in codes:
+        signatory_role = db.scalar(
+            select(Role.id).join(UserRole).where(UserRole.user_id == actor.id, Role.code == "authorized_signatory")
+        )
+        if signatory_role:
+            visible.append(
+                PaymentRequest.id.in_(
+                    select(PaymentInstruction.request_id).where(PaymentInstruction.signatory_user_id == actor.id)
+                )
+            )
+    if "requests.read_department" in codes and actor.department_id:
+        mapped_requests = select(WorkflowInstance.request_id).where(
+            WorkflowInstance.route_snapshot["department_approver_id"].astext.is_not(None)
+        )
+        visible.extend(
+            (
+                and_(PaymentRequest.department_id == actor.department_id, PaymentRequest.id.not_in(mapped_requests)),
+                and_(
+                    PaymentRequest.requestor_id.in_(select(User.id).where(User.manager_id == actor.id)),
+                    PaymentRequest.id.not_in(mapped_requests),
+                ),
+            )
+        )
+    if "workflow.review" in codes:
+        role_codes = db.scalars(
+            select(Role.code).join(UserRole, UserRole.role_id == Role.id).where(UserRole.user_id == actor.id)
+        )
+        for role_code in role_codes:
+            candidate_routes = db.scalars(
+                select(WorkflowInstance).where(
+                    WorkflowInstance.route_snapshot.contains({"stages": [{"role": role_code}]})
+                )
+            ).all()
+            reached_request_ids = [
+                instance.request_id
+                for instance in candidate_routes
+                if any(stage["role"] == role_code for stage in reached_stages(db, instance))
+            ]
+            if not reached_request_ids:
+                continue
+            if role_code == "department_head":
+                scoped_ids = [
+                    instance.request_id
+                    for instance in candidate_routes
+                    if instance.request_id in reached_request_ids
+                    and department_participant(db, db.get(PaymentRequest, instance.request_id), actor, instance)
+                ]
+                visible.append(PaymentRequest.id.in_(scoped_ids))
+            else:
+                visible.append(PaymentRequest.id.in_(reached_request_ids))
+    return query.where(or_(*visible))
+
+
+def get_visible(
+    db: Session, request: Request, actor: User, request_id: UUID, *, lock_for_update: bool = False
+) -> PaymentRequest:
+    query = visible_query(db, request, actor).where(PaymentRequest.id == request_id)
+    if lock_for_update:
+        query = query.with_for_update()
+    item = db.scalar(query)
+    if not item:
+        raise HTTPException(404, "Payment request not found")
+    return item
+
+
+def serialize(
+    db: Session,
+    item: PaymentRequest,
+    *,
+    requestors: dict[UUID, User] | None = None,
+    departments: dict[UUID, Department] | None = None,
+    lines_by_request: dict[UUID, list[PaymentRequestLine]] | None = None,
+    payment_summaries: dict | None = None,
+    workflow_states: dict | None = None,
+) -> dict:
+    requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
+    department = (
+        departments.get(item.department_id) if departments is not None else db.get(Department, item.department_id)
+    )
+    lines = (
+        lines_by_request.get(item.id, [])
+        if lines_by_request is not None
+        else list(
+            db.scalars(
+                select(PaymentRequestLine)
+                .where(PaymentRequestLine.request_id == item.id)
+                .order_by(PaymentRequestLine.position)
+            )
+        )
+    )
+    draft_expires_at = item.updated_at + timedelta(days=app_settings.draft_retention_days)
+    warning_at = draft_expires_at - timedelta(days=app_settings.draft_warning_days)
+    return {
+        "id": str(item.id),
+        "request_number": item.request_number,
+        "voucher_number": item.voucher_number,
+        "payment_summary": (
+            payment_summaries if payment_summaries is not None else request_payment_summaries(db, [item.id])
+        ).get(item.id),
+        "request_type": item.request_type,
+        "status": item.status,
+        "approval_state": workflow_states.get(item.id)
+        if workflow_states is not None
+        else db.scalar(select(WorkflowInstance.state).where(WorkflowInstance.request_id == item.id)),
+        "requestor_id": str(item.requestor_id),
+        "requestor_name": requestor.display_name if requestor else "Unknown requestor",
+        "department_id": str(item.department_id),
+        "department_name": department.name if department else "Unknown department",
+        "payee_name": item.payee_name,
+        "vendor_external_id": item.vendor_external_id,
+        "purpose": item.purpose,
+        "currency_code": item.currency_code,
+        "gross_amount": float(item.gross_amount),
+        "version": item.version,
+        "type_data": item.type_data,
+        "submitted_at": item.submitted_at.isoformat() if item.submitted_at else None,
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+        "draft_expires_at": draft_expires_at.isoformat() if item.status == "draft" else None,
+        "draft_retention_warning": item.status == "draft" and datetime.now(UTC) >= warning_at,
+        "lines": [
+            {
+                "id": str(line.id),
+                "position": line.position,
+                "invoice_date": line.invoice_date.isoformat() if line.invoice_date else None,
+                "invoice_number": line.invoice_number,
+                "vendor_name": line.vendor_name,
+                "particulars": line.particulars,
+                "chart_account_id": str(line.chart_account_id) if line.chart_account_id else None,
+                "cost_center_id": str(line.cost_center_id) if line.cost_center_id else None,
+                "amount": float(line.amount),
+                "currency_code": line.currency_code,
+                "attachment_refs": line.attachment_refs,
+            }
+            for line in lines
+        ],
+    }
+
+
+def serialize_many(
+    db: Session,
+    items: list[PaymentRequest],
+    workflow_states: dict | None = None,
+    workflow_records: dict | None = None,
+) -> list[dict]:
+    if not items:
+        return []
+    payment_summaries = request_payment_summaries(db, [item.id for item in items])
+    requestor_ids = {item.requestor_id for item in items}
+    department_ids = {item.department_id for item in items}
+    request_ids = {item.id for item in items}
+    workflows = (
+        workflow_records
+        if workflow_records is not None
+        else {
+            row.request_id: row
+            for row in db.scalars(select(WorkflowInstance).where(WorkflowInstance.request_id.in_(request_ids)))
+        }
+    )
+    workflow_states = (
+        workflow_states
+        if workflow_states is not None
+        else {request_id: workflow.state for request_id, workflow in workflows.items()}
+    )
+    requestors = {item.id: item for item in db.scalars(select(User).where(User.id.in_(requestor_ids)))}
+    departments = {item.id: item for item in db.scalars(select(Department).where(Department.id.in_(department_ids)))}
+    lines_by_request: dict[UUID, list[PaymentRequestLine]] = {request_id: [] for request_id in request_ids}
+    for line in db.scalars(
+        select(PaymentRequestLine)
+        .where(PaymentRequestLine.request_id.in_(request_ids))
+        .order_by(PaymentRequestLine.request_id, PaymentRequestLine.position)
+    ):
+        lines_by_request[line.request_id].append(line)
+    from ..reporting import request_display
+
+    result = []
+    for item in items:
+        data = serialize(
+            db,
+            item,
+            requestors=requestors,
+            departments=departments,
+            lines_by_request=lines_by_request,
+            payment_summaries=payment_summaries,
+            workflow_states=workflow_states,
+        )
+        data.update(request_display(item, workflows.get(item.id), payment_summaries.get(item.id, {})))
+        result.append(data)
+    return result
+
+
+def validate(db: Session, payload: PaymentRequestCreate) -> Decimal:
+    if payload.request_type == "pettyCash" and payload.currency_code != "PHP":
+        raise HTTPException(422, "Petty Cash supports PHP only")
+    if payload.request_type == "general" and payload.type_data.get("general_vendor_mode") == "new":
+        payload = payload.model_copy(update={"vendor_external_id": None})
+    if payload.vendor_external_id:
+        db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
+        vendor = get_vendor_adapter(db).get(payload.vendor_external_id)
+        if not vendor or vendor["status"] != "active":
+            raise HTTPException(422, "Select an active vendor with complete information")
+        if vendor.get("source") == "procurement" and payload.request_type != "poPayment":
+            raise HTTPException(422, "Procurement vendors are available only through P.O. Payments")
+    department = db.get(Department, payload.department_id)
+    if not department or not department.is_active:
+        raise HTTPException(422, "Department does not exist or is inactive")
+    currency = db.get(Currency, payload.currency_code)
+    if not currency or not currency.is_active:
+        raise HTTPException(422, "Currency is not active")
+    if any(line.currency_code != payload.currency_code for line in payload.lines):
+        raise HTTPException(422, "Mixed currencies are not allowed within one request")
+    for index, line in enumerate(payload.lines, 1):
+        if line.chart_account_id:
+            account = db.get(ChartAccount, line.chart_account_id)
+            if not effective(account, finance_date()) or not account.is_posting:
+                raise HTTPException(422, f"Line {index}: expense account must be active, posting, and effective")
+        if line.cost_center_id:
+            center = db.get(CostCenter, line.cost_center_id)
+            if not effective(center, finance_date()) or center.department_id != payload.department_id:
+                raise HTTPException(422, f"Line {index}: cost center must be effective and belong to the department")
+    total = sum((line.amount for line in payload.lines), Decimal("0"))
+    if payload.request_type == "pettyCash" and total >= Decimal("3000"):
+        raise HTTPException(422, "Petty Cash must be below PHP 3,000")
+    return total
+
+
+def submission_validation_errors(db: Session, item: PaymentRequest) -> list[dict[str, str]]:
+    lines = list(
+        db.scalars(
+            select(PaymentRequestLine)
+            .where(PaymentRequestLine.request_id == item.id)
+            .order_by(PaymentRequestLine.position)
+        )
+    )
+    data = item.type_data or {}
+    errors: list[dict[str, str]] = []
+    if item.vendor_external_id:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id)
+        if (not vendor or vendor["status"] != "active") and not pending_for_request(db, item):
+            errors.append(
+                {"field": "vendor_external_id", "message": "Select an active vendor with complete information"}
+            )
+
+    if item.vendor_external_id:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id)
+        if vendor and vendor.get("source") == "procurement" and item.request_type != "poPayment":
+            errors.append(
+                {
+                    "field": "vendor_external_id",
+                    "message": "Procurement vendors are available only through P.O. Payments",
+                }
+            )
+
+    if (
+        item.request_type == "general"
+        and data.get("general_vendor_mode") in {"new", "existing"}
+        and not item.vendor_external_id
+    ):
+        errors.append({"field": "vendor_external_id", "message": "Select a vendor or complete the new supplier name"})
+
+    # Recheck current master data: a draft may predate a deactivation or expiry.
+    department = db.get(Department, item.department_id)
+    currency = db.get(Currency, item.currency_code)
+    if not department or not department.is_active:
+        errors.append({"field": "department_id", "message": "The request department is no longer active"})
+    if not currency or not currency.is_active:
+        errors.append({"field": "currency_code", "message": "The request currency is no longer active"})
+    today = finance_date()
+    for position, line in enumerate(lines):
+        if line.chart_account_id:
+            account = db.get(ChartAccount, line.chart_account_id)
+            if not effective(account, today) or not account.is_posting:
+                errors.append(
+                    {
+                        "field": f"lines.{position}.chart_account_id",
+                        "message": "Expense account must be active, posting, and effective",
+                    }
+                )
+        if line.cost_center_id:
+            center = db.get(CostCenter, line.cost_center_id)
+            if not effective(center, today) or center.department_id != item.department_id:
+                errors.append(
+                    {
+                        "field": f"lines.{position}.cost_center_id",
+                        "message": "Cost center must be effective and belong to the request department",
+                    }
+                )
+
+    def require(condition: object, field: str, message: str) -> None:
+        if not condition:
+            errors.append({"field": field, "message": message})
+
+    def valid_date(value: object) -> bool:
+        try:
+            date.fromisoformat(str(value))
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def decimal_value(value: object) -> Decimal:
+        try:
+            return Decimal(str(value or 0))
+        except Exception:
+            return Decimal("0")
+
+    if item.request_type in {"reimbursement", "cashAdvance", "liquidation", "pettyCash"}:
+        require(item.purpose.strip(), "purpose", "Event or payment purpose is required")
+    require(lines, "lines", "At least one line item is required")
+    require(item.gross_amount > 0, "gross_amount", "The request total must be greater than zero")
+    for position, line in enumerate(lines, 1):
+        prefix = f"lines.{position - 1}"
+        require(line.particulars.strip(), f"{prefix}.particulars", f"Line {position}: particulars are required")
+        require(line.amount > 0, f"{prefix}.amount", f"Line {position}: amount must be greater than zero")
+        require(
+            line.currency_code == item.currency_code,
+            f"{prefix}.currency_code",
+            f"Line {position}: currency must match the request",
+        )
+
+    if item.request_type == "reimbursement":
+        policy = finance_request_policy(db)
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(line.invoice_date, f"{prefix}.invoice_date", f"Line {position}: invoice date is required")
+            require(
+                line.invoice_number and line.invoice_number.strip(),
+                f"{prefix}.invoice_number",
+                f"Line {position}: invoice number is required",
+            )
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+            require(
+                line.attachment_refs, f"{prefix}.attachment_refs", f"Line {position}: invoice or receipt is required"
+            )
+            if line.invoice_date and policy["reimbursement_invoice_age_action"] == "block":
+                age = (datetime.now(ZoneInfo(app_settings.database_timezone)).date() - line.invoice_date).days
+                require(
+                    age <= policy["reimbursement_invoice_age_days"],
+                    f"{prefix}.invoice_date",
+                    "Line "
+                    f"{position}: invoice is older than the configured "
+                    f"{policy['reimbursement_invoice_age_days']}-day limit",
+                )
+    elif item.request_type == "cashAdvance":
+        policy = finance_request_policy(db)
+        event_end_date = data.get("event_end_date")
+        liquidation_due_date = data.get("liquidation_due_date")
+        require(
+            valid_date(event_end_date),
+            "type_data.event_end_date",
+            "A valid last day of the event is required",
+        )
+        require(
+            valid_date(liquidation_due_date),
+            "type_data.liquidation_due_date",
+            "A valid liquidation due date is required",
+        )
+        if valid_date(event_end_date) and valid_date(liquidation_due_date):
+            expected_due_date = date.fromisoformat(str(event_end_date)) + timedelta(
+                days=policy["cash_advance_liquidation_days"]
+            )
+            require(
+                date.fromisoformat(str(liquidation_due_date)) == expected_due_date,
+                "type_data.liquidation_due_date",
+                f"Liquidation is due exactly {policy['cash_advance_liquidation_days']} calendar days after the event",
+            )
+        if item.currency_code == policy["cash_advance_limit_currency"]:
+            require(
+                item.gross_amount <= policy["cash_advance_limit_amount"],
+                "gross_amount",
+                "Cash Advance amount cannot exceed "
+                f"{policy['cash_advance_limit_currency']} {policy['cash_advance_limit_amount']:,.2f}",
+            )
+        prior_advances = list(
+            db.scalars(
+                select(PaymentRequest).where(
+                    PaymentRequest.id != item.id,
+                    PaymentRequest.requestor_id == item.requestor_id,
+                    PaymentRequest.request_type == "cashAdvance",
+                    PaymentRequest.status == "submitted",
+                    PaymentRequest.request_number.is_not(None),
+                )
+            )
+        )
+        liquidated_references = {
+            str(candidate.type_data.get("cash_advance_reference"))
+            for candidate in db.scalars(
+                select(PaymentRequest).where(
+                    PaymentRequest.requestor_id == item.requestor_id,
+                    PaymentRequest.request_type == "liquidation",
+                    PaymentRequest.status == "submitted",
+                )
+            )
+            if candidate.type_data and candidate.type_data.get("cash_advance_reference")
+        }
+        configuration = active_configuration(db)
+        if configuration and configuration.configuration.get("scope") == "all":
+            from ..advance_settlement import settled_advance_references
+
+            liquidated_references = settled_advance_references(db, item.requestor_id)
+        outstanding = [
+            advance for advance in prior_advances if str(advance.request_number) not in liquidated_references
+        ]
+        if policy["cash_advance_one_outstanding"]:
+            require(
+                not outstanding,
+                "requestor_id",
+                "The requestor already has an outstanding Cash Advance that must be liquidated first",
+            )
+        require(
+            data.get("accountability_acknowledged") is True,
+            "type_data.accountability_acknowledged",
+            "Accountability acknowledgement is required",
+        )
+    elif item.request_type == "liquidation":
+        require(
+            data.get("cash_advance_reference"), "type_data.cash_advance_reference", "Cash Advance reference is required"
+        )
+        require(
+            valid_date(data.get("liquidation_due_date")),
+            "type_data.liquidation_due_date",
+            "A valid date to be liquidated is required",
+        )
+        require(
+            valid_date(data.get("actual_liquidation_date")),
+            "type_data.actual_liquidation_date",
+            "A valid actual liquidation date is required",
+        )
+        require(
+            decimal_value(data.get("liquidation_advance_amount")) > 0,
+            "type_data.liquidation_advance_amount",
+            "Cash Advance amount must be greater than zero",
+        )
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(line.invoice_date, f"{prefix}.invoice_date", f"Line {position}: invoice date is required")
+            require(
+                line.invoice_number and line.invoice_number.strip(),
+                f"{prefix}.invoice_number",
+                f"Line {position}: invoice number is required",
+            )
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+        if decimal_value(data.get("liquidation_advance_amount")) > item.gross_amount:
+            expected_return = decimal_value(data.get("liquidation_advance_amount")) - item.gross_amount
+            coding = request_coding(db, item)
+            configuration = active_configuration(db)
+            scope = (
+                coding.result["configuration"].get("scope")
+                if coding
+                else (configuration.configuration.get("scope") if configuration else None)
+            )
+            require(
+                (0 <= decimal_value(data.get("liquidation_return_amount")) <= expected_return)
+                if scope == "all"
+                else decimal_value(data.get("liquidation_return_amount")) == expected_return,
+                "type_data.liquidation_return_amount",
+                "Recorded offline return cannot exceed the unused advance"
+                if scope == "all"
+                else "Amount returned offline must equal the excess Cash Advance balance",
+            )
+    elif item.request_type == "poPayment":
+        po_reference = str(data.get("po_reference") or "").strip()
+        require(po_reference, "type_data.po_reference", "Approved P.O. reference is required")
+        require(item.payee_name.strip(), "payee_name", "P.O. supplier is required")
+        purchase_order = get_procurement_adapter().get(po_reference) if po_reference else None
+        require(purchase_order, "type_data.po_reference", "P.O. reference was not found in Procurement")
+        if purchase_order:
+            require(
+                purchase_order.get("paymentEligible") is True,
+                "type_data.po_reference",
+                "P.O. is not approved and eligible for payment",
+            )
+            require(
+                item.currency_code == purchase_order.get("currency"),
+                "currency_code",
+                "Request currency must match the approved P.O.",
+            )
+            require(
+                item.gross_amount == Decimal(str(purchase_order.get("amount", 0))),
+                "gross_amount",
+                "Request amount must match the approved P.O.",
+            )
+            require(
+                _normalized_match_text(item.payee_name) == _normalized_match_text(purchase_order.get("vendorName")),
+                "payee_name",
+                "Payee must match the approved P.O. vendor",
+            )
+            duplicate = next(
+                (
+                    candidate
+                    for candidate in db.scalars(
+                        select(PaymentRequest).where(
+                            PaymentRequest.id != item.id,
+                            PaymentRequest.request_type == "poPayment",
+                            PaymentRequest.status.in_(("submitted", "returned")),
+                        )
+                    )
+                    if str((candidate.type_data or {}).get("po_reference") or "").strip() == po_reference
+                ),
+                None,
+            )
+            require(
+                duplicate is None,
+                "type_data.po_reference",
+                "This P.O. is already linked to another active payment request",
+            )
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+    elif item.request_type == "general":
+        require(item.payee_name.strip(), "payee_name", "Payee or vendor is required")
+        for position, line in enumerate(lines, 1):
+            prefix = f"lines.{position - 1}"
+            require(line.vendor_name.strip(), f"{prefix}.vendor_name", f"Line {position}: merchant is required")
+            require(
+                line.chart_account_id, f"{prefix}.chart_account_id", f"Line {position}: expense account is required"
+            )
+            require(line.cost_center_id, f"{prefix}.cost_center_id", f"Line {position}: cost center is required")
+        require(
+            data.get("billing_document_refs") or any(line.attachment_refs for line in lines),
+            "type_data.billing_document_refs",
+            "Billing document or invoice is required",
+        )
+    return errors
+
+
+def ensure_submittable(db: Session, item: PaymentRequest) -> None:
+    errors = submission_validation_errors(db, item) + document_requirement_errors(db, item)
+    if errors:
+        raise HTTPException(422, detail={"message": "Request is incomplete", "errors": errors})
+
+
+def lock_submission_constraints(db: Session, item: PaymentRequest) -> None:
+    """Serialize rules whose result depends on other submitted requests."""
+    if item.vendor_external_id:
+        db.execute(text("SELECT pg_advisory_xact_lock(5176001)"))
+    if item.request_type == "poPayment":
+        reference = str((item.type_data or {}).get("po_reference") or "").strip()
+        if reference:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"po:{reference}"})
+    elif item.request_type == "cashAdvance":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"ca:{item.requestor_id}"})
+
+
+def record_procurement_snapshot(db: Session, item: PaymentRequest) -> None:
+    """Freeze safe Procurement and vendor facts used to approve a P.O. submission."""
+    if item.request_type != "poPayment":
+        return
+    data = dict(item.type_data or {})
+    reference = str(data.get("po_reference") or "").strip()
+    purchase_order = get_procurement_adapter().get(reference)
+    if not purchase_order:
+        return
+    vendor = get_vendor_adapter(db).get(str(purchase_order.get("vendorId") or ""))
+    data["procurement_snapshot"] = {
+        "captured_at": datetime.now(UTC).isoformat(),
+        "purchase_order": purchase_order,
+        "vendor": vendor,
+    }
+    item.type_data = data
+
+
+def document_requirement_errors(db: Session, item: PaymentRequest) -> list[dict]:
+    """Evaluate only active configured rules; an unconfigured request type remains non-blocking."""
+    rules = list(
+        db.scalars(
+            select(DocumentRequirementRule).where(
+                DocumentRequirementRule.request_type == item.request_type,
+                DocumentRequirementRule.is_active.is_(True),
+            )
+        )
+    )
+    supplier_errors = supplier_document_errors(db, item)
+    if not rules:
+        return supplier_errors
+    documents = list(db.scalars(select(Document).where(Document.request_id == item.id, Document.removed_at.is_(None))))
+    lines = list(db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id)))
+    errors = list(supplier_errors)
+    for rule in rules:
+        document_type = db.get(DocumentType, rule.document_type_id)
+        conditionally_required = bool(
+            item.request_type == "general"
+            and document_type
+            and document_type.code == "BIR_2303"
+            and (item.type_data or {}).get("new_supplier") is True
+        )
+        if not rule.is_required and not conditionally_required:
+            continue
+        label = document_type.name if document_type else "Required document"
+        matching = [document for document in documents if document.document_type_id == rule.document_type_id]
+        if rule.scope == "line":
+            for line in lines:
+                count = len([document for document in matching if document.line_id == line.id])
+                if count < rule.minimum_count:
+                    errors.append(
+                        {
+                            "field": f"lines.{line.position - 1}.documents",
+                            "message": f"Line {line.position}: {label} is required",
+                        }
+                    )
+        elif len([document for document in matching if document.line_id is None]) < rule.minimum_count:
+            errors.append({"field": "documents", "message": f"{label} is required"})
+    return errors
+
+
+def _normalized_invoice_reference(value: str | None) -> str:
+    return "".join((value or "").casefold().split())
+
+
+def _normalized_match_text(value: str | None) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def record_duplicate_invoice_checks(db: Session, item: PaymentRequest) -> None:
+    """Store non-blocking invoice matches for Finance review at submission time."""
+    data = dict(item.type_data or {})
+    if item.request_type not in {"reimbursement", "liquidation"}:
+        data.pop("duplicate_invoice_checks", None)
+        data.pop("duplicate_invoice_review_status", None)
+        item.type_data = data
+        return
+
+    lines = list(
+        db.scalars(
+            select(PaymentRequestLine)
+            .where(PaymentRequestLine.request_id == item.id)
+            .order_by(PaymentRequestLine.position)
+        )
+    )
+    checks: list[dict] = []
+    for line in lines:
+        reference = _normalized_invoice_reference(line.invoice_number)
+        if not reference:
+            continue
+        candidates = db.execute(
+            select(PaymentRequestLine, PaymentRequest)
+            .join(PaymentRequest, PaymentRequest.id == PaymentRequestLine.request_id)
+            .where(
+                PaymentRequestLine.request_id != item.id,
+                PaymentRequest.status.in_(("submitted", "returned", "cancelled")),
+                func.lower(func.regexp_replace(PaymentRequestLine.invoice_number, r"\s+", "", "g")) == reference,
+            )
+            .order_by(PaymentRequest.submitted_at.desc().nullslast(), PaymentRequestLine.position)
+        ).all()
+        for candidate, prior_request in candidates:
+            compared = {
+                "invoice_number": _normalized_invoice_reference(candidate.invoice_number) == reference,
+                "vendor_name": _normalized_match_text(candidate.vendor_name)
+                == _normalized_match_text(line.vendor_name),
+                "invoice_date": candidate.invoice_date == line.invoice_date,
+                "amount": candidate.amount == line.amount,
+                "currency_code": candidate.currency_code == line.currency_code,
+                "particulars": _normalized_match_text(candidate.particulars)
+                == _normalized_match_text(line.particulars),
+                "chart_account_id": candidate.chart_account_id == line.chart_account_id,
+                "cost_center_id": candidate.cost_center_id == line.cost_center_id,
+            }
+            exact = all(compared.values())
+            checks.append(
+                {
+                    "line_position": line.position,
+                    "match_level": "exact" if exact else "warning",
+                    "finance_verification_required": True,
+                    "message": (
+                        "Exact invoice match found; Finance verification is required."
+                        if exact
+                        else (
+                            "Invoice reference matches but other information differs; Finance verification is required."
+                        )
+                    ),
+                    "matched_fields": [field for field, matches in compared.items() if matches],
+                    "differing_fields": [field for field, matches in compared.items() if not matches],
+                    "prior_request_id": str(prior_request.id),
+                    "prior_request_number": prior_request.request_number,
+                    "prior_request_status": prior_request.status,
+                    "prior_line_id": str(candidate.id),
+                    "invoice_number": line.invoice_number,
+                    "prior_amount": str(candidate.amount),
+                    "prior_currency_code": candidate.currency_code,
+                }
+            )
+    data["duplicate_invoice_checks"] = checks
+    data["duplicate_invoice_review_status"] = "finance_verification_required" if checks else "no_match"
+    item.type_data = data
+
+
+def replace_lines(db: Session, item: PaymentRequest, payload: PaymentRequestCreate) -> None:
+    # One General Payment has one payee; line merchant names cannot contradict it.
+    request_vendor = None
+    if item.request_type == "general" and (item.type_data or {}).get("general_vendor_mode") in {"new", "existing"}:
+        vendor = get_vendor_adapter(db).get(item.vendor_external_id) if item.vendor_external_id else None
+        request_vendor = (
+            str((item.type_data or {}).get("general_vendor_name") or "").strip()
+            if (item.type_data or {}).get("general_vendor_mode") == "new"
+            else vendor["name"] if vendor else item.payee_name
+        )
+        item.payee_name = request_vendor
+    existing = {
+        line.id: line for line in db.scalars(select(PaymentRequestLine).where(PaymentRequestLine.request_id == item.id))
+    }
+    retained = [line.id for line in payload.lines if line.id is not None]
+    if len(retained) != len(set(retained)) or any(line_id not in existing for line_id in retained):
+        raise HTTPException(422, "Line IDs must be unique and belong to this request")
+    # Move positions aside before reordering retained rows. Their documents keep the same line ID.
+    for line in existing.values():
+        line.position = -line.position
+    db.flush()
+    for line_id, line in existing.items():
+        if line_id not in retained:
+            db.delete(line)
+    db.flush()
+    for position, line in enumerate(payload.lines, 1):
+        values = line.model_dump(exclude={"id"})
+        if request_vendor is not None:
+            values["vendor_name"] = request_vendor
+        if line.id is not None:
+            saved = existing[line.id]
+            saved.position = position
+            for key, value in values.items():
+                setattr(saved, key, value)
+        else:
+            db.add(PaymentRequestLine(request_id=item.id, position=position, **values))
+
+
+def snapshot(db: Session, item: PaymentRequest, actor: User) -> dict:
+    data = serialize(db, item)
+    db.add(PaymentRequestVersion(request_id=item.id, version=item.version, actor_user_id=actor.id, snapshot=data))
+    return data
+
+
+def system_managed_type_data(value: dict | None) -> dict:
+    """Discard legacy client-provided request dates; created_at is authoritative."""
+    data = dict(value or {})
+    data.pop("request_date", None)
+    if isinstance(data.get("fields"), dict):
+        fields = dict(data["fields"])
+        fields.pop("request_date", None)
+        data["fields"] = fields
+    return data
+
+
+@router.post("", status_code=201)
+def create_payment_request(
+    payload: PaymentRequestCreate, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    if "requests.create" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.create")
+    payload, finance_configuration = apply_payload(db, payload)
+    total = validate(db, payload)
+    values = payload.model_dump(exclude={"lines"})
+    values["type_data"] = system_managed_type_data(payload.type_data)
+    item = PaymentRequest(requestor_id=actor.id, gross_amount=total, **values)
+    db.add(item)
+    db.flush()
+    sync_supplier(db, item, actor)
+    replace_lines(db, item, payload)
+    db.flush()
+    save_coding(db, item, finance_configuration)
+    result = snapshot(db, item, actor)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="payment_request.created",
+        entity_type="payment_request",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        after=result,
+    )
+    db.commit()
+    return result
+
+
+@router.get("")
+def list_payment_requests(
+    request: Request,
+    response: Response,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=100),
+    search: str = Query(default="", max_length=200),
+    request_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    department: str | None = Query(default=None, max_length=120),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    min_amount: Decimal | None = Query(default=None, ge=0),
+    max_amount: Decimal | None = Query(default=None, ge=0),
+    sort_by: Literal["submitted", "updated", "voucher", "type", "status", "amount"] = "updated",
+    sort_direction: Literal["asc", "desc"] = "desc",
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    query = visible_query(db, request, actor)
+    if search.strip():
+        needle = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                PaymentRequest.request_number.ilike(needle),
+                PaymentRequest.voucher_number.ilike(needle),
+                PaymentRequest.payee_name.ilike(needle),
+                PaymentRequest.purpose.ilike(needle),
+            )
+        )
+    if request_type:
+        query = query.where(PaymentRequest.request_type == request_type)
+    if status:
+        query = query.where(PaymentRequest.status == status)
+    if department:
+        query = query.where(
+            PaymentRequest.department_id.in_(
+                select(Department.id).where(
+                    or_(
+                        Department.id.cast(String) == department,
+                        Department.code == department,
+                        Department.name == department,
+                    )
+                )
+            )
+        )
+    effective_date = func.coalesce(PaymentRequest.submitted_at, PaymentRequest.updated_at)
+    if date_from:
+        query = query.where(func.date(effective_date) >= date_from)
+    if date_to:
+        query = query.where(func.date(effective_date) <= date_to)
+    if min_amount is not None:
+        query = query.where(PaymentRequest.gross_amount >= min_amount)
+    if max_amount is not None:
+        query = query.where(PaymentRequest.gross_amount <= max_amount)
+    if min_amount is not None and max_amount is not None and min_amount > max_amount:
+        raise HTTPException(422, "min_amount cannot exceed max_amount")
+    sort_columns = {
+        "submitted": effective_date,
+        "updated": PaymentRequest.updated_at,
+        "voucher": PaymentRequest.voucher_number,
+        "type": PaymentRequest.request_type,
+        "status": PaymentRequest.status,
+        "amount": PaymentRequest.gross_amount,
+    }
+    sort_column = sort_columns[sort_by]
+    order = sort_column.asc().nulls_last() if sort_direction == "asc" else sort_column.desc().nulls_last()
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Page"] = str(page)
+    response.headers["X-Page-Size"] = str(page_size)
+    rows = db.execute(
+        query.add_columns(WorkflowInstance)
+        .outerjoin(WorkflowInstance, WorkflowInstance.request_id == PaymentRequest.id)
+        .order_by(order, PaymentRequest.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return serialize_many(
+        db, [row[0] for row in rows], workflow_records={row[0].id: row[1] for row in rows if row[1] is not None}
+    )
+
+
+@router.get("/cash-advance-options")
+def list_own_cash_advance_options(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    items = db.scalars(
+        select(PaymentRequest)
+        .where(
+            PaymentRequest.requestor_id == actor.id,
+            PaymentRequest.request_type == "cashAdvance",
+            PaymentRequest.request_number.is_not(None),
+            PaymentRequest.status.notin_(("draft", "declined", "cancelled", "archived")),
+        )
+        .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
+    )
+    return [
+        {
+            "request_number": item.request_number,
+            "amount": str(item.gross_amount),
+            "currency_code": item.currency_code,
+            "status": item.status,
+            "created_at": item.created_at.isoformat(),
+        }
+        for item in items
+    ]
+
+
+@router.get("/{request_id}")
+def get_payment_request(
+    request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    item = get_visible(db, request, actor, request_id)
+    result = serialize(db, item)
+    if item.requestor_id != actor.id and "requests.read_all" in permissions(request):
+        audit(
+            db,
+            actor_id=actor.id,
+            action="payment_request.privileged_read",
+            entity_type="payment_request",
+            entity_id=item.id,
+            request_id=request.state.request_id,
+            after={"status": item.status},
+        )
+        db.commit()
+    return result
+
+
+@router.get("/{request_id}/history")
+def get_payment_request_history(
+    request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    item = get_visible(db, request, actor, request_id)
+    history = db.scalars(
+        select(PaymentRequestStatusHistory)
+        .where(PaymentRequestStatusHistory.request_id == item.id)
+        .order_by(PaymentRequestStatusHistory.occurred_at, PaymentRequestStatusHistory.id)
+    )
+    return [
+        {
+            "id": str(entry.id),
+            "from_status": entry.from_status,
+            "to_status": entry.to_status,
+            "actor_user_id": str(entry.actor_user_id),
+            "note": entry.note,
+            "occurred_at": entry.occurred_at.isoformat(),
+        }
+        for entry in history
+    ]
+
+
+@router.patch("/{request_id}")
+def update_payment_request(
+    request_id: UUID,
+    payload: PaymentRequestUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    if item.requestor_id != actor.id or item.status not in {"draft", "returned"}:
+        raise HTTPException(409, "Only the owner can edit a draft or returned request")
+    if item.version != payload.version:
+        raise HTTPException(409, "This request was updated elsewhere; reload before saving")
+    payload, finance_configuration = apply_payload(db, payload)
+    total = validate(db, payload)
+    values = payload.model_dump(exclude={"lines", "version"})
+    values["type_data"] = system_managed_type_data(payload.type_data)
+    for key, value in values.items():
+        setattr(item, key, value)
+    sync_supplier(db, item, actor)
+    item.gross_amount = total
+    item.version += 1
+    replace_lines(db, item, payload)
+    db.flush()
+    save_coding(db, item, finance_configuration)
+    result = snapshot(db, item, actor)
+    db.commit()
+    return result
+
+
+@router.delete("/{request_id}", status_code=204)
+def delete_payment_request(
+    request_id: UUID, request: Request, db: Session = Depends(get_db), actor: User = Depends(current_user)
+):
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    if item.requestor_id != actor.id or item.status != "draft":
+        raise HTTPException(409, "Only the owner can delete a draft")
+    db.delete(item)
+    db.commit()
+
+
+def numbering_reset_month(db: Session) -> int:
+    setting = db.scalar(select(SystemSetting).where(SystemSetting.key == NUMBERING_RESET_MONTH_KEY))
+    try:
+        month = int(setting.value) if setting else 7
+    except (TypeError, ValueError):
+        month = 7
+    return month if 1 <= month <= 12 else 7
+
+
+def reimbursement_batch_cutoffs(db: Session) -> list[int]:
+    setting = db.scalar(select(SystemSetting).where(SystemSetting.key == REIMBURSEMENT_BATCH_CUTOFFS_KEY))
+    try:
+        values = sorted({int(value.strip()) for value in setting.value.split(",")}) if setting else [15, 30]
+    except (AttributeError, TypeError, ValueError):
+        values = [15, 30]
+    return values if values and all(1 <= value <= 31 for value in values) else [15, 30]
+
+
+def finance_request_policy(db: Session) -> dict:
+    keys = [f"requests.{name}" for name in FINANCE_POLICY_DEFAULTS]
+    stored = {
+        item.key.removeprefix("requests."): item.value
+        for item in db.scalars(select(SystemSetting).where(SystemSetting.key.in_(keys)))
+    }
+
+    def integer(name: str) -> int:
+        try:
+            return int(stored.get(name, FINANCE_POLICY_DEFAULTS[name]))
+        except (TypeError, ValueError):
+            return int(FINANCE_POLICY_DEFAULTS[name])
+
+    try:
+        limit = Decimal(stored.get("cash_advance_limit_amount", FINANCE_POLICY_DEFAULTS["cash_advance_limit_amount"]))
+    except Exception:
+        limit = Decimal(FINANCE_POLICY_DEFAULTS["cash_advance_limit_amount"])
+    action = stored.get("reimbursement_invoice_age_action", "warning")
+    return {
+        "cash_advance_limit_amount": limit,
+        "cash_advance_limit_currency": stored.get("cash_advance_limit_currency", "PHP"),
+        "cash_advance_one_outstanding": stored.get("cash_advance_one_outstanding", "true").lower() == "true",
+        "cash_advance_liquidation_days": integer("cash_advance_liquidation_days"),
+        "reimbursement_invoice_age_days": integer("reimbursement_invoice_age_days"),
+        "reimbursement_invoice_age_action": action if action in {"warning", "block", "none"} else "warning",
+    }
+
+
+def serialize_finance_request_policy(db: Session) -> dict:
+    policy = finance_request_policy(db)
+    return {**policy, "cash_advance_limit_amount": str(policy["cash_advance_limit_amount"])}
+
+
+def record_reimbursement_policy_warnings(db: Session, item: PaymentRequest) -> None:
+    if item.request_type != "reimbursement":
+        return
+    policy = finance_request_policy(db)
+    data = dict(item.type_data or {})
+    warnings = [warning for warning in data.get("finance_policy_warnings", []) if warning.get("code") != "invoice_age"]
+    if policy["reimbursement_invoice_age_action"] == "warning":
+        today = datetime.now(ZoneInfo(app_settings.database_timezone)).date()
+        for position, line in enumerate(
+            db.scalars(
+                select(PaymentRequestLine)
+                .where(PaymentRequestLine.request_id == item.id)
+                .order_by(PaymentRequestLine.position)
+            ),
+            1,
+        ):
+            if line.invoice_date and (today - line.invoice_date).days > policy["reimbursement_invoice_age_days"]:
+                warnings.append(
+                    {
+                        "code": "invoice_age",
+                        "line": position,
+                        "message": (
+                            f"Invoice is older than {policy['reimbursement_invoice_age_days']} days; "
+                            "Finance verification is required."
+                        ),
+                    }
+                )
+    data["finance_policy_warnings"] = warnings
+    item.type_data = data
+
+
+def reimbursement_batch_date(moment: date, cutoff_days: list[int]) -> date:
+    year, month = moment.year, moment.month
+    for _ in range(2):
+        last_day = monthrange(year, month)[1]
+        candidates = sorted({date(year, month, min(day, last_day)) for day in cutoff_days})
+        available = [candidate for candidate in candidates if candidate >= moment]
+        if available:
+            return available[0]
+        month = 1 if month == 12 else month + 1
+        year = year + 1 if month == 1 else year
+        moment = date(year, month, 1)
+    raise RuntimeError("Unable to calculate reimbursement batch")
+
+
+def assign_reimbursement_batch(db: Session, item: PaymentRequest) -> None:
+    if item.request_type != "reimbursement":
+        return
+    local_date = datetime.now(ZoneInfo(app_settings.database_timezone)).date()
+    batch_date = reimbursement_batch_date(local_date, reimbursement_batch_cutoffs(db))
+    item.type_data = {**(item.type_data or {}), "reimbursement_batch_date": batch_date.isoformat()}
+
+
+def academic_year_start(moment: datetime, reset_month: int) -> int:
+    return moment.year if moment.month >= reset_month else moment.year - 1
+
+
+def next_number(db: Session, *, moment: datetime | None = None) -> str:
+    year = academic_year_start(moment or datetime.now(UTC), numbering_reset_month(db))
+    # Serialize creation as well as increment of the annual counter. A row lock
+    # alone cannot protect the first request in a new academic year.
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": year})
+    sequence = db.get(RequestSequence, year, with_for_update=True)
+    if not sequence:
+        sequence = RequestSequence(year=year, last_value=0)
+        db.add(sequence)
+        db.flush()
+    sequence.last_value += 1
+    return f"PR-{year}-{sequence.last_value:06d}"
+
+
+def voucher_number_for(request_number: str) -> str:
+    """Create the immutable audit voucher reference paired to a request."""
+    return request_number.replace("PR-", "VCH-", 1)
+
+
+@settings_router.get("/numbering")
+def get_numbering_setting(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    reset_month = numbering_reset_month(db)
+    start_year = academic_year_start(datetime.now(UTC), reset_month)
+    return {
+        "reset_month": reset_month,
+        "current_academic_year": f"{start_year}-{start_year + 1}",
+        "number_preview": f"PR-{start_year}-000001",
+    }
+
+
+@settings_router.put("/numbering")
+def update_numbering_setting(
+    payload: RequestNumberingSettingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    item = db.scalar(select(SystemSetting).where(SystemSetting.key == NUMBERING_RESET_MONTH_KEY))
+    before = {"reset_month": numbering_reset_month(db)}
+    if item is None:
+        item = SystemSetting(key=NUMBERING_RESET_MONTH_KEY, value=str(payload.reset_month))
+        db.add(item)
+        db.flush()
+    else:
+        item.value = str(payload.reset_month)
+    after = {"reset_month": payload.reset_month}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="request_numbering.updated",
+        entity_type="system_setting",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
+@settings_router.get("/reimbursement-batches")
+def get_reimbursement_batch_setting(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    return {
+        "cutoff_days": reimbursement_batch_cutoffs(db),
+        "month_end_fallback": True,
+        "late_submission_handling": "next_batch",
+    }
+
+
+@settings_router.put("/reimbursement-batches")
+def update_reimbursement_batch_setting(
+    payload: ReimbursementBatchSettingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    cutoff_days = sorted(set(payload.cutoff_days))
+    if len(cutoff_days) != len(payload.cutoff_days) or any(day < 1 or day > 31 for day in cutoff_days):
+        raise HTTPException(422, "Cutoff days must be unique calendar days from 1 through 31")
+    item = db.scalar(select(SystemSetting).where(SystemSetting.key == REIMBURSEMENT_BATCH_CUTOFFS_KEY))
+    before = {"cutoff_days": reimbursement_batch_cutoffs(db)}
+    value = ",".join(str(day) for day in cutoff_days)
+    if item is None:
+        item = SystemSetting(key=REIMBURSEMENT_BATCH_CUTOFFS_KEY, value=value)
+        db.add(item)
+        db.flush()
+    else:
+        item.value = value
+    after = {"cutoff_days": cutoff_days, "month_end_fallback": True, "late_submission_handling": "next_batch"}
+    audit(
+        db,
+        actor_id=actor.id,
+        action="reimbursement_batch_settings.updated",
+        entity_type="system_setting",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
+@settings_router.get("/finance-policies")
+def get_finance_request_policy(db: Session = Depends(get_db), actor: User = Depends(current_user)):
+    return serialize_finance_request_policy(db)
+
+
+@settings_router.put("/finance-policies")
+def update_finance_request_policy(
+    payload: FinanceRequestPolicyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.numbering.manage" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.numbering.manage")
+    before = serialize_finance_request_policy(db)
+    values = payload.model_dump()
+    values["cash_advance_limit_amount"] = str(values["cash_advance_limit_amount"])
+    for name, value in values.items():
+        key = f"requests.{name}"
+        item = db.scalar(select(SystemSetting).where(SystemSetting.key == key))
+        stored_value = str(value).lower() if isinstance(value, bool) else str(value)
+        if item is None:
+            item = SystemSetting(key=key, value=stored_value)
+            db.add(item)
+        else:
+            item.value = stored_value
+    db.flush()
+    after = serialize_finance_request_policy(db)
+    audit(
+        db,
+        actor_id=actor.id,
+        action="finance_request_policy.updated",
+        entity_type="system_setting",
+        entity_id=None,
+        request_id=request.state.request_id,
+        before=before,
+        after=after,
+    )
+    db.commit()
+    return after
+
+
+@router.post("/{request_id}/submit")
+def submit_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "submit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    # Another transaction may have completed this command while this request
+    # waited for the row lock.
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "submit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
+    if item.requestor_id != actor.id or item.status not in {"draft", "returned"}:
+        raise HTTPException(409, "Request cannot be submitted")
+    if item.version != payload.version:
+        raise HTTPException(409, "This request was updated elsewhere; reload before submitting")
+    lock_submission_constraints(db, item)
+    finance_configuration = apply_submission(db, item)
+    ensure_submittable(db, item)
+    assign_reimbursement_batch(db, item)
+    record_reimbursement_policy_warnings(db, item)
+    record_procurement_snapshot(db, item)
+    record_duplicate_invoice_checks(db, item)
+    previous = item.status
+    item.status = "submitted"
+    item.submitted_at = datetime.now(UTC)
+    item.request_number = item.request_number or next_number(db)
+    if item.request_type != "pettyCash":
+        item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
+    item.version += 1
+    db.flush()
+    save_coding(db, item, finance_configuration)
+    try:
+        routing_approver(db, item, required=True)
+        start_workflow(db, item, actor.id)
+    except PolicyCannotRoute as error:
+        raise HTTPException(422, str(error)) from error
+    db.add(
+        PaymentRequestStatusHistory(
+            request_id=item.id, from_status=previous, to_status=item.status, actor_user_id=actor.id, note=payload.note
+        )
+    )
+    result = snapshot(db, item, actor)
+    db.add(
+        RequestCommand(
+            request_id=item.id, actor_user_id=actor.id, action="submit", idempotency_key=idempotency_key, result=result
+        )
+    )
+    db.commit()
+    return result
+
+
+@router.post("/{request_id}/return")
+def return_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.manage_lifecycle" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.manage_lifecycle")
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    workflow = db.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id).with_for_update())
+    is_department_head = (
+        db.scalar(
+            select(UserRole.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == actor.id, Role.code == "department_head")
+        )
+        is not None
+    )
+    if workflow and (
+        workflow.state != "active"
+        or workflow.current_stage != 0
+        or not department_participant(db, item, actor, workflow)
+        or not assignment_allows(db, item, actor)
+        or not is_department_head
+        or actor.id == item.requestor_id
+    ):
+        raise HTTPException(409, "Only the current Department Head stage can return this request")
+    if item.status != "submitted" or item.version != payload.version or not payload.note.strip():
+        raise HTTPException(409, "Submitted request and a return note are required")
+    item.status = "returned"
+    item.version += 1
+    close_workflow(db, item, actor.id, "returned", payload.note.strip())
+    db.add(
+        PaymentRequestStatusHistory(
+            request_id=item.id, from_status="submitted", to_status="returned", actor_user_id=actor.id, note=payload.note
+        )
+    )
+    db.flush()
+    result = snapshot(db, item, actor)
+    db.commit()
+    return result
+
+
+def lifecycle_change(
+    db: Session,
+    *,
+    item: PaymentRequest,
+    actor: User,
+    target_status: str,
+    note: str,
+    request: Request,
+    commit: bool = True,
+) -> dict:
+    previous = item.status
+    if target_status == "cancelled":
+        close_workflow(db, item, actor.id, "cancelled")
+    item.status = target_status
+    item.version += 1
+    if target_status == "cancelled":
+        item.cancelled_at = datetime.now(UTC)
+    elif previous == "cancelled":
+        item.cancelled_at = None
+    if target_status == "submitted":
+        item.submitted_at = datetime.now(UTC)
+        item.request_number = item.request_number or next_number(db)
+        if item.request_type != "pettyCash":
+            item.voucher_number = item.voucher_number or voucher_number_for(item.request_number)
+    db.add(
+        PaymentRequestStatusHistory(
+            request_id=item.id,
+            from_status=previous,
+            to_status=target_status,
+            actor_user_id=actor.id,
+            note=note,
+        )
+    )
+    db.flush()
+    result = snapshot(db, item, actor)
+    audit(
+        db,
+        actor_id=actor.id,
+        action=f"payment_request.{target_status}",
+        entity_type="payment_request",
+        entity_id=item.id,
+        request_id=request.state.request_id,
+        before={"status": previous},
+        after={"status": target_status, "version": item.version},
+    )
+    if commit:
+        db.commit()
+    return result
+
+
+@router.post("/{request_id}/cancel")
+def cancel_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    from ..finance_accounting import latest_journal
+
+    if db.scalar(select(PettyCashVoucher.id).where(PettyCashVoucher.request_id == item.id)):
+        raise HTTPException(409, "A request with an issued Petty Cash voucher cannot be cancelled")
+    journal = latest_journal(db, item.id)
+    if journal and journal.state == "posted":
+        raise HTTPException(409, "Posted accounting must be reversed before cancelling this request")
+    allowed = item.requestor_id == actor.id or "requests.manage_lifecycle" in permissions(request)
+    if not allowed or item.status not in {"draft", "submitted", "returned"}:
+        raise HTTPException(409, "Request cannot be cancelled by this user or from its current status")
+    if item.version != payload.version:
+        raise HTTPException(409, "This request was updated elsewhere; reload before cancelling")
+    if item.status != "draft" and not payload.note.strip():
+        raise HTTPException(422, "A cancellation reason is required after submission")
+    return lifecycle_change(db, item=item, actor=actor, target_status="cancelled", note=payload.note, request=request)
+
+
+@router.post("/{request_id}/reopen")
+def reopen_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    if "requests.manage_lifecycle" not in permissions(request):
+        raise HTTPException(403, "Permission required: requests.manage_lifecycle")
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    from ..finance_accounting import latest_journal
+
+    journal = latest_journal(db, item.id)
+    if journal and journal.state in {"posted", "reversed"}:
+        raise HTTPException(
+            409, "A request with posted or reversed accounting cannot be reopened; create a new request"
+        )
+    if item.status != "cancelled" or item.version != payload.version or not payload.note.strip():
+        raise HTTPException(409, "Only a cancelled request can be reopened with the current version and a reason")
+    return lifecycle_change(db, item=item, actor=actor, target_status="draft", note=payload.note, request=request)
+
+
+@router.post("/{request_id}/resubmit")
+def resubmit_payment_request(
+    request_id: UUID,
+    payload: RequestTransition,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    actor: User = Depends(current_user),
+):
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "resubmit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
+    item = get_visible(db, request, actor, request_id, lock_for_update=True)
+    existing = db.scalar(
+        select(RequestCommand).where(
+            RequestCommand.actor_user_id == actor.id,
+            RequestCommand.action == "resubmit",
+            RequestCommand.idempotency_key == idempotency_key,
+        )
+    )
+    if existing:
+        return existing.result
+    if item.requestor_id != actor.id or item.status != "returned" or item.version != payload.version:
+        raise HTTPException(409, "Only the owner can resubmit a returned request at its current version")
+    if not payload.note.strip():
+        raise HTTPException(422, "A resubmission note is required")
+    lock_submission_constraints(db, item)
+    ensure_submittable(db, item)
+    assign_reimbursement_batch(db, item)
+    record_reimbursement_policy_warnings(db, item)
+    record_procurement_snapshot(db, item)
+    record_duplicate_invoice_checks(db, item)
+    result = lifecycle_change(
+        db, item=item, actor=actor, target_status="submitted", note=payload.note, request=request, commit=False
+    )
+    try:
+        routing_approver(db, item, required=True)
+        start_workflow(db, item, actor.id)
+    except PolicyCannotRoute as error:
+        raise HTTPException(422, str(error)) from error
+    db.add(
+        RequestCommand(
+            request_id=item.id,
+            actor_user_id=actor.id,
+            action="resubmit",
+            idempotency_key=idempotency_key,
+            result=result,
+        )
+    )
+    db.commit()
+    return result

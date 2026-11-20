@@ -1,8 +1,11 @@
-name: Publish prototype to GitHub Pages
+name: Publish stable prototype
 
 on:
   push:
     branches: ["main"]
+    paths:
+      - "Back End/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -20,8 +23,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Back End"
     steps:
-      - name: Checkout
+      - name: Checkout stable prototype
         uses: actions/checkout@v4
 
       - name: Set up pnpm
@@ -34,20 +40,23 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: "Back End/pnpm-lock.yaml"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build prototype
-        run: pnpm run build
+        run: |
+          pnpm exec tsc -b
+          pnpm exec vite build --base=/payment-mod/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload built prototype
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload built application
+        uses: actions/upload-pages-artifact@v4
         with:
-          path: "dist"
+          path: "Back End/dist"
 
       - name: Deploy to GitHub Pages
         id: deployment

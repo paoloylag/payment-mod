@@ -1,0 +1,73 @@
+{
+  "name": "automated-payment-system-prototype",
+  "version": "0.7.0",
+  "description": "Responsive, role-aware payment workflow prototype with draft requests, live validation previews, routed approvals, document review, reporting, tracking, and accessible light and dark themes.",
+  "private": true,
+  "type": "module",
+  "homepage": "https://paoloylag.github.io/payment-mod/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paoloylag/payment-mod.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paoloylag/payment-mod/issues"
+  },
+  "keywords": [
+    "payment-workflow",
+    "accounts-payable",
+    "approval-routing",
+    "document-validation",
+    "persona-views",
+    "department-reports",
+    "multi-currency",
+    "aging-tracking",
+    "email-templates",
+    "role-aware-email-links",
+    "returned-request-emails",
+    "declined-request-emails",
+    "bank-payment-release",
+    "signatory-authorization",
+    "vendor-notifications",
+    "payment-pickup-tracking",
+    "po-system-lookup",
+    "automatic-liquidation-date",
+    "line-item-attachments",
+    "cash-return-instructions",
+    "draft-requests",
+    "dynamic-validation",
+    "responsive-navigation",
+    "dark-mode",
+    "mobile-first",
+    "react",
+    "vite"
+  ],
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5175",
+    "dev:mock": "vite --mode mock --host 127.0.0.1 --port 5175",
+    "dev:hybrid": "vite --mode hybrid --host 127.0.0.1 --port 5175",
+    "api": "uvicorn payment_module.main:app --app-dir api --host 127.0.0.1 --port 8002 --reload",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4175",
+    "dev:e2e": "vite --host 127.0.0.1 --port 5178",
+    "test:e2e": "playwright test",
+    "test:e2e:isolated": "node tests/e2e/run-isolated.js",
+    "test:e2e:headed": "playwright test --headed",
+    "guides:build": "node scripts/build-guides.mjs",
+    "test:unit": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "lucide-react": "0.468.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "5.0.0",
+    "typescript": "^5.7.2",
+    "vite": "7.3.6"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

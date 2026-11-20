@@ -1,0 +1,94 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+from .config import get_settings
+from .errors import install_exception_handlers
+from .logging import configure_logging
+from .middleware import RequestContextMiddleware
+from .routers.auth import router as auth_router
+from .routers.conversation import router as conversation_router
+from .routers.dashboard import router as dashboard_router
+from .routers.documents import router as documents_router
+from .routers.finance_accounting import router as finance_accounting_router
+from .routers.finance_operations import router as finance_operations_router
+from .routers.finance_setup import router as finance_setup_router
+from .routers.finance_tax import router as finance_tax_router
+from .routers.finance_validation import router as finance_validation_router
+from .routers.finance_vouchers import router as finance_vouchers_router
+from .routers.financial_reports import router as financial_reports_router
+from .routers.fund_returns import router as fund_returns_router
+from .routers.identity import router as identity_router
+from .routers.master_data import router as master_data_router
+from .routers.notifications import router as notifications_router
+from .routers.payment_execution import router as payment_execution_router
+from .routers.petty_cash_vouchers import router as petty_cash_vouchers_router
+from .routers.reports import router as reports_router
+from .routers.requests import router as requests_router
+from .routers.requests import settings_router as request_settings_router
+from .routers.system import router as system_router
+from .routers.workflow import router as workflow_router
+from .routers.workflow_exceptions import router as workflow_exceptions_router
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    configure_logging(settings.log_level)
+    yield
+
+
+def create_app() -> FastAPI:
+    application = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+        docs_url="/docs" if settings.app_env in {"local", "test"} else None,
+        redoc_url="/redoc" if settings.app_env in {"local", "test"} else None,
+        openapi_url=f"{settings.api_prefix}/openapi.json" if settings.app_env in {"local", "test"} else None,
+    )
+    application.add_middleware(RequestContextMiddleware)
+    application.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[host.strip() for host in settings.trusted_hosts.split(",") if host.strip()],
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID", "X-Total-Count", "X-Page", "X-Page-Size"],
+    )
+    install_exception_handlers(application)
+    application.include_router(system_router)
+    application.include_router(auth_router)
+    application.include_router(identity_router)
+    application.include_router(master_data_router)
+    application.include_router(documents_router)
+    application.include_router(finance_validation_router)
+    application.include_router(finance_setup_router)
+    application.include_router(finance_tax_router)
+    application.include_router(finance_accounting_router)
+    application.include_router(finance_operations_router)
+    application.include_router(finance_vouchers_router)
+    application.include_router(petty_cash_vouchers_router)
+    application.include_router(payment_execution_router)
+    application.include_router(fund_returns_router)
+    application.include_router(requests_router)
+    application.include_router(reports_router)
+    application.include_router(dashboard_router)
+    application.include_router(financial_reports_router)
+    application.include_router(conversation_router)
+    application.include_router(notifications_router)
+    application.include_router(request_settings_router)
+    application.include_router(workflow_router)
+    application.include_router(workflow_exceptions_router)
+    return application
+
+
+app = create_app()

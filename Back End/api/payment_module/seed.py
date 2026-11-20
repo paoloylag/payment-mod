@@ -1,0 +1,1142 @@
+import json
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+from uuid import NAMESPACE_URL, uuid5
+
+from sqlalchemy import select
+
+from .config import get_settings
+from .database import SessionLocal
+from .models import (
+    ChartAccount,
+    CostCenter,
+    Currency,
+    Department,
+    DocumentRequirementRule,
+    DocumentType,
+    FinanceConfiguration,
+    PaymentMethod,
+    PaymentRequest,
+    PaymentRequestLine,
+    Permission,
+    RequestConversationMessage,
+    RequestMentionNotification,
+    Role,
+    RolePermission,
+    SystemSetting,
+    TaxCode,
+    User,
+    UserRole,
+    VendorRecord,
+    WorkflowEvent,
+    WorkflowInstance,
+)
+from .security import hash_password
+from .workflow_service import start_workflow
+
+DEMO_REQUEST_PREFIXES = {
+    "reimbursement": "RMB",
+    "cashAdvance": "CA",
+    "liquidation": "LIQ",
+    "poPayment": "PO",
+    "general": "GEN",
+}
+
+SEED_SETTINGS = {
+    "application.name": "Automated Payment System",
+    "application.timezone": "Asia/Manila",
+    "application.phase": "0",
+    "data_source.default": "hybrid",
+    "requests.numbering_reset_month": "7",
+    "requests.reimbursement_batch_cutoffs": "15,30",
+    "requests.cash_advance_limit_amount": "40000.00",
+    "requests.cash_advance_limit_currency": "PHP",
+    "requests.cash_advance_one_outstanding": "true",
+    "requests.cash_advance_liquidation_days": "15",
+    "requests.reimbursement_invoice_age_days": "30",
+    "requests.reimbursement_invoice_age_action": "warning",
+}
+
+DEPARTMENTS = {
+    "OCP": "Office of the College President",
+    "PNC": "People & Culture",
+    "OOG": "Office of Growth",
+    "DT": "Technology / Digital Transformation",
+    "ACAD": "Academics / Residential Campus",
+    "OPS": "Operations",
+    "FIN": "Finance",
+    "MKTG": "Marketing",
+}
+DEPARTMENT_CODE_ALIASES = {
+    "P&C": "PNC",
+    "ACADEMICS": "ACAD",
+    "OPERATIONS": "OPS",
+    "FINANCE": "FIN",
+    "MARKETING": "MKTG",
+}
+ROLES = {
+    "requestor": "Requestor",
+    "department_head": "Department Head",
+    "finance_associate": "Finance Associate",
+    "request_settings_editor": "Request Settings Editor",
+    "finance_manager": "Finance Manager",
+    "coo": "COO",
+    "president": "President",
+    "board_member": "Board Member",
+    "authorized_signatory": "Authorized Signatory",
+    "system_administrator": "System Administrator",
+}
+PERMISSIONS = {
+    "session.read": "Read the current authenticated session",
+    "departments.read": "List departments",
+    "departments.manage": "Create and maintain departments",
+    "users.read": "List users",
+    "users.manage": "Create, activate, suspend, and update users",
+    "roles.read": "List roles",
+    "roles.assign": "Assign roles to users",
+    "permissions.assign": "Assign explicit user permission overrides",
+    "master_data.read": "Read active master data",
+    "master_data.manage": "Create and maintain master data",
+    "vendors.read": "Search external vendor reference data",
+    "vendors.manage": "Create, edit, deactivate and delete vendor records",
+    "procurement.read": "Read eligible purchase orders from Procurement",
+    "accounts.read": "Read the chart of accounts",
+    "accounts.manage": "Create and maintain the chart of accounts",
+    "requests.create": "Create and maintain owned payment request drafts",
+    "requests.read_own": "Read owned payment requests",
+    "requests.read_department": "Read payment requests for the user's department",
+    "requests.read_all": "Read all payment requests",
+    "requests.manage_lifecycle": "Return and administer submitted payment requests",
+    "requests.numbering.manage": "Configure payment request numbering and reimbursement schedules",
+    "documents.read": "Read document metadata and authorized content",
+    "documents.manage_own": "Upload and replace documents on owned editable requests",
+    "documents.review": "Record document review and hard-copy tracking decisions",
+    "documents.rules.manage": "Configure required-document rules",
+    "documents.cleanup": "Retry protected document object cleanup",
+    "workflow.review": "Review an assigned approval stage",
+    "workflow.exceptions.manage": "Manage eligible assignments and controlled workflow recovery",
+    "vouchers.read": "Read reached vouchers and assigned payment instructions",
+    "vouchers.issue": "Issue and certify approved payment vouchers",
+    "vouchers.void": "Void vouchers and reverse their posted accounting",
+    "vouchers.replace": "Link voided vouchers to independently approved replacements",
+    "payments.prepare": "Prepare a recorded payment instruction and assign its signatory",
+    "payments.authorize": "Authorize an assigned payment instruction",
+    "payments.release": "Record authorized payment release and supporting evidence",
+    "payments.clear": "Confirm payment clearing with supporting evidence",
+    "payments.exceptions": "Record failed or voided unreleased payment lines",
+}
+ROLE_PERMISSIONS = {code: {"session.read", "departments.read", "roles.read"} for code in ROLES}
+for role_code in ROLES:
+    ROLE_PERMISSIONS[role_code].add("documents.read")
+for role_code in ("department_head", "finance_associate", "finance_manager", "coo", "president", "board_member"):
+    ROLE_PERMISSIONS[role_code].add("workflow.review")
+ROLE_PERMISSIONS["system_administrator"] = set(PERMISSIONS)
+ROLE_PERMISSIONS["finance_associate"].add("vendors.manage")
+ROLE_PERMISSIONS["finance_manager"] |= {
+    "vendors.manage",
+    "workflow.exceptions.manage",
+    "master_data.read",
+    "master_data.manage",
+    "vendors.read",
+    "procurement.read",
+    "accounts.read",
+    "accounts.manage",
+    "requests.read_all",
+    "requests.manage_lifecycle",
+    "requests.numbering.manage",
+    "documents.review",
+    "documents.rules.manage",
+}
+ROLE_PERMISSIONS["request_settings_editor"] = {"requests.numbering.manage"}
+ROLE_PERMISSIONS["finance_manager"] |= {"vouchers.read", "vouchers.issue", "vouchers.void", "vouchers.replace"}
+ROLE_PERMISSIONS["finance_associate"] |= {"vouchers.read", "payments.prepare"}
+ROLE_PERMISSIONS["authorized_signatory"] |= {"vouchers.read", "payments.authorize"}
+ROLE_PERMISSIONS["finance_associate"].add("payments.release")
+ROLE_PERMISSIONS["finance_manager"] |= {"payments.clear", "payments.exceptions"}
+ROLE_PERMISSIONS["finance_associate"] |= {
+    "master_data.read",
+    "vendors.read",
+    "procurement.read",
+    "accounts.read",
+    "requests.read_all",
+    "requests.manage_lifecycle",
+    "documents.review",
+}
+for role_code in ("requestor", "department_head", "coo", "president", "board_member", "authorized_signatory"):
+    ROLE_PERMISSIONS[role_code] |= {"master_data.read", "vendors.read", "procurement.read", "accounts.read"}
+ROLE_PERMISSIONS["requestor"] |= {"requests.create", "requests.read_own"}
+ROLE_PERMISSIONS["requestor"].add("documents.manage_own")
+ROLE_PERMISSIONS["department_head"] |= {
+    "requests.create",
+    "requests.read_own",
+    "requests.read_department",
+    "requests.manage_lifecycle",
+}
+ROLE_PERMISSIONS["department_head"].add("documents.manage_own")
+ROLE_PERMISSIONS["system_administrator"] |= {
+    "requests.create",
+    "requests.read_own",
+    "requests.read_department",
+    "requests.read_all",
+    "requests.manage_lifecycle",
+}
+ROLE_PERMISSIONS["system_administrator"].add("documents.manage_own")
+DEMO_USERS = [
+    ("requestor", "requestor@payment.local", "Mara Reyes", "MKTG"),
+    ("department_head", "department.head@payment.local", "Elena Cruz", "MKTG"),
+    ("finance_associate", "finance.associate@payment.local", "Nina Santos", "FIN"),
+    ("finance_manager", "finance.manager@payment.local", "Carlo Mendoza", "FIN"),
+    ("coo", "coo@payment.local", "Adrian Lim", "OPS"),
+    ("president", "president@payment.local", "Isabel Navarro", "DT"),
+    ("board_member", "board.member@payment.local", "Rafael Villanueva", "DT"),
+    ("authorized_signatory", "signatory@payment.local", "Sofia Bautista", "FIN"),
+    ("system_administrator", "admin@payment.local", "Daniel Torres", "DT"),
+]
+LEGACY_DEMO_NAMES = {
+    "requestor": "Development Requestor",
+    "department_head": "Development Department Head",
+    "finance_associate": "Development Finance Associate",
+    "finance_manager": "Development Finance Manager",
+    "coo": "Development COO",
+    "president": "Development President",
+    "board_member": "Development Board Member",
+    "authorized_signatory": "Development Authorized Signatory",
+    "system_administrator": "Development System Administrator",
+}
+
+DOCUMENT_TYPES = (
+    ("INVOICE", "Invoice", ["reimbursement", "poPayment", "general", "pettyCash"], "soft"),
+    ("BILLING_SOA", "Billing / Quotation / SOA", ["poPayment", "general", "pettyCash"], "soft"),
+    ("PROOF_PAYMENT", "Proof of Payment", ["reimbursement"], "soft"),
+    ("BIR_2303", "BIR 2303", ["poPayment", "general", "pettyCash"], "soft"),
+    ("RECEIPT", "Official Receipt", ["reimbursement", "liquidation"], "soft"),
+    ("APPROVED_PO", "Approved Purchase Order", ["poPayment"], "soft"),
+    ("CASH_ADVANCE_FORM", "Cash Advance Form", ["cashAdvance", "liquidation"], "both"),
+    ("DELIVERY_RECEIPT", "Delivery Receipt", ["poPayment"], "soft"),
+    ("BUSINESS_PERMIT", "Business Permit", ["poPayment", "general"], "soft"),
+    ("BUSINESS_REGISTRATION", "Business registration (SEC/DTI)", ["general"], "soft"),
+)
+
+DOCUMENT_REQUIREMENT_RULES = (
+    ("reimbursement", "PROOF_PAYMENT", "line", True, "Required for every reimbursement line"),
+    ("poPayment", "BIR_2303", "request", False, "If new supplier"),
+    ("poPayment", "BILLING_SOA", "request", True, None),
+    ("poPayment", "INVOICE", "request", False, "If available"),
+    ("poPayment", "DELIVERY_RECEIPT", "request", False, "If applicable"),
+    ("poPayment", "BUSINESS_PERMIT", "request", False, "If new supplier"),
+    ("general", "BIR_2303", "request", False, "If new supplier"),
+    ("general", "BILLING_SOA", "request", True, None),
+    ("general", "INVOICE", "request", False, "If available"),
+)
+
+DEMO_ACCOUNTS = (
+    ("6100", "Office Supplies", "Routine office and operating supplies"),
+    ("6200", "Travel and Transportation", "Business travel and local transportation"),
+    ("6300", "Professional Services", "External professional and contracted services"),
+    ("6400", "Technology Equipment", "Computers, peripherals, and technology equipment"),
+    ("6500", "Events and Training", "Events, training, and staff development"),
+)
+
+DEMO_FINANCE_ACCOUNTS = (
+    ("1160", "Input VAT", "Recoverable input VAT", "asset", "debit"),
+    ("1200", "Employee Cash Advances", "Outstanding employee cash advances", "asset", "debit"),
+    ("2100", "Accounts Payable", "Approved vendor and employee payables", "liability", "credit"),
+    ("2150", "EWT Payable", "Expanded withholding tax payable", "liability", "credit"),
+)
+
+DEMO_TAX_CODES = (
+    ("VAT12-EWT2", "VAT 12% / EWT 2%", "VAT", Decimal("12"), "EWT services", Decimal("2")),
+    ("VAT12-EWT1", "VAT 12% / EWT 1%", "VAT", Decimal("12"), "EWT goods", Decimal("1")),
+    ("NONVAT", "Non-VAT", "Non-VAT", Decimal("0"), "No EWT", Decimal("0")),
+)
+
+DEMO_REQUESTS = (
+    (
+        "DEMO-DRAFT-001",
+        "reimbursement",
+        "draft",
+        1,
+        "Draft Request",
+        "Marketing event materials",
+        "Sample Event Supplier",
+        "12500.00",
+        True,
+    ),
+    (
+        "DEMO-RET-001",
+        "reimbursement",
+        "returned",
+        2,
+        "Returned for Information",
+        "Leadership workshop reimbursement",
+        "Sample Training Center",
+        "18450.00",
+        True,
+    ),
+    (
+        "DEMO-DEPT-001",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Monthly utilities",
+        "Sample City Utilities",
+        "22500.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-001",
+        "reimbursement",
+        "submitted",
+        4,
+        "Document Validation",
+        "Staff conference reimbursement",
+        "Sample Hotel",
+        "84350.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-001",
+        "poPayment",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Laptop replacement",
+        "Sample BrightTech Supply",
+        "90000.00",
+        True,
+    ),
+    (
+        "DEMO-COO-001",
+        "general",
+        "submitted",
+        7,
+        "COO Approval",
+        "Campus facilities repair",
+        "Sample BuildWorks",
+        "248900.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-001",
+        "general",
+        "submitted",
+        8,
+        "President Approval",
+        "Learning platform renewal",
+        "Sample CloudWorks",
+        "329500.00",
+        True,
+    ),
+    (
+        "DEMO-BOARD-001",
+        "poPayment",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "Campus infrastructure project",
+        "Sample Enterprise Systems",
+        "1250000.00",
+        False,
+    ),
+    (
+        "DEMO-VCH-001",
+        "reimbursement",
+        "submitted",
+        9,
+        "Voucher Creation",
+        "Training travel reimbursement",
+        "Sample Travel Desk",
+        "72300.00",
+        True,
+    ),
+    (
+        "DEMO-PROC-001",
+        "general",
+        "submitted",
+        10,
+        "Payment Processing",
+        "Facilities maintenance",
+        "Sample Metro Repairs",
+        "66200.00",
+        True,
+    ),
+    (
+        "DEMO-SIGN-001",
+        "poPayment",
+        "submitted",
+        11,
+        "Signatory Authorization",
+        "Office furniture acquisition",
+        "Sample Office Systems",
+        "141750.00",
+        True,
+    ),
+    (
+        "DEMO-NOTIFY-001",
+        "poPayment",
+        "submitted",
+        12,
+        "Vendor Notification",
+        "Department equipment",
+        "Sample Multi-Vendor Order",
+        "287500.00",
+        True,
+    ),
+    (
+        "DEMO-RELEASE-001",
+        "reimbursement",
+        "submitted",
+        13,
+        "Payment Release",
+        "Legal conference expenses",
+        "Sample Travel Desk",
+        "30750.00",
+        True,
+    ),
+    (
+        "DEMO-TRACK-001",
+        "cashAdvance",
+        "submitted",
+        14,
+        "Payment Tracker",
+        "Academic outreach event",
+        "Internal Cash Advance",
+        "39000.00",
+        True,
+    ),
+    (
+        "DEMO-DONE-001",
+        "general",
+        "archived",
+        15,
+        "Completed",
+        "Completed software subscription",
+        "Sample Software Vendor",
+        "101250.00",
+        True,
+    ),
+)
+
+
+# Append to preserve the request numbers of existing development samples.
+DEMO_REQUESTS += (
+    (
+        "DEMO-DEPT-002",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Marketing campaign print materials",
+        "Sample Print Studio",
+        "16200.00",
+        True,
+    ),
+    (
+        "DEMO-DEPT-003",
+        "general",
+        "submitted",
+        3,
+        "Department Approval",
+        "Department event supplies",
+        "Sample Event Supplier",
+        "28750.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-002",
+        "reimbursement",
+        "submitted",
+        4,
+        "Document Validation",
+        "Field team travel reimbursement",
+        "Sample Travel Desk",
+        "35640.00",
+        True,
+    ),
+    (
+        "DEMO-DOC-003",
+        "general",
+        "submitted",
+        4,
+        "Document Validation",
+        "Office maintenance supplies",
+        "Sample Office Systems",
+        "42800.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-002",
+        "general",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Staff training venue",
+        "Sample Training Center",
+        "76000.00",
+        True,
+    ),
+    (
+        "DEMO-FIN-003",
+        "poPayment",
+        "submitted",
+        5,
+        "Finance Budget Review",
+        "Department computer peripherals",
+        "Sample BrightTech Supply",
+        "138500.00",
+        True,
+    ),
+    (
+        "DEMO-COO-002",
+        "general",
+        "submitted",
+        7,
+        "COO Approval",
+        "Campus safety improvements",
+        "Sample BuildWorks",
+        "275000.00",
+        True,
+    ),
+    (
+        "DEMO-COO-003",
+        "poPayment",
+        "submitted",
+        7,
+        "COO Approval",
+        "Classroom equipment replacement",
+        "Sample Office Systems",
+        "185000.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-002",
+        "general",
+        "submitted",
+        8,
+        "President Approval",
+        "Student services platform",
+        "Sample CloudWorks",
+        "410000.00",
+        True,
+    ),
+    (
+        "DEMO-PRES-003",
+        "poPayment",
+        "submitted",
+        8,
+        "President Approval",
+        "Campus network upgrade",
+        "Sample Enterprise Systems",
+        "620000.00",
+        True,
+    ),
+    (
+        "DEMO-BOARD-002",
+        "general",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "New learning center fit-out",
+        "Sample BuildWorks",
+        "1450000.00",
+        False,
+    ),
+    (
+        "DEMO-BOARD-003",
+        "poPayment",
+        "submitted",
+        8.5,
+        "Board Approval",
+        "Multi-campus equipment project",
+        "Sample Enterprise Systems",
+        "2100000.00",
+        False,
+    ),
+)
+
+DEMO_APPROVAL_STAGES = {3: 0, 4: 1, 5: 2, 7: 3, 8: 3, 8.5: 5}
+DEMO_REVIEW_NOTES = {
+    3: ("Please confirm the department cost center.", "Confirmed; this will be charged to Marketing."),
+    4: ("Is the supporting invoice attached?", "Yes, the invoice is attached to the request."),
+    5: ("Please confirm the budget source.", "Finance confirmed the approved department budget."),
+    7: ("Does the requested timing affect operations?", "Finance confirmed the proposed payment schedule."),
+    8: ("Please clarify the expected benefit.", "The request supports the approved campus plan."),
+    8.5: ("Can Finance confirm the project milestones?", "Finance confirmed the milestone schedule and amounts."),
+}
+
+
+def stable_id(kind: str, code: str):
+    return uuid5(NAMESPACE_URL, f"payment-module:{kind}:{code}")
+
+
+def seed_local_finance_setup(session, user_ids=None) -> None:
+    """Activate complete development defaults without replacing an existing Finance policy."""
+    if session.scalar(select(FinanceConfiguration.id).limit(1)) is not None:
+        return
+
+    from .finance_configuration import reference
+    from .finance_tax import tax_details
+
+    tax = session.get(TaxCode, stable_id("tax-code", "VAT12-EWT2"))
+    expense = session.get(ChartAccount, stable_id("chart-account", "6100"))
+    input_vat = session.get(ChartAccount, stable_id("chart-account", "1160"))
+    advance = session.get(ChartAccount, stable_id("chart-account", "1200"))
+    payable = session.get(ChartAccount, stable_id("chart-account", "2100"))
+    ewt_payable = session.get(ChartAccount, stable_id("chart-account", "2150"))
+    if not all((tax, expense, input_vat, advance, payable, ewt_payable)):
+        raise ValueError("Development Finance setup references were not seeded")
+
+    effective_from = date(2026, 1, 1)
+    version = 1
+    tax_by_request_type = {request_type: str(tax.id) for request_type in DEMO_REQUEST_PREFIXES}
+    general_mapping = {
+        "debit_account_id": str(expense.id),
+        "credit_account_id": str(payable.id),
+        "input_vat_account_id": str(input_vat.id),
+        "ewt_payable_account_id": str(ewt_payable.id),
+    }
+    cash_advance_mapping = {
+        "debit_account_id": str(advance.id),
+        "credit_account_id": str(payable.id),
+        "input_vat_account_id": None,
+        "ewt_payable_account_id": None,
+    }
+    finance_manager_id = (user_ids or {}).get("finance_manager") or session.scalar(
+        select(User.id)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(Role.code == "finance_manager", User.is_active.is_(True))
+        .order_by(User.email)
+        .limit(1)
+    )
+    if finance_manager_id is None:
+        return
+    finance_manager = session.get(User, finance_manager_id)
+    config = {
+        "version": version,
+        "vat_basis": "inclusive",
+        "ewt_basis": "net_of_vat",
+        "rounding": "half_up",
+        "effective_date_basis": "submission",
+        "effective_from": effective_from.isoformat(),
+        "tax_by_request_type": tax_by_request_type,
+        "accounts_by_request_type": {
+            "general": general_mapping,
+            "cashAdvance": cash_advance_mapping,
+        },
+        "voucher": {
+            "prefix": "PV",
+            "reset_basis": "academic_year",
+            "certification_text": "Prepared by Finance and certified from the approved request and posted accounting.",
+            "create_role": "finance_associate",
+            "post_role": "finance_manager",
+            "void_role": "finance_manager",
+        },
+        "setup_scope": "system",
+        "activated_by": finance_manager.display_name,
+        "activation_expected_version": 0,
+        "scope": "all",
+        "debit": reference(expense),
+        "credit": reference(payable),
+        "default_tax_snapshot": tax_details(tax),
+    }
+    draft_config = {key: config[key] for key in (
+        "version", "vat_basis", "ewt_basis", "rounding", "effective_date_basis",
+        "effective_from", "tax_by_request_type", "accounts_by_request_type", "voucher", "setup_scope"
+    )}
+    setting = session.scalar(select(SystemSetting).where(SystemSetting.key == "finance.setup.draft"))
+    if setting is None:
+        session.add(
+            SystemSetting(
+                id=stable_id("system-setting", "finance.setup.draft"),
+                key="finance.setup.draft",
+                value=json.dumps(draft_config),
+            )
+        )
+    else:
+        setting.value = json.dumps(draft_config)
+    session.add(
+        FinanceConfiguration(
+            id=stable_id("finance-configuration", "development-v1"),
+            version=version,
+            effective_from=effective_from,
+            configuration=config,
+            reason="Development seed: activate complete Finance defaults for all request types.",
+            command_key="development-seed-finance-setup-v1",
+            actor_user_id=finance_manager.id,
+        )
+    )
+
+
+def seed_completed_demo_approval(session, item, seed_code, user_ids):
+    """Reconstruct missing history for post-approval development fixtures only."""
+    if not (item.type_data or {}).get("development_seed"):
+        return False
+    if session.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id)):
+        return False
+    instance = start_workflow(session, item, item.requestor_id)
+    stages = instance.route_snapshot["stages"]
+    if instance.route_snapshot.get("rate_status") == "awaiting_finance_manager":
+        raise ValueError("Cannot infer completed foreign-currency demo approvals")
+    instance.state = "approved"
+    instance.current_stage = None
+    instance.version = len(stages) + 1
+    instance.created_at = item.submitted_at or item.created_at
+    event = session.scalar(
+        select(WorkflowEvent).where(WorkflowEvent.workflow_id == instance.id, WorkflowEvent.action == "route_started")
+    )
+    event.occurred_at = instance.created_at
+    for index, stage in enumerate(stages):
+        session.add(
+            WorkflowEvent(
+                id=stable_id("demo-workflow-approval", f"{seed_code}:{index}"),
+                request_id=item.id,
+                workflow_id=instance.id,
+                actor_user_id=user_ids[stage["role"]],
+                action="stage_approved",
+                stage_index=index,
+                note="Reconstructed approval history for development fixture.",
+                details={"stage": stage["code"], "development_fixture": True},
+                occurred_at=instance.created_at + timedelta(hours=index + 1),
+            )
+        )
+    session.flush()
+    return True
+
+
+def seed_demo_approval(session, item, seed_code, current_step, user_ids) -> None:
+    """Give local samples real, stable assignments and visible discussion history."""
+    if current_step >= 9:
+        seed_completed_demo_approval(session, item, seed_code, user_ids)
+        return
+    stage_index = DEMO_APPROVAL_STAGES.get(current_step)
+    if stage_index is None or item.status != "submitted":
+        return
+    instance = session.scalar(select(WorkflowInstance).where(WorkflowInstance.request_id == item.id))
+    if instance is None:
+        instance = start_workflow(session, item, user_ids["requestor"])
+        if stage_index >= len(instance.route_snapshot["stages"]):
+            raise ValueError(f"Demo approval stage is outside the route: {seed_code}")
+        instance.current_stage = stage_index
+        instance.version = stage_index + 1
+        instance.created_at = item.submitted_at
+        session.flush()
+        route_event = session.scalar(
+            select(WorkflowEvent).where(
+                WorkflowEvent.workflow_id == instance.id, WorkflowEvent.action == "route_started"
+            )
+        )
+        route_event.occurred_at = item.submitted_at
+        for previous_index, stage in enumerate(instance.route_snapshot["stages"][:stage_index]):
+            session.add(
+                WorkflowEvent(
+                    id=stable_id("demo-workflow-approval", f"{seed_code}:{previous_index}"),
+                    request_id=item.id,
+                    workflow_id=instance.id,
+                    actor_user_id=user_ids[stage["role"]],
+                    action="stage_approved",
+                    stage_index=previous_index,
+                    note=f"Demo review completed by {stage['role'].replace('_', ' ').title()}.",
+                    details={"stage": stage["code"]},
+                    occurred_at=item.submitted_at + timedelta(hours=previous_index + 1),
+                )
+            )
+    reviewer_role = instance.route_snapshot["stages"][stage_index]["role"]
+    reviewer_id = user_ids[reviewer_role]
+    reply_id = user_ids["finance_associate"] if current_step in {5, 7, 8, 8.5} else user_ids["requestor"]
+    question, answer = DEMO_REVIEW_NOTES[current_step]
+    conversation = (
+        (user_ids["requestor"], f"I submitted the supporting details for {item.purpose.lower()}."),
+        (reviewer_id, question),
+        (reply_id, answer),
+    )
+    for message_index, (author_id, body) in enumerate(conversation):
+        message_id = stable_id("demo-conversation-message", f"{seed_code}:{message_index}")
+        if session.get(RequestConversationMessage, message_id) is None:
+            session.add(
+                RequestConversationMessage(
+                    id=message_id,
+                    request_id=item.id,
+                    author_user_id=author_id,
+                    idempotency_key=f"demo:{seed_code}:{message_index}",
+                    body=body,
+                    created_at=item.submitted_at + timedelta(hours=stage_index + 3 + message_index),
+                )
+            )
+    mention_message_id = stable_id("demo-conversation-message", f"{seed_code}:3")
+    reviewer = session.get(User, reviewer_id)
+    mention_body = (
+        f"@{reviewer.display_name} Thank you for reviewing this request. Please let me know if anything else is needed."
+    )
+    mention_message = session.get(RequestConversationMessage, mention_message_id)
+    if mention_message is None:
+        session.add(
+            RequestConversationMessage(
+                id=mention_message_id,
+                request_id=item.id,
+                author_user_id=user_ids["requestor"],
+                idempotency_key=f"demo:{seed_code}:3",
+                body=mention_body,
+                created_at=item.submitted_at + timedelta(hours=stage_index + 6),
+            )
+        )
+    elif mention_message.body == (
+        f"@{LEGACY_DEMO_NAMES[reviewer_role]} Thank you for reviewing this request. "
+        "Please let me know if anything else is needed."
+    ):
+        mention_message.body = mention_body
+    mention_id = stable_id("demo-mention-notification", seed_code)
+    if session.get(RequestMentionNotification, mention_id) is None:
+        session.add(
+            RequestMentionNotification(
+                id=mention_id,
+                request_id=item.id,
+                message_id=mention_message_id,
+                recipient_user_id=reviewer_id,
+                created_at=item.submitted_at + timedelta(hours=stage_index + 6),
+            )
+        )
+    if seed_code == "DEMO-BOARD-001":
+        for offset, action, author_id, note in (
+            (0, "information_requested", reviewer_id, "Please confirm the project milestone amounts."),
+            (
+                1,
+                "information_provided",
+                user_ids["finance_associate"],
+                "Finance confirmed the milestone schedule against the submitted breakdown.",
+            ),
+        ):
+            event_id = stable_id("demo-information-event", f"{seed_code}:{action}")
+            if session.get(WorkflowEvent, event_id) is None:
+                session.add(
+                    WorkflowEvent(
+                        id=event_id,
+                        request_id=item.id,
+                        workflow_id=instance.id,
+                        actor_user_id=author_id,
+                        action=action,
+                        stage_index=stage_index,
+                        note=note,
+                        details={"stage": instance.route_snapshot["stages"][stage_index]["code"]},
+                        occurred_at=item.submitted_at + timedelta(hours=stage_index + 6 + offset),
+                    )
+                )
+
+
+def seed(*, include_document_requirement_rules: bool | None = None) -> None:
+    settings = get_settings()
+    if include_document_requirement_rules is None:
+        include_document_requirement_rules = settings.app_env != "test"
+    with SessionLocal.begin() as session:
+        if settings.app_env in {"local", "test"}:
+            from copy import deepcopy
+
+            from .vendor_adapter import SAMPLE_VENDOR_PAYLOADS
+
+            for payload in SAMPLE_VENDOR_PAYLOADS:
+                if session.get(VendorRecord, payload["id"]) is None:
+                    session.add(VendorRecord(id=payload["id"], source_system=payload["source"],
+                                             payload=deepcopy(payload)))
+        for key, value in SEED_SETTINGS.items():
+            setting = session.scalar(select(SystemSetting).where(SystemSetting.key == key))
+            if setting is None:
+                session.add(SystemSetting(id=uuid5(NAMESPACE_URL, f"payment-module:{key}"), key=key, value=value))
+            elif not key.startswith("requests."):
+                setting.value = value
+        for old_code, new_code in DEPARTMENT_CODE_ALIASES.items():
+            item = session.scalar(select(Department).where(Department.code == old_code))
+            if item:
+                item.code = new_code
+        session.flush()
+        department_ids = {}
+        for code, name in DEPARTMENTS.items():
+            item = session.scalar(select(Department).where(Department.code == code))
+            if item is None:
+                item = Department(id=stable_id("department", code), code=code, name=name)
+                session.add(item)
+            else:
+                item.name = name
+                item.is_active = True
+            session.flush()
+            department_ids[code] = item.id
+            cost_center = session.scalar(select(CostCenter).where(CostCenter.department_id == item.id))
+            if cost_center is None:
+                session.add(CostCenter(id=stable_id("cost-center", code), code=code, name=name, department_id=item.id))
+            else:
+                cost_center.code, cost_center.name, cost_center.is_active = code, name, True
+        session.flush()
+        for code, name, description in DEMO_ACCOUNTS:
+            account = session.scalar(select(ChartAccount).where(ChartAccount.code == code))
+            if account is None:
+                session.add(
+                    ChartAccount(
+                        id=stable_id("chart-account", code),
+                        code=code,
+                        name=name,
+                        description=description,
+                        account_type="expense",
+                        is_posting=True,
+                        normal_balance="debit",
+                    )
+                )
+        for code, name, description, account_type, normal_balance in DEMO_FINANCE_ACCOUNTS:
+            account = session.scalar(select(ChartAccount).where(ChartAccount.code == code))
+            if account is None:
+                session.add(
+                    ChartAccount(
+                        id=stable_id("chart-account", code),
+                        code=code,
+                        name=name,
+                        description=description,
+                        account_type=account_type,
+                        is_posting=True,
+                        normal_balance=normal_balance,
+                    )
+                )
+        for code, name, vat_classification, vat_rate, ewt_classification, ewt_rate in DEMO_TAX_CODES:
+            tax_code = session.scalar(select(TaxCode).where(TaxCode.code == code))
+            if tax_code is None:
+                session.add(
+                    TaxCode(
+                        id=stable_id("tax-code", code),
+                        code=code,
+                        name=name,
+                        description="Development sample; Finance approval is required before production use.",
+                        vat_classification=vat_classification,
+                        vat_rate=vat_rate,
+                        ewt_classification=ewt_classification,
+                        ewt_rate=ewt_rate,
+                    )
+                )
+        for code, name, symbol in (("PHP", "Philippine Peso", "₱"), ("USD", "US Dollar", "$"), ("EUR", "Euro", "€")):
+            item = session.get(Currency, code)
+            if item is None:
+                session.add(
+                    Currency(
+                        code=code,
+                        name=name,
+                        symbol=symbol,
+                        decimal_precision=2,
+                        php_per_unit=Decimal("1") if code == "PHP" else None,
+                    )
+                )
+            elif code == "PHP" and item.php_per_unit != Decimal("1"):
+                item.php_per_unit = Decimal("1")
+        for code, name, category, required in (
+            ("CHECK", "Check", "check", True),
+            ("BANK_TRANSFER", "Bank Transfer / DigiBanker", "bank_transfer", True),
+            ("CASH", "Cash", "cash", False),
+        ):
+            item = session.scalar(select(PaymentMethod).where(PaymentMethod.code == code))
+            if item is None:
+                session.add(
+                    PaymentMethod(
+                        id=stable_id("payment-method", code),
+                        code=code,
+                        name=name,
+                        category=category,
+                        requires_reference=required,
+                    )
+                )
+        document_type_ids = {}
+        for code, name, request_types, copy_requirement in DOCUMENT_TYPES:
+            item = session.scalar(select(DocumentType).where(DocumentType.code == code))
+            if item is None:
+                item = DocumentType(
+                    id=stable_id("document-type", code),
+                    code=code,
+                    name=name,
+                    allowed_request_types=request_types,
+                    copy_requirement=copy_requirement,
+                )
+                session.add(item)
+            else:
+                item.name = name
+                item.allowed_request_types = request_types
+                item.copy_requirement = copy_requirement
+                item.is_active = True
+            session.flush()
+            document_type_ids[code] = item.id
+        if include_document_requirement_rules:
+            # Reimbursements keep supporting files on each breakdown line.
+            # Disable request-level defaults left by earlier builds.
+            for document_code in ("INVOICE", "BILLING_SOA"):
+                legacy = session.scalar(
+                    select(DocumentRequirementRule).where(
+                        DocumentRequirementRule.request_type == "reimbursement",
+                        DocumentRequirementRule.document_type_id == document_type_ids[document_code],
+                        DocumentRequirementRule.scope == "request",
+                    )
+                )
+                if legacy is not None:
+                    legacy.is_active = False
+            for request_type, document_code, scope, is_required, guidance in DOCUMENT_REQUIREMENT_RULES:
+                rule_id = stable_id("document-requirement-rule", f"{request_type}:{document_code}:{scope}")
+                obsolete_scope = "line" if scope == "request" else "request"
+                obsolete = session.get(
+                    DocumentRequirementRule,
+                    stable_id("document-requirement-rule", f"{request_type}:{document_code}:{obsolete_scope}"),
+                )
+                if obsolete is not None:
+                    session.delete(obsolete)
+                item = session.scalar(
+                    select(DocumentRequirementRule).where(
+                        DocumentRequirementRule.request_type == request_type,
+                        DocumentRequirementRule.document_type_id == document_type_ids[document_code],
+                        DocumentRequirementRule.scope == scope,
+                    )
+                )
+                if item is None:
+                    item = DocumentRequirementRule(id=rule_id)
+                    session.add(item)
+                item.request_type = request_type
+                item.document_type_id = document_type_ids[document_code]
+                item.scope = scope
+                item.minimum_count = 1
+                item.is_required = is_required
+                item.guidance = guidance
+                item.is_active = True
+        for code, name in ROLES.items():
+            item = session.get(Role, stable_id("role", code))
+            if item is None:
+                session.add(Role(id=stable_id("role", code), code=code, name=name, description=f"Initial {name} role"))
+        for code, description in PERMISSIONS.items():
+            item = session.get(Permission, stable_id("permission", code))
+            if item is None:
+                session.add(Permission(id=stable_id("permission", code), code=code, description=description))
+        session.flush()
+        for role_code, permission_codes in ROLE_PERMISSIONS.items():
+            for permission_code in PERMISSIONS:
+                if permission_code in permission_codes:
+                    continue
+                obsolete = session.get(RolePermission, stable_id("role-permission", f"{role_code}:{permission_code}"))
+                if obsolete is not None:
+                    session.delete(obsolete)
+            for permission_code in permission_codes:
+                item_id = stable_id("role-permission", f"{role_code}:{permission_code}")
+                if session.get(RolePermission, item_id) is None:
+                    session.add(
+                        RolePermission(
+                            id=item_id,
+                            role_id=stable_id("role", role_code),
+                            permission_id=stable_id("permission", permission_code),
+                        )
+                    )
+        user_ids = {}
+        if settings.development_demo_password:
+            for role_code, email, display_name, department_code in DEMO_USERS:
+                user_id = stable_id("user", email)
+                user_ids[role_code] = user_id
+                user = session.get(User, user_id)
+                if user is None:
+                    user = User(
+                        id=user_id,
+                        email=email,
+                        display_name=display_name,
+                        password_hash=hash_password(settings.development_demo_password),
+                        department_id=department_ids[department_code],
+                    )
+                    session.add(user)
+                elif settings.app_env == "test":
+                    user.password_hash = hash_password(settings.development_demo_password)
+                if user.display_name == LEGACY_DEMO_NAMES[role_code]:
+                    user.display_name = display_name
+                user.department_id = department_ids[department_code]
+                user_role_id = stable_id("user-role", f"{email}:{role_code}")
+                role_id = stable_id("role", role_code)
+                existing_user_role = session.scalar(
+                    select(UserRole).where(UserRole.user_id == user_id, UserRole.role_id == role_id)
+                )
+                if existing_user_role is None:
+                    session.add(UserRole(id=user_role_id, user_id=user_id, role_id=stable_id("role", role_code)))
+            session.flush()
+            if settings.app_env == "test":
+                center = session.get(CostCenter, stable_id("cost-center", "MKTG"))
+                if center and center.approver_user_id is None:
+                    center.approver_user_id = user_ids["department_head"]
+                session.flush()
+            if settings.app_env in {"local", "development"} and not session.scalar(
+                select(SystemSetting).where(SystemSetting.key == "development.demo_catalog")
+            ):
+                marketing_cost_center_id = stable_id("cost-center", "MKTG")
+                account_ids = [stable_id("chart-account", code) for code, _, _ in DEMO_ACCOUNTS]
+                now = datetime.now(UTC)
+                for index, (
+                    seed_code,
+                    request_type,
+                    status,
+                    current_step,
+                    display_status,
+                    purpose,
+                    payee,
+                    amount,
+                    budgeted,
+                ) in enumerate(DEMO_REQUESTS, 1):
+                    request_id = stable_id("demo-payment-request", seed_code)
+                    item = session.get(PaymentRequest, request_id)
+                    request_number = (
+                        None
+                        if status == "draft"
+                        else f"{DEMO_REQUEST_PREFIXES[request_type]}-2026-{900000 + index:06d}"
+                    )
+                    voucher_number = None if status == "draft" else f"VCH-2026-{900000 + index:06d}"
+                    type_data = {
+                        "development_seed": seed_code,
+                        "demo_current_step": current_step,
+                        "demo_display_status": display_status,
+                        "budgeted": budgeted,
+                        "validation_assignee": "Nina Santos",
+                    }
+                    if request_type == "cashAdvance":
+                        type_data.update(
+                            {
+                                "event_end_date": date.today().isoformat(),
+                                "liquidation_due_date": (date.today() + timedelta(days=15)).isoformat(),
+                                "accountability_acknowledged": True,
+                            }
+                        )
+                    if request_type == "poPayment":
+                        type_data["po_reference"] = f"PO-DEMO-{1000 + index}"
+                    if item is None:
+                        item = PaymentRequest(id=request_id)
+                        session.add(item)
+                    item.request_number = request_number
+                    item.voucher_number = voucher_number
+                    item.request_type = request_type
+                    item.status = status
+                    item.requestor_id = user_ids["requestor"]
+                    item.department_id = department_ids["MKTG"]
+                    item.payee_name = payee
+                    item.purpose = purpose
+                    item.currency_code = "PHP"
+                    item.gross_amount = Decimal(amount)
+                    item.type_data = type_data
+                    if status == "draft":
+                        item.submitted_at = None
+                    elif item.submitted_at is None:
+                        item.submitted_at = now - timedelta(days=max(1, 16 - index))
+                    item.archived_at = now - timedelta(days=1) if status == "archived" else None
+                    session.flush()
+                    line_id = stable_id("demo-payment-request-line", seed_code)
+                    line = session.get(PaymentRequestLine, line_id)
+                    if line is None:
+                        line = PaymentRequestLine(id=line_id, request_id=request_id, position=1)
+                        session.add(line)
+                    line.invoice_date = date.today() - timedelta(days=min(30, index + 2))
+                    line.invoice_number = f"INV-DEMO-{index:03d}"
+                    line.vendor_name = payee
+                    line.particulars = purpose
+                    line.chart_account_id = account_ids[(index - 1) % len(account_ids)]
+                    line.cost_center_id = marketing_cost_center_id
+                    line.amount = Decimal(amount)
+                    line.currency_code = "PHP"
+                    line.attachment_refs = [f"demo-{seed_code.lower()}.pdf"] if status != "draft" else []
+                    seed_demo_approval(session, item, seed_code, current_step, user_ids)
+        if settings.app_env in {"local", "development"}:
+            seed_local_finance_setup(session, user_ids)
+
+
+if __name__ == "__main__":
+    seed()
+    print(f"Seeded {len(SEED_SETTINGS)} system settings.")

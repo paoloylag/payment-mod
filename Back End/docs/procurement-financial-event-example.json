@@ -1,0 +1,72 @@
+{
+  "eventId": "example-event-id",
+  "type": "aps.po_request.financial_updated",
+  "schemaVersion": 2,
+  "streamSequence": "42",
+  "occurredAt": "2026-11-17T08:00:00+00:00",
+  "purchaseOrder": {
+    "id": "example-po-id",
+    "number": "PO-EXAMPLE-001"
+  },
+  "request": {
+    "id": "example-aps-request-id",
+    "number": "APS-EXAMPLE-001",
+    "version": 3,
+    "status": "approved",
+    "currency": "PHP",
+    "grossAmount": "56000.0000"
+  },
+  "financial": {
+    "currency": "PHP",
+    "calculation": {
+      "status": "saved",
+      "version": 1,
+      "totals": {
+        "grossAmount": "56000.00",
+        "vatAmount": "6000.00",
+        "ewtAmount": "1000.00",
+        "netPayable": "55000.00"
+      },
+      "lines": [
+        {
+          "lineId": "example-line-id",
+          "position": 1,
+          "grossAmount": "56000.00",
+          "vatAmount": "6000.00",
+          "ewtBase": "50000.00",
+          "ewtRate": "2.0000",
+          "ewtClassification": "Services",
+          "ewtAmount": "1000.00",
+          "netPayable": "55000.00"
+        }
+      ]
+    },
+    "payment": {
+      "status": "partially_released",
+      "netPayable": "55000.00",
+      "released": "30000.00",
+      "cleared": "0.00",
+      "recovered": "0.00",
+      "remaining": "25000.00",
+      "lines": [
+        {
+          "id": "example-payment-id",
+          "sequence": 1,
+          "version": 2,
+          "reference": "DEMO-PAY-001",
+          "method": "BANK_TRANSFER",
+          "amount": "30000.00",
+          "currency": "PHP",
+          "status": "released",
+          "replacesPaymentId": null
+        }
+      ]
+    },
+    "voucher": {
+      "id": "example-voucher-id",
+      "number": "PV-EXAMPLE-001",
+      "version": 2,
+      "status": "payment_prepared"
+    }
+  }
+}

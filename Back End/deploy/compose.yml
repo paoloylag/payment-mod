@@ -1,0 +1,32 @@
+# Standalone deployment template; do not merge with the local-development compose file.
+name: payment-module-deployment
+services:
+  api:
+    image: ${PAYMENT_API_IMAGE:?Set an immutable API image tag or digest}
+    env_file: deployment.env
+    volumes:
+      - ${DATABASE_CA_FILE:?Set the absolute path to the verified database CA bundle}:/run/certs/rds-ca.pem:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8002/readyz',headers={'Host':os.environ['TRUSTED_HOSTS'].split(',')[0]}); urllib.request.urlopen(r,timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  web:
+    image: ${PAYMENT_WEB_IMAGE:?Set an immutable web image tag or digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - 127.0.0.1:8080:8080
+    depends_on:
+      api:
+        condition: service_healthy
