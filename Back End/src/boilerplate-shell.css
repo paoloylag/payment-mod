@@ -2732,3 +2732,115 @@ dialog.correction-modal-backdrop::backdrop { background: transparent; }
 .finance-record-amounts { padding: 12px; background: var(--panel-strong); border-radius: var(--radius, 8px); }
 .finance-record-amounts dd { font-weight: 600; font-variant-numeric: tabular-nums; }
 @media(min-width: 640px) { .finance-record-fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .finance-record-wide { grid-column: 1 / -1; } .finance-record-amounts { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+
+/* Tenant boilerplate custom-select: themed open option lists. */
+.custom-select {
+  position: relative;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.custom-select-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.custom-select-trigger svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.custom-select.open .custom-select-trigger {
+  border-color: var(--brand-crimson);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-crimson) 13%, transparent);
+}
+
+.custom-select.open .custom-select-trigger svg {
+  transform: rotate(180deg);
+}
+
+.custom-select-menu {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 3px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 18px 42px rgba(75, 18, 17, 0.18);
+  padding: 5px;
+}
+
+.custom-select-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.custom-select-menu button:hover,
+.custom-select-menu button:focus-visible {
+  outline: 0;
+  background: color-mix(in srgb, var(--brand-sand) 52%, var(--panel));
+}
+
+.custom-select-menu button.selected {
+  background: color-mix(in srgb, var(--brand-crimson) 10%, var(--panel));
+  color: var(--brand-maroon);
+  font-weight: 800;
+}
+
+
+.custom-select-menu[hidden] { display: none; }
+.custom-select-menu { max-height: 260px; overflow-y: auto; z-index: 80; }
+.custom-select select[hidden] { display: none; }
+.custom-select-chevron { color: var(--muted); transition: transform 160ms ease; }
+.custom-select.open .custom-select-chevron { transform: rotate(180deg); }
+.custom-select-trigger span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.custom-select-trigger:focus-visible { outline: 2px solid var(--brand-crimson); outline-offset: 2px; }
+.custom-select-trigger:disabled { opacity: .6; cursor: not-allowed; }
+.custom-select-menu button:disabled { opacity: .5; cursor: not-allowed; }
+.dark .custom-select-menu button.selected { color: var(--text); }
+
+/* Override the app-wide action-button sizing for form select controls. */
+.app-shell main .custom-select .custom-select-trigger { display:flex; width:100%; justify-content:space-between; text-align:left; white-space:normal; font:inherit; }
+.app-shell main .custom-select .custom-select-menu button { display:flex; width:100%; justify-content:space-between; text-align:left; white-space:normal; min-height:42px; border:0; background:transparent; box-shadow:none; font:inherit; }
+.app-shell main .custom-select .custom-select-menu button:hover,
+.app-shell main .custom-select .custom-select-menu button:focus-visible { background:color-mix(in srgb,var(--brand-sand) 52%,var(--panel)); }
+.app-shell main .custom-select .custom-select-menu button.selected { background:color-mix(in srgb,var(--brand-crimson) 10%,var(--panel)); color:var(--text); font-weight:700; }
+
+/* Focus/touch-enabled adaptation of the boilerplate informational tooltip. */
+.field-info { position:relative; display:inline-flex; align-items:center; }
+.app-shell main button.field-info-button { display:inline-flex; align-items:center; justify-content:center; width:28px; min-width:28px; height:28px; min-height:28px; padding:5px; margin:0; border:0; border-radius:50%; background:transparent; box-shadow:none; color:var(--muted); cursor:help; }
+.app-shell main button.field-info-button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.field-info-tooltip { position:absolute; z-index:100; top:calc(100% + 6px); left:0; width:min(250px,calc(100vw - 80px)); padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); color:var(--text); background:var(--panel); box-shadow:var(--shadow); font-size:12px; line-height:1.5; font-weight:400; }
+.field-info-tooltip[hidden] { display:none; }
+@media(max-width:639px) { .field-info-tooltip { left:-100px; right:auto; } }
+
+.request-form-page .line-upload-actions { display:flex; align-items:center; gap:8px; }
+.app-shell main .request-form-page button.add-item-icon { display:inline-flex; align-items:center; justify-content:center; flex:0 0 42px; width:42px; min-width:42px; height:42px; min-height:42px; margin:0; padding:0; font-size:24px; line-height:1; color:var(--primary); }

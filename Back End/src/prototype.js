@@ -1,3 +1,4 @@
+import { enhanceRequestSelects } from "./themed-select.js";
 import { humanDateTime } from "./date-time.js";
 import { generalRequestVendor } from "./request-vendor.js";
 import { documentAccept, documentFormats, documentSelectionError, documentUploadError } from "./document-upload.js";
@@ -669,7 +670,10 @@ const fieldInput = (field) => {
   }
   if (field.label === "Department") {
     const costCenters = state.masterData["cost-centers"] || [];
-    return `<label>Department / Cost Center<select data-department-cost-center data-request-field="department_cost_center_id"><option value="">Select department</option>${costCenters.filter((item) => item.is_active !== false).map((item) => `<option value="${item.id}">${escapeHtml(item.name)} (${escapeHtml(item.code)})</option>`).join("")}</select></label>`;
+    const department = state.authUser?.department;
+    const matches = costCenters.filter(item => item.is_active !== false && item.department_id === department?.id);
+    const defaultCenter = department ? matches.find(item => item.code === department.code) || (matches.length === 1 ? matches[0] : null) : null;
+    return `<label>Department / Cost Center<select data-department-cost-center data-request-field="department_cost_center_id"><option value="">Select department</option>${costCenters.filter((item) => item.is_active !== false).map((item) => `<option value="${item.id}" ${!state.activeDraftId && item.id === defaultCenter?.id ? "selected" : ""}>${escapeHtml(item.name)} (${escapeHtml(item.code)})</option>`).join("")}</select></label>`;
   }
   const fieldKey = requestFieldKey(field.label);
   return field.kind === "textarea"
@@ -1879,7 +1883,7 @@ async function submitSavedDraft(id) {
       const card = document.querySelector(`[data-line-card="${incomplete.index}"]`);
       if (card) {
         card.open = true;
-        card.querySelectorAll("[data-line-column]").forEach((control) => { control.closest(".line-card-field")?.classList.toggle("line-field-required", !lineFieldComplete(draft.lineItems[incomplete.index], control.dataset.lineColumn)); });
+        card.querySelectorAll("[data-line-column]").forEach((control) => { control.closest(".line-card-field")?.classList.toggle("line-field-required", !(["liquidation", "pettyCash"].includes(draft.type) && control.type === "file") && !lineFieldComplete(draft.lineItems[incomplete.index], control.dataset.lineColumn)); });
         card.querySelector(`[data-line-column="${CSS.escape(incomplete.missing)}"]`)?.focus();
       }
     }
@@ -3569,11 +3573,13 @@ function requestBuilder() {
   const poRecord = poRecords.find((record) => record.id === state.selectedPO) || poRecords[0];
   const effectiveAmount = isPoPayment ? poRecord.amount : draftAmount;
   const multipleItems = lineItems.length > 1;
+  const attachmentColumn = config.lineColumns.filter(column => ["Attachment", "Receipt", "Proof of Payment"].includes(column)).at(-1);
+  const addItemButton = `<button type="button" class="add-line-button add-item-icon" data-add-line="true" aria-label="Add another item" title="Add another item"><span aria-hidden="true">+</span></button>`;
   const currencyOptions = state.draftType === "pettyCash" ? [{code:"PHP",name:"Philippine Peso",php_per_unit:1}] : state.masterData.currencies || [{ code: "PHP", name: "Philippine Peso", php_per_unit: 1 }];
-  const currencyField = `<label><span class="currency-label">Currency${state.draftCurrency && state.draftCurrency !== "PHP" ? `<span class="currency-warning" tabindex="0" role="img" aria-label="Foreign currency conversion information"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.3 3.9-8.6 15a2 2 0 0 0 1.7 3h17.2a2 2 0 0 0 1.7-3l-8.6-15a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg><span class="currency-warning-tooltip" role="tooltip">For foreign currency, Finance Manager confirms the PHP conversion rate when processing this request.</span></span>` : ""}</span><select aria-label="Currency" data-draft-currency>${currencyOptions.filter((item) => item.is_active !== false).map((item) => {
+  const currencyField = `<label><span class="currency-label">Currency${state.draftCurrency && state.draftCurrency !== "PHP" ? `<span class="currency-warning" tabindex="0" role="img" aria-label="Foreign currency conversion information"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10.3 3.9-8.6 15a2 2 0 0 0 1.7 3h17.2a2 2 0 0 0 1.7-3l-8.6-15a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg><span class="currency-warning-tooltip" role="tooltip">For foreign currency, Finance Manager confirms the PHP conversion rate when processing this request.</span></span>` : ""}</span><select aria-label="Currency" data-draft-currency ${state.draftType === "pettyCash" ? "disabled" : ""}>${currencyOptions.filter((item) => item.is_active !== false).map((item) => {
     return `<option value="${escapeHtml(item.code)}" ${state.draftCurrency === item.code ? "selected" : ""}>${escapeHtml(item.code)} — ${escapeHtml(item.name)}</option>`;
   }).join("")}</select></label>`;
-  const cashAdvanceFields = config.mandatoryFields.map((field) => `${fieldInput(field)}${field.label === "Last Day of the Event" ? `<label>Date to Liquidate <small>(System Generated: 15 Days After Event)</small><input data-liquidation-due-date data-request-field="liquidation_due_date" type="date" value="${state.cashAdvanceLiquidationDate}" readonly></label>` : ""}`).join("");
+  const cashAdvanceFields = config.mandatoryFields.map((field) => `${fieldInput(field)}${field.label === "Last Day of the Event" ? `<label><span class="currency-label">Date to Liquidate <span class="field-info"><button type="button" class="field-info-button" data-info-tooltip aria-label="About Date to Liquidate" aria-describedby="liquidation-date-help" aria-expanded="false"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v1"/></svg></button><span id="liquidation-date-help" class="field-info-tooltip" role="tooltip" hidden>Automatically calculated as 15 days after the event.</span></span></span><input aria-label="Date to Liquidate" data-liquidation-due-date data-request-field="liquidation_due_date" type="date" value="${state.cashAdvanceLiquidationDate}" readonly></label>` : ""}`).join("");
   const requestorName = escapeHtml(activeRequestor());
   const primaryFields = state.draftType === "reimbursement"
     ? `<label>Requestor's Name<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Calculated Total<output id="draftAmount" class="calculated-amount">${money(draftAmount, state.draftCurrency)}</output></label>${currencyField}`
@@ -3582,7 +3588,7 @@ function requestBuilder() {
     : isCashAdvance
     ? `<label>Cash Advance Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter cash advance requestor"></label>${cashAdvanceFields}<label>Cash Advance Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount, state.draftCurrency)}</output></label>${currencyField}`
     : state.draftType === "pettyCash"
-    ? `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Calculated Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount,"PHP")}</output></label>${currencyField}<p class="field-help">PHP only · Below ₱3,000 · Finance Associate approval and voucher</p>`
+    ? `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}<label>Calculated Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount,"PHP")}</output><small class="field-help muted">Maximum ₱3,000</small></label>${currencyField}`
     : isPoPayment
     ? `<label>P.O. Reference Number <small>(From Procurement)</small><select data-po-reference data-request-field="po_reference">${poRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id} · ${escapeHtml(record.payee)}</option>`).join("")}</select></label><label>Requestor<input data-request-field="requestor_name" value="${requestorName}"></label><label>Payee / Vendor <small>(System Generated)</small><input data-request-field="payee_name" value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><output id="draftAmount" class="calculated-amount">${money(poRecord.amount, state.draftCurrency)}</output></label>${currencyField}<label>Department / Cost Center <small>(From Procurement)</small><input value="${poRecord.department}" readonly></label><label>P.O. Status <small>(From Procurement)</small><input value="${escapeHtml(statusLabel(poRecord.status))}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
     : `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Calculated Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount, state.draftCurrency)}</output></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}`;
@@ -3603,7 +3609,7 @@ function requestBuilder() {
         if (autoGeneralCoding() && references && column !== "Expense Account") return `<label class="line-card-field">${escapeHtml(column)}<input readonly value="${escapeHtml(column === "Expense Account" ? `${state.financeSetup.activation.active.debit.code} — ${state.financeSetup.activation.active.debit.name}` : "Automatically follows the request department")}"><small>Assigned by active Finance setup</small></label>`;
         if (isFile) {
           const fileNames = lineAttachmentNames(item[column]);
-          return `<div class="line-card-field line-card-attachments"><span class="line-card-label">${escapeHtml(column.replace("P.O.", "Purchase Order"))}</span><div class="line-card-upload"><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}"><input type="file" accept="${documentAccept}" multiple data-line-row="${rowIndex}" data-line-column="${column}" aria-label="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}">${uploadIcon}<span>Upload Files</span></label><span class="line-upload-filename" title="${escapeHtml(fileNames.join(", "))}">${fileNames.length ? fileNames.map(escapeHtml).join("<br>") : "No files selected"}</span></div></div>`;
+          return `<div class="line-card-field line-card-attachments"><span class="line-card-label">${escapeHtml(column.replace("P.O.", "Purchase Order"))}${state.draftType === "pettyCash" ? ' <small class="muted">(optional)</small>' : ""}</span><div class="line-card-upload"><div class="line-upload-actions"><label class="line-upload-control document-upload-button" title="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}"><input type="file" accept="${documentAccept}" multiple data-line-row="${rowIndex}" data-line-column="${column}" aria-label="Upload ${escapeHtml(column.replace("P.O.", "Purchase Order"))} for line ${rowIndex + 1}">${uploadIcon}<span>Upload Files</span></label>${!multipleItems && column === attachmentColumn ? addItemButton : ""}</div><span class="line-upload-filename" title="${escapeHtml(fileNames.join(", "))}">${fileNames.length ? fileNames.map(escapeHtml).join("<br>") : "No files selected"}</span></div></div>`;
         }
         if (references && column === "Expense Account" && autoGeneralCoding()) {
           const selected = item[column] || state.financeSetup.activation.active.debit.id;
@@ -3612,7 +3618,7 @@ function requestBuilder() {
         if (references) return `<label class="line-card-field">${escapeHtml(column.replace("P.O.", "Purchase Order"))}<select data-line-row="${rowIndex}" data-line-column="${column}"><option value="">Select</option>${references.filter((entry) => entry.is_active !== false).map((entry) => `<option value="${escapeHtml(entry.id)}" ${item[column] === entry.id || item[column] === entry.code ? "selected" : ""}>${escapeHtml(entry.name)} (${escapeHtml(entry.code)})</option>`).join("")}</select></label>`;
         return `<label class="line-card-field">${escapeHtml(column.replace("P.O.", "Purchase Order"))}<input data-line-row="${rowIndex}" data-line-column="${column}" type="${column === "Amount" ? "number" : column.toLowerCase().includes("date") ? "date" : "text"}" value="${escapeHtml(String(item[column] || ""))}" placeholder="${escapeHtml(String(example))}"></label>`;
       }).join("")}</div>${multipleItems ? `<div class="line-card-actions"><button type="button" class="remove-line-button" data-remove-line="${rowIndex}">Remove item</button></div>` : ""}</div></${multipleItems ? "details" : "div"}>`).join("")}
-    </div><div class="line-card-footer"><button type="button" class="add-line-button" data-add-line="true">${multipleItems ? "+ Add item" : "+ Add another item"}</button><div class="line-card-total"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "Purchase Order amount" : "Total"}</span><strong data-line-total>${money(effectiveAmount, state.draftCurrency)}</strong></div></div></div>${reimbursementTiming}${accountability}</div>
+    </div><div class="line-card-footer">${multipleItems || !attachmentColumn ? addItemButton : ""}<div class="line-card-total"><span>${isCashAdvance ? "Total cash advance amount" : isLiquidation ? "Total liquidated amount" : isPoPayment ? "Purchase Order amount" : "Total"}</span><strong data-line-total>${money(effectiveAmount, state.draftCurrency)}</strong></div></div></div>${reimbursementTiming}${accountability}</div>
     <div class="panel"><div class="panel-header validation-preview-header"><h3>Validation Preview</h3><span class="count" data-validation-count>0/${config.required.length}</span></div><ul class="check-list">${config.required.map((item) => `<li data-validation-requirement="${item}"><span class="warn">!</span>${item}</li>`).join("")}</ul>
     ${state.draftType === "reimbursement" || isPoPayment ? `<div class="line-attachment-notice"><strong>Documents are attached per line item.</strong><p>${isPoPayment ? "Approved Purchase Order, quotation/contract, and supplier records are retrieved from Procurement. Upload the Delivery Receipt or Business Permit here when applicable." : "Add the corresponding invoice or receipt and proof of payment in each reimbursement line."}</p></div>${state.draftType === "reimbursement" ? `<h4>Request Documents</h4><div class="upload-list">${uploadInput("Other Supporting Document")}</div>` : `<h4>Request Documents</h4><div class="upload-list">${config.uploadDocuments.filter(name => state.draftType !== "general" || !name.includes("BIR 2303")).map(uploadInput).join("")}</div>`}` : isLiquidation ? `<div class="line-attachment-notice"><strong>Receipt uploads are optional.</strong><p>You may attach invoices or receipts to each breakdown line. Original hard copies will be submitted to Finance offline.</p></div>` : `<h4>Document Uploads</h4><div class="upload-list">${config.uploadDocuments.filter(name => state.draftType !== "general" || !name.includes("BIR 2303")).map(uploadInput).join("")}</div>`}
     <div class="route-box"><span class="eyebrow">System Route</span><strong>${route({ amount: effectiveAmount, budgeted: state.budgeted, type: state.draftType })}</strong></div></div><div class="panel request-action-footer"><div><span class="eyebrow">Request Actions</span></div><div class="request-submit-actions"><button type="button" data-save-draft>Save as Draft</button><button type="button" class="confirmation-button" data-submit-current>Submit to Department Head</button></div></div></section>${leaveRequestModal()}</section>`;
@@ -4393,6 +4399,17 @@ function render() {
   }
   const views = { dashboard, request: requestBuilder, requestDetail: unifiedRequestDetails, approvals, tracker, uploads: documentUploads, documents, emails, guide: systemGuide, error: () => errorPage(state.errorCode), users: () => identityPage("users"), roles: () => identityPage("roles"), departments: () => identityPage("departments"), requestRequirements: requestRequirementsPage, requestSettings: requestSettingsPage, ...Object.fromEntries(Object.keys(masterDataConfig).map((tab) => [tab, () => masterDataPage(tab)])) };
   document.getElementById("root").innerHTML = shell((views[state.tab] || (() => errorPage(404)))());
+  document.querySelectorAll('[data-info-tooltip]').forEach(button => {
+    const wrapper = button.closest('.field-info'), tooltip = wrapper.querySelector('[role="tooltip"]');
+    const show = open => { tooltip.hidden = !open; button.setAttribute('aria-expanded', String(open)); };
+    wrapper.addEventListener('mouseenter', () => show(true));
+    wrapper.addEventListener('mouseleave', () => show(false));
+    button.addEventListener('focus', () => show(true));
+    button.addEventListener('blur', () => show(false));
+    button.addEventListener('click', event => { event.preventDefault(); show(true); });
+    button.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); show(false); } });
+  });
+  queueMicrotask(() => enhanceRequestSelects());
   bindErrorPage();
   if (lineDecisionDraft) queueMicrotask(() => {
     const dialog = document.querySelector(`[data-finance-line-review="${CSS.escape(lineDecisionDraft.lineId)}"] .finance-line-decision-modal`);
@@ -5577,6 +5594,13 @@ function render() {
     state.liquidationReturnAmount = Number(event.target.value) || 0;
   });
   restoreDraftControls(liveRequestFields);
+  const departmentControl = document.querySelector('[data-department-cost-center]');
+  if (departmentControl && !departmentControl.value && !state.activeDraftId && !state.draftDirty) {
+    const department = state.authUser?.department;
+    const matches = (state.masterData["cost-centers"] || []).filter(item => item.is_active !== false && item.department_id === department?.id);
+    const center = department && (matches.find(item => item.code === department.code) || (matches.length === 1 ? matches[0] : null));
+    if (center) departmentControl.value = center.id;
+  }
   const supplierMode = document.querySelector("[data-general-vendor-mode]");
   const syncLineVendors = () => {
     if (state.draftType !== "general") return;

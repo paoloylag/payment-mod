@@ -39,3 +39,11 @@ APS now uses the existing native dialog/showModal pattern with an inert backgrou
 - Boilerplate evidence: `src/App.tsx:1266â€“1276` UI Lab tabs/accordion (labelled Baseline); `src/styles.css:2698` lab-tabs, `:2748` lab-accordion. Existing sticky modal/body/footer at2408â€“2418 and status-badge at1640 cover the encountered reusable primitives.
 - Reuse candidate: if desired, document an optional bordered disclosure and tinted tab variant in the boilerplate with light/dark, selected/focus/disabled, nested disclosure,375px horizontal tab scrolling and768px coverage. Do not promote APS workflow or accounting logic.
 - Audit result: expanded Finance sections and voucher preview were inspected in the actual browser; remaining app-level spacing, status and metadata drift is listed in [parity audit](boilerplate-parity-audit-2026-11-12.md). No shared boilerplate implementation was changed and no gap was marked resolved by this sweep.
+
+## 2026-11-20 — Request select open-menu parity
+
+The tenant boilerplate already implements themed custom-select trigger/menu/selected states in src/App.tsx (Program control) and src/styles.css (.custom-select). APS previously styled only native select fields; their operating-system option popup remained unthemed. This is an APS adoption gap, not a missing boilerplate component. Request-form selects now use src/themed-select.js, retaining native values/events for existing workflows and applying the shared light/dark tokens, with arrow/Home/End/typeahead/Escape/Tab behavior and disabled options. Other application surfaces retain native selects and are outside this focused request-form change. Keyboard implementation is an app DOM adapter to the existing visual pattern.
+
+## 2026-11-20 — Accessible information tooltip
+
+Boilerplate src/App.tsx UI Lab and styles.css .lab-tooltip provide a hover-only baseline. APS Date to Liquidate uses the same informational pattern with an icon button, aria-describedby, focus/tap opening and Escape/blur dismissal. This is an app-local keyboard/touch adaptation; shared parity remains partial until that behavior is adopted and showcased in the boilerplate. Reuse candidate: field-help icon tooltip, theme tokens, narrow-screen positioning.
