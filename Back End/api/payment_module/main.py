@@ -9,6 +9,7 @@ from .config import get_settings
 from .errors import install_exception_handlers
 from .logging import configure_logging
 from .middleware import RequestContextMiddleware
+from .po_receipts import router as procurement_receipts_router
 from .routers.auth import router as auth_router
 from .routers.conversation import router as conversation_router
 from .routers.dashboard import router as dashboard_router
@@ -49,12 +50,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env in {"local", "test"} else None,
         redoc_url="/redoc" if settings.app_env in {"local", "test"} else None,
-        openapi_url=f"{settings.api_prefix}/openapi.json" if settings.app_env in {"local", "test"} else None,
+        openapi_url=f"{settings.api_prefix}/openapi.json"
+        if settings.app_env in {"local", "test"}
+        else None,
     )
     application.add_middleware(RequestContextMiddleware)
     application.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=[host.strip() for host in settings.trusted_hosts.split(",") if host.strip()],
+        allowed_hosts=[
+            host.strip() for host in settings.trusted_hosts.split(",") if host.strip()
+        ],
     )
     application.add_middleware(
         CORSMiddleware,
@@ -65,6 +70,7 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID", "X-Total-Count", "X-Page", "X-Page-Size"],
     )
     install_exception_handlers(application)
+    application.include_router(procurement_receipts_router)
     application.include_router(system_router)
     application.include_router(auth_router)
     application.include_router(identity_router)

@@ -323,6 +323,9 @@ def payment_action(
     if not payload.reason.strip():
         raise HTTPException(422, "A reason is required")
     validate_source(db, item, voucher)
+    if action in {"release", "pickup-ready"}:
+        from ..po_receipts import require_po_receipt
+        require_po_receipt(db, item)
     method = db.get(PaymentMethod, instruction.method_id)
     if action in {"authorize", "pickup-ready", "release"} and not effective(method, finance_date()):
         raise HTTPException(409, "Payment method is no longer active")

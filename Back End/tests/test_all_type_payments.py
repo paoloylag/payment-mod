@@ -36,7 +36,9 @@ def all_setup(client, accounting_request, monkeypatch):  # noqa: F811
     request_id, line_id, accounts, _ = accounting_request
     storage = FakeStorage()
     monkeypatch.setattr("payment_module.routers.documents.get_storage", lambda: storage)
-    monkeypatch.setattr("payment_module.routers.payment_execution.get_storage", lambda: storage)
+    monkeypatch.setattr(
+        "payment_module.routers.payment_execution.get_storage", lambda: storage
+    )
     with SessionLocal.begin() as db:
         before_requests = set(db.scalars(select(PaymentRequest.id)))
         before = set(db.scalars(select(FinanceConfiguration.id)))
@@ -67,7 +69,9 @@ def all_setup(client, accounting_request, monkeypatch):  # noqa: F811
         "debit_account_id": str(asset_id),
         "credit_account_id": accounts[3],
     }
-    saved = client.put("/api/v1/request-settings/finance-setup", headers=manager, json=setup)
+    saved = client.put(
+        "/api/v1/request-settings/finance-setup", headers=manager, json=setup
+    )
     assert saved.status_code == 200, saved.text
     activation = client.post(
         "/api/v1/request-settings/finance-setup/activate",
@@ -83,12 +87,30 @@ def all_setup(client, accounting_request, monkeypatch):  # noqa: F811
     assert activation.json()["operational_status"] == "all_active"
     yield request_id, line_id, accounts, asset_id, activation.json()
     with SessionLocal.begin() as db:
-        db.execute(delete(PaymentInstruction).where(PaymentInstruction.request_id == request_id))
-        db.execute(delete(FinanceVoucherEvent).where(FinanceVoucherEvent.request_id == request_id))
-        db.execute(delete(PaymentRequest).where(PaymentRequest.id.not_in(before_requests)))
-        db.execute(delete(FinanceConfiguration).where(FinanceConfiguration.id.not_in(before)))
+        db.execute(
+            delete(PaymentInstruction).where(
+                PaymentInstruction.request_id == request_id
+            )
+        )
+        db.execute(
+            delete(FinanceVoucherEvent).where(
+                FinanceVoucherEvent.request_id == request_id
+            )
+        )
+        db.execute(
+            delete(PaymentRequest).where(PaymentRequest.id.not_in(before_requests))
+        )
+        db.execute(
+            delete(FinanceConfiguration).where(FinanceConfiguration.id.not_in(before))
+        )
         # Any fixture-created source advances are removed before their asset account.
-        sources = list(db.scalars(select(PaymentRequest).where(PaymentRequest.payee_name == "Advance source fixture")))
+        sources = list(
+            db.scalars(
+                select(PaymentRequest).where(
+                    PaymentRequest.payee_name == "Advance source fixture"
+                )
+            )
+        )
         for source in sources:
             db.delete(source)
         db.flush()
@@ -98,7 +120,10 @@ def all_setup(client, accounting_request, monkeypatch):  # noqa: F811
 def accept_documents(db, item, line_id):
     for kind in db.scalars(select(DocumentType)):
         document = Document(
-            request_id=item.id, line_id=line_id, owner_user_id=item.requestor_id, document_type_id=kind.id
+            request_id=item.id,
+            line_id=line_id,
+            owner_user_id=item.requestor_id,
+            document_type_id=kind.id,
         )
         db.add(document)
         db.flush()
@@ -115,20 +140,31 @@ def accept_documents(db, item, line_id):
                 uploaded_by_user_id=item.requestor_id,
             )
         )
-        db.add(DocumentReviewDecision(document_id=document.id, decision="accepted", actor_user_id=item.requestor_id))
+        db.add(
+            DocumentReviewDecision(
+                document_id=document.id,
+                decision="accepted",
+                actor_user_id=item.requestor_id,
+            )
+        )
 
 
 def prepare_type(client, setup, request_type, type_data=None):
     request_id, line_id, _, _, _ = setup
     with SessionLocal.begin() as db:
         item = db.get(PaymentRequest, request_id)
-        db.execute(delete(FinanceTaxSnapshot).where(FinanceTaxSnapshot.request_id == item.id))
+        db.execute(
+            delete(FinanceTaxSnapshot).where(FinanceTaxSnapshot.request_id == item.id)
+        )
         item.request_type = request_type
         item.type_data = {**item.type_data, **(type_data or {})}
         accept_documents(db, item, line_id)
     associate = login(client, "finance.associate@payment.local")
     calculated = save(
-        client, request_id, associate, {"request_version": 2, "version": 0, "reason": "Review calculation"}
+        client,
+        request_id,
+        associate,
+        {"request_version": 2, "version": 0, "reason": "Review calculation"},
     )
     assert calculated.status_code == 200, calculated.text
     drafted = command(
@@ -142,7 +178,11 @@ def prepare_type(client, setup, request_type, type_data=None):
     accepted = client.post(
         f"/api/v1/finance-validation/{request_id}/lines/{line_id}/reviews",
         headers=associate,
-        json={"request_version": 2, "decision": "accepted", "physical_original_received": True},
+        json={
+            "request_version": 2,
+            "decision": "accepted",
+            "physical_original_received": True,
+        },
     )
     assert accepted.status_code == 201, accepted.text
     approved = client.post(
@@ -159,7 +199,11 @@ def prepare_type(client, setup, request_type, type_data=None):
     )
     assert approved.status_code == 200, approved.text
     posted = command(
-        client, request_id, "post", manager, {"request_version": 2, "version": 1, "tax_version": 1, "reason": "Post"}
+        client,
+        request_id,
+        "post",
+        manager,
+        {"request_version": 2, "version": 1, "tax_version": 1, "reason": "Post"},
     )
     assert posted.status_code == 200, posted.text
     associate = login(client, "finance.associate@payment.local")
@@ -177,16 +221,34 @@ def prepare_type(client, setup, request_type, type_data=None):
         request_id,
         "issue",
         manager,
-        {"request_version": 2, "version": 0, "setup_version": setup[4]["version"], "reason": "Certify"},
+        {
+            "request_version": 2,
+            "version": 0,
+            "setup_version": setup[4]["version"],
+            "reason": "Certify",
+        },
     )
     assert issued.status_code == 200, issued.text
     return calculated.json(), posted.json(), voucher.json()
 
 
 @pytest.mark.parametrize("request_type", ["reimbursement", "poPayment", "cashAdvance"])
-def test_all_types_use_configured_accounting_and_payment_controls(client, all_setup, request_type):
+def test_all_types_use_configured_accounting_and_payment_controls(
+    client, all_setup, request_type, monkeypatch
+):
     request_id, _, _, asset_id, _ = all_setup
-    tax, posted, voucher = prepare_type(client, all_setup, request_type)
+    po_data = None
+    if request_type == "poPayment":
+        from payment_module.config import get_settings
+        from pydantic import SecretStr
+        from test_po_receipts import SECRET, confirmation, source
+
+        receipt_event = confirmation()
+        po_data = source(receipt_event).type_data
+        monkeypatch.setattr(
+            get_settings(), "procurement_receipt_secret", SecretStr(SECRET)
+        )
+    tax, posted, voucher = prepare_type(client, all_setup, request_type, po_data)
     due = "1120.00" if request_type == "cashAdvance" else "1100.00"
     assert voucher["result"]["totals"]["amount_due"] == due
     if request_type == "cashAdvance":
@@ -194,11 +256,19 @@ def test_all_types_use_configured_accounting_and_payment_controls(client, all_se
         assert posted["result"]["entries"][0]["component"] == "advance"
         assert posted["result"]["entries"][0]["account"]["id"] == str(asset_id)
     with SessionLocal() as db:
-        signatory = str(db.scalar(select(User.id).where(User.email == "signatory@payment.local")))
+        signatory = str(
+            db.scalar(select(User.id).where(User.email == "signatory@payment.local"))
+        )
         from payment_module.models import PaymentMethod
 
-        method = str(db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")))
-    assert schedule(client, request_id, [line(due, signatory, method)]).status_code == 200
+        method = str(
+            db.scalar(
+                select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")
+            )
+        )
+    assert (
+        schedule(client, request_id, [line(due, signatory, method)]).status_code == 200
+    )
     payment_id = view(client, request_id)["lines"][0]["id"]
     receipt = evidence(client, request_id, payment_id, "release").json()
     released = action(
@@ -209,9 +279,35 @@ def test_all_types_use_configured_accounting_and_payment_controls(client, all_se
         1,
         {"evidence_id": receipt["id"], "bank_name": "Bank", "recipient_name": "Payee"},
     )
+    if request_type == "poPayment":
+        assert (
+            released.status_code == 409
+            and "Awaiting requestor receipt confirmation" in released.text
+        )
+        assert view(client, request_id)["receipt_confirmation"]["confirmed"] is False
+        from test_po_receipts import send
+
+        assert send(client, receipt_event).status_code == 200
+        released = action(
+            client,
+            request_id,
+            payment_id,
+            "release",
+            1,
+            {
+                "evidence_id": receipt["id"],
+                "bank_name": "Bank",
+                "recipient_name": "Payee",
+            },
+        )
     assert released.status_code == 200, released.text
     proof = evidence(client, request_id, payment_id, "clearing").json()
-    assert action(client, request_id, payment_id, "clear", 2, {"evidence_id": proof["id"]}).status_code == 200
+    assert (
+        action(
+            client, request_id, payment_id, "clear", 2, {"evidence_id": proof["id"]}
+        ).status_code
+        == 200
+    )
     assert view(client, request_id)["summary"]["state"] == "cleared"
 
 
@@ -297,7 +393,9 @@ def released_advance(db, setup, amount):
     )
     from payment_module.models import PaymentMethod
 
-    method = db.scalar(select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER"))
+    method = db.scalar(
+        select(PaymentMethod.id).where(PaymentMethod.code == "BANK_TRANSFER")
+    )
     payment = PaymentInstruction(
         voucher_id=voucher.id,
         request_id=source.id,
@@ -328,9 +426,12 @@ def released_advance(db, setup, amount):
 
 
 @pytest.mark.parametrize(
-    "advance,due,pending", [("1000", "120.00", "0"), ("1120", "0.00", "0"), ("1500", "0.00", "380.00")]
+    "advance,due,pending",
+    [("1000", "120.00", "0"), ("1120", "0.00", "0"), ("1500", "0.00", "380.00")],
 )
-def test_liquidation_offsets_released_advance_and_only_pays_excess(client, all_setup, advance, due, pending):
+def test_liquidation_offsets_released_advance_and_only_pays_excess(
+    client, all_setup, advance, due, pending
+):
     with SessionLocal.begin() as db:
         reference = released_advance(db, all_setup, advance)
     tax, posted, voucher = prepare_type(
@@ -343,16 +444,26 @@ def test_liquidation_offsets_released_advance_and_only_pays_excess(client, all_s
         },
     )
     assert Decimal(voucher["result"]["totals"]["amount_due"]) == Decimal(due)
-    assert Decimal(voucher["result"]["totals"]["cash_return_pending"]) == Decimal(pending)
-    assert Decimal(posted["result"]["totals"]["debit"]) == Decimal(posted["result"]["totals"]["credit"])
-    credits = [row for row in posted["result"]["entries"] if row["component"] == "advance_settlement"]
+    assert Decimal(voucher["result"]["totals"]["cash_return_pending"]) == Decimal(
+        pending
+    )
+    assert Decimal(posted["result"]["totals"]["debit"]) == Decimal(
+        posted["result"]["totals"]["credit"]
+    )
+    credits = [
+        row
+        for row in posted["result"]["entries"]
+        if row["component"] == "advance_settlement"
+    ]
     assert credits and credits[0]["account"]["id"] == str(all_setup[3])
     assert tax["result"]["advance_source"]["request_number"] == reference
     if Decimal(due) == 0:
         assert not view(client, all_setup[0])["can_add"]
 
 
-def test_liquidation_requires_matching_released_advance_and_rejects_duplicate_posting(client, all_setup):
+def test_liquidation_requires_matching_released_advance_and_rejects_duplicate_posting(
+    client, all_setup
+):
     from fastapi import HTTPException
     from payment_module.advance_settlement import validate_liquidation_posting
 
@@ -360,10 +471,20 @@ def test_liquidation_requires_matching_released_advance_and_rejects_duplicate_po
         reference = released_advance(db, all_setup, "1000")
         item = db.get(PaymentRequest, all_setup[0])
         item.request_type = "liquidation"
-        item.type_data = {"cash_advance_reference": reference, "liquidation_advance_amount": "999"}
-        db.execute(delete(FinanceTaxSnapshot).where(FinanceTaxSnapshot.request_id == item.id))
+        item.type_data = {
+            "cash_advance_reference": reference,
+            "liquidation_advance_amount": "999",
+        }
+        db.execute(
+            delete(FinanceTaxSnapshot).where(FinanceTaxSnapshot.request_id == item.id)
+        )
     associate = login(client, "finance.associate@payment.local")
-    invalid = save(client, all_setup[0], associate, {"request_version": 2, "version": 0, "reason": "Review"})
+    invalid = save(
+        client,
+        all_setup[0],
+        associate,
+        {"request_version": 2, "version": 0, "reason": "Review"},
+    )
     assert invalid.status_code == 409 and "match" in invalid.text
     tax, _, _ = prepare_type(
         client,
@@ -389,12 +510,18 @@ def test_liquidation_requires_matching_released_advance_and_rejects_duplicate_po
         )
         db.add(other)
         db.flush()
-        snapshot = db.scalar(select(FinanceTaxSnapshot).where(FinanceTaxSnapshot.request_id == original.id))
+        snapshot = db.scalar(
+            select(FinanceTaxSnapshot).where(
+                FinanceTaxSnapshot.request_id == original.id
+            )
+        )
         with pytest.raises(HTTPException, match="already has posted"):
             validate_liquidation_posting(db, other, snapshot)
 
 
-def test_unused_advance_can_be_submitted_without_claiming_return_and_stays_outstanding(client, all_setup):
+def test_unused_advance_can_be_submitted_without_claiming_return_and_stays_outstanding(
+    client, all_setup
+):
     from datetime import timedelta
 
     from payment_module.finance_readiness import finance_date

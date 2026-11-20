@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     email_transport: Literal["disabled", "smtp"] = "disabled"
     email_from_address: str = ""
     email_from_name: str = "Payment Module"
+    procurement_receipt_secret: SecretStr | None = None
     smtp_host: str = ""
     smtp_port: int = Field(default=587, ge=1, le=65535)
     smtp_security: Literal["starttls", "tls"] = "starttls"

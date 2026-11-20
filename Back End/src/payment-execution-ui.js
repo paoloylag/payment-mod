@@ -6,9 +6,12 @@ export function paymentExecutionBody(data, drafts, text, money) {
   const execution = data.execution;
   if (!execution) return "";
   const precision = execution.currency_precision ?? 2;
+  const receipt = execution.receipt_confirmation;
+  const receiptNotice = receipt?.required && Number(execution.summary.remaining) > 0 ? `<aside class="independent-validation-notice" aria-label="PO receipt requirement"><strong>${text(receipt.message)}</strong><p>${receipt.confirmed ? `${text(receipt.confirmed_by)} · ${text(humanDateTime(receipt.confirmed_at))}` : "Finance approval, accounting and voucher preparation may continue. Payment release requires confirmation in Procurement."}</p>${receipt.detail ? `<p>${text(receipt.detail)}</p>` : ""}</aside>` : "";
+
   const quantum = (10 ** -precision).toFixed(precision);
   const amount = value => text(money(Number(value), execution.summary.currency));
-  const label = state => statusLabel(({ prepared: "Ready for Finance release", authorized: "Authorized", ready_for_pickup: "Ready for pickup", released: "Released", cleared: "Cleared", failed: "Failed", voided: "Voided", recovery_pending: "Recovery recorded · Manager review pending", reversed: "Payment reversed · Full recovery verified" })[state] || state);
+  const label = state => receipt?.required && !receipt.confirmed && ["prepared", "authorized", "ready_for_pickup"].includes(state) ? "Awaiting requestor receipt confirmation" : statusLabel(({ prepared: "Ready for Finance release", authorized: "Authorized", ready_for_pickup: "Ready for pickup", released: "Released", cleared: "Cleared", failed: "Failed", voided: "Voided", recovery_pending: "Recovery recorded · Manager review pending", reversed: "Payment reversed · Full recovery verified" })[state] || state);
   const input = (name, title, value = "", attrs = "") => `<label>${title}<input name="${name}" value="${text(value)}" ${attrs}></label>`;
   const reason = draft => `<label>Reason<textarea name="reason" rows="2" maxlength="4000" required>${text(draft.reason || "")}</textarea></label>`;
   const options = (name, title, rows, value) => `<label>${title}<select name="${name}" required><option value="">Choose ${title.toLowerCase()}</option>${rows.map(row => `<option value="${text(row.id)}" ${row.id === value ? "selected" : ""}>${text(row.name)}</option>`).join("")}</select></label>`;
@@ -37,7 +40,7 @@ export function paymentExecutionBody(data, drafts, text, money) {
         ${draft.evidence_id ? '<p role="status">Supporting evidence uploaded.</p>' : `<div class="payment-evidence-control"><span>Supporting evidence</span><div class="file-upload-selection"><div class="selected-upload-file" data-payment-file-selection ${draft.file ? "" : "hidden"}><span data-payment-file-name>${text(draft.file?.name || "")}</span><button type="button" class="close-icon-button" data-remove-payment-file aria-label="Remove supporting evidence">${closeIcon}</button></div><label class="line-upload-control document-upload-button"><input name="evidence" type="file" aria-label="Supporting evidence" accept=".pdf,.png,.jpg,.jpeg" ${draft.file ? "" : "required"}>${uploadIcon}<span>Upload Files</span></label></div></div>`}` : ""}
       ${reason(draft)}<p role="alert" data-payment-error></p><button type="submit" class="${["fail", "void"].includes(action) ? "danger" : "primary-button"}">${title}</button></form></details>`;
   };
-  return `<section data-payment-execution aria-label="Payment line items"><h4>Payment line items</h4>
+  return `${receiptNotice}<section data-payment-execution aria-label="Payment line items"><h4>Payment line items</h4>
     <dl class="detail-list">${[["Released", "released"], ["Remaining to release", "remaining"]].map(([title, key]) => `<div><dt>${title}</dt><dd>${amount(execution.summary[key] || "0")}</dd></div>`).join("")}</dl>
     <details><summary>Payment balance details</summary><dl class="detail-list">${[["Allocated", "allocated"], ["Cleared", "cleared"], ["Verified recoveries", "recovered"]].map(([title,key])=>`<div><dt>${title}</dt><dd>${amount(execution.summary[key] || "0")}</dd></div>`).join("")}</dl><p>Released totals exclude confirmed recoveries.</p></details>
     ${fundReturnBody(execution.fund_return, drafts, text, money, execution.summary.currency, data.return_accounts || [])}

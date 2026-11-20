@@ -248,6 +248,8 @@ def execution_view(db, voucher, actor, roles, permissions):
     voucher_event = latest_voucher_event(db, voucher.id)
     item = db.get(PaymentRequest, voucher.request_id)
     recovery_error = recovery_blocker(db, item)
+    from .po_receipts import receipt_gate
+    receipt = receipt_gate(db, item)
     issued = bool(
         voucher_event
         and voucher_event.state != "voided"
@@ -281,12 +283,12 @@ def execution_view(db, voucher, actor, roles, permissions):
                 "predecessor_id": str(instruction.predecessor_id) if instruction.predecessor_id else None,
                 "replacement_id": str(replacement) if replacement else None,
                 "can_authorize": False,
-                "can_pickup_ready": issued
+                "can_pickup_ready": receipt["confirmed"] and issued
                 and state in {"prepared", "authorized"}
                 and method_category == "check"
                 and finance_associate
                 and "payments.release" in permissions,
-                "can_release": issued
+                "can_release": receipt["confirmed"] and issued
                 and finance_associate
                 and "payments.release" in permissions
                 and (
@@ -344,6 +346,7 @@ def execution_view(db, voucher, actor, roles, permissions):
         Decimal(summary["fund_return_expected"]) > 0 or offer_full or fund_return
     )
     return {
+        "receipt_confirmation": receipt,
         "summary": summary,
         "currency_precision": db.get(Currency, voucher.result["currency"]).decimal_precision,
         "lines": rows,

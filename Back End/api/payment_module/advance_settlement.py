@@ -133,3 +133,27 @@ def settled_advance_references(db, requestor_id):
         ):
             references.add(str(item.type_data.get("cash_advance_reference")))
     return references
+
+
+def outstanding_liquidations(db, requestor_id):
+    """Released advances still awaiting posted liquidation or a verified full return."""
+    from .payment_execution import request_payment_summaries
+
+    sources = list(db.scalars(select(PaymentRequest).where(
+        PaymentRequest.requestor_id == requestor_id,
+        PaymentRequest.request_type == "cashAdvance",
+        PaymentRequest.status == "submitted",
+        PaymentRequest.request_number.is_not(None),
+    ).order_by(PaymentRequest.created_at, PaymentRequest.id)))
+    if not sources:
+        return []
+    settled = settled_advance_references(db, requestor_id)
+    summaries = request_payment_summaries(db, [source.id for source in sources])
+    return [
+        {"request_number": source.request_number, "amount": str(source.gross_amount),
+         "currency_code": source.currency_code,
+         "liquidation_due_date": (source.type_data or {}).get("liquidation_due_date")}
+        for source in sources
+        if source.request_number not in settled
+        and Decimal(str((summaries.get(source.id) or {}).get("released", "0"))) > 0
+    ]

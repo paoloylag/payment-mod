@@ -20,3 +20,9 @@ export function documentUploadError(file, error) {
   const message = error?.message || "Upload failed. Try again.";
   return message.includes(file.name) ? message : `“${file.name}”: ${message}`;
 }
+
+export function requestLineAttachmentRefs(row) {
+  return [...new Set([row.Attachment, row.Receipt, row["Proof of Payment"]]
+    .flatMap(value => Array.isArray(value) ? value : value ? [value] : [])
+    .filter(value => typeof value === "string" && value.trim()).map(value => value.trim()))];
+}

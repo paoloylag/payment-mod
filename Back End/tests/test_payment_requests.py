@@ -708,6 +708,14 @@ def test_cash_advance_options_only_include_current_users_submitted_advances(clie
     assert submitted.status_code == 200, submitted.text
     options = client.get("/api/v1/requests/cash-advance-options").json()
     assert submitted.json()["request_number"] in [option["request_number"] for option in options]
+    option = next(option for option in options if option["request_number"] == submitted.json()["request_number"])
+    assert option["purpose"] == submitted.json()["purpose"]
+    assert Decimal(option["amount"]) == Decimal(str(submitted.json()["gross_amount"]))
+    assert option["currency_code"] == submitted.json()["currency_code"]
+    assert option["liquidation_due_date"] == submitted.json()["type_data"]["liquidation_due_date"]
+    assert option["department_cost_center_id"] == submitted.json()["type_data"].get("department_cost_center_id")
+    assert option["budgeted"] == submitted.json()["type_data"].get("budgeted", True)
+
 
     client.cookies.clear()
     login(client, "department.head@payment.local")
@@ -1248,3 +1256,34 @@ def test_request_settings_editor_can_be_assigned_and_revoked(client):
             if assignment:
                 db.delete(assignment)
     assert client.put(url, json=payload, headers=headers).status_code == 403
+
+
+def test_outstanding_liquidation_tag_is_live_and_does_not_include_the_request_itself(client, monkeypatch):
+    from payment_module import payment_execution
+    from payment_module import advance_settlement
+
+    seed()
+    headers = login(client)
+    first = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    first = client.post(
+        f"/api/v1/requests/{first['id']}/submit", json={"version": first["version"]},
+        headers={**headers, "Idempotency-Key": str(uuid4())},
+    ).json()
+    # Simulate the payment boundary; request ownership and API serialization use the real test database.
+    monkeypatch.setattr(payment_execution, "request_payment_summaries", lambda db, ids: {UUID(first["id"]): {"released": "1250.50"}})
+    second = client.post("/api/v1/requests", json=payload_for_type("cashAdvance"), headers=headers).json()
+    assert [row["request_number"] for row in second["outstanding_liquidations"]] == [first["request_number"]]
+    assert client.get(f"/api/v1/requests/{first['id']}").json()["outstanding_liquidations"] == []
+    options = client.get("/api/v1/requests/cash-advance-options").json()
+    assert next(row for row in options if row["request_number"] == first["request_number"])["requires_liquidation"] is True
+    client.cookies.clear()
+    login(client, "department.head@payment.local")
+    assert first["request_number"] not in [row["request_number"] for row in client.get("/api/v1/requests/cash-advance-options").json()]
+    reviewer = client.get(f"/api/v1/requests/{second['id']}")
+    assert reviewer.status_code == 200
+    assert reviewer.json()["outstanding_liquidations"][0]["request_number"] == first["request_number"]
+    client.cookies.clear()
+    login(client)
+    monkeypatch.setattr(advance_settlement, "settled_advance_references", lambda db, owner: {first["request_number"]})
+    assert client.get(f"/api/v1/requests/{second['id']}").json()["outstanding_liquidations"] == []
+    assert next(row for row in client.get("/api/v1/requests/cash-advance-options").json() if row["request_number"] == first["request_number"])["requires_liquidation"] is False

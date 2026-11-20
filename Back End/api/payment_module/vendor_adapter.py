@@ -81,6 +81,9 @@ SAMPLE_VENDOR_PAYLOADS = (
     },
 )
 SAFE_VENDOR_FIELDS = frozenset(SAMPLE_VENDOR_PAYLOAD) | {
+    "provider_id",
+    "qualificationStatus",
+    "address",
     "is_active",
     "version",
     "onboarding_request_id",
@@ -127,11 +130,18 @@ class SharedVendorAdapter:
         needle = search.casefold().strip()
         include_samples = get_settings().app_env in {"local", "test"}
         records = self.db.scalars(select(VendorRecord).order_by(VendorRecord.id))
+        from .procurement_vendors import configuration, vendors
+
+        remote = configuration() is not None
         items = [
             safe_vendor({**record.payload, "id": record.id, "source": record.source_system})
             for record in records
-            if not record.payload.get("deleted_at") and (include_samples or not record.payload.get("is_sample"))
+            if not record.payload.get("deleted_at")
+            and (include_samples or not record.payload.get("is_sample"))
+            and not (remote and record.source_system == "procurement")
         ]
+        if remote:
+            items.extend(safe_vendor(item) for item in vendors(search, active_only))
         return [
             item
             for item in items
@@ -140,7 +150,27 @@ class SharedVendorAdapter:
         ]
 
     def get(self, vendor_id: str) -> dict | None:
-        return next((item for item in self.list(active_only=False) if item["id"] == vendor_id), None)
+        from .procurement_vendors import configuration, vendor
+
+        if vendor_id.startswith("procurement:") and configuration():
+            item = vendor(vendor_id)
+            return safe_vendor(item) if item else None
+        if self.db is None:
+            return None
+        from .config import get_settings
+        from .models import VendorRecord
+
+        record = self.db.get(VendorRecord, vendor_id)
+        if (
+            record is None
+            or record.payload.get("deleted_at")
+            or record.source_system == "procurement"
+            and configuration()
+            or record.payload.get("is_sample")
+            and get_settings().app_env not in {"local", "test"}
+        ):
+            return None
+        return safe_vendor({**record.payload, "id": record.id, "source": record.source_system})
 
 
 def get_vendor_adapter(db=None) -> SharedVendorAdapter:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from sqlalchemy import String, and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from ..advance_settlement import outstanding_liquidations
 from ..audit import audit
 from ..config import get_settings
 from ..cost_center_approvals import department_participant, routing_approver
@@ -154,6 +155,7 @@ def serialize(
     lines_by_request: dict[UUID, list[PaymentRequestLine]] | None = None,
     payment_summaries: dict | None = None,
     workflow_states: dict | None = None,
+    accountability: dict | None = None,
 ) -> dict:
     requestor = requestors.get(item.requestor_id) if requestors is not None else db.get(User, item.requestor_id)
     department = (
@@ -194,6 +196,12 @@ def serialize(
         "currency_code": item.currency_code,
         "gross_amount": float(item.gross_amount),
         "version": item.version,
+        "outstanding_liquidations": [
+            advance for advance in (
+                accountability.get(item.requestor_id, []) if accountability is not None
+                else outstanding_liquidations(db, item.requestor_id)
+            ) if advance["request_number"] != item.request_number
+        ] if item.request_type == "cashAdvance" else [],
         "type_data": item.type_data,
         "submitted_at": item.submitted_at.isoformat() if item.submitted_at else None,
         "created_at": item.created_at.isoformat(),
@@ -228,6 +236,11 @@ def serialize_many(
     if not items:
         return []
     payment_summaries = request_payment_summaries(db, [item.id for item in items])
+    accountability = {
+        requestor_id: outstanding_liquidations(db, requestor_id)
+        for requestor_id in {item.requestor_id for item in items if item.request_type == "cashAdvance"}
+    }
+
     requestor_ids = {item.requestor_id for item in items}
     department_ids = {item.department_id for item in items}
     request_ids = {item.id for item in items}
@@ -265,6 +278,7 @@ def serialize_many(
             lines_by_request=lines_by_request,
             payment_summaries=payment_summaries,
             workflow_states=workflow_states,
+            accountability=accountability,
         )
         data.update(request_display(item, workflows.get(item.id), payment_summaries.get(item.id, {})))
         result.append(data)
@@ -957,13 +971,19 @@ def list_own_cash_advance_options(db: Session = Depends(get_db), actor: User = D
         )
         .order_by(PaymentRequest.created_at.desc(), PaymentRequest.id.desc())
     )
+    unsettled = {item["request_number"] for item in outstanding_liquidations(db, actor.id)}
     return [
         {
             "request_number": item.request_number,
+            "requires_liquidation": item.request_number in unsettled,
             "amount": str(item.gross_amount),
             "currency_code": item.currency_code,
             "status": item.status,
             "created_at": item.created_at.isoformat(),
+            "purpose": item.purpose,
+            "department_cost_center_id": (item.type_data or {}).get("department_cost_center_id"),
+            "liquidation_due_date": (item.type_data or {}).get("liquidation_due_date"),
+            "budgeted": (item.type_data or {}).get("budgeted", True),
         }
         for item in items
     ]
