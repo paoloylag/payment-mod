@@ -33,3 +33,12 @@ To select several specifications, pass their paths, for example
 `pnpm test:e2e:isolated tests/e2e/finance-closeout.spec.js tests/e2e/all-type-payments.spec.js`.
 Playwright flags are forwarded. Install the standard Playwright video dependency and set `PLAYWRIGHT_BROWSERS_PATH`
 when using a custom workspace browser cache.
+
+
+## Required visual parity sweep for UI audits
+
+Every UI audit must compare actual rendered controls with the current tenant boilerplate implementation, not just verify that actions work. Follow the mandatory coverage in AGENTS.md and life-ui-fix. Broad system audits must inventory all navigation screens and relevant role/state variants, including Finance processing and administration.
+
+For each screen/state record: route, role, viewport and theme; click path; component/selector in the actual boilerplate; observed appearance and interaction; screenshot; Pass/Fail/Blocked/Not run; severity and recommendation where applicable. Explicitly inspect section headings, accordions, tabs, buttons, menus, table density, form validation, modal focus and scroll, overflow, empty/loading/error recovery and long content. Include representative phone, tablet and desktop widths and both themes. Do not mark an unvisited role or state passed based on another screen.
+
+Separate visual parity from functional testing and policy acceptance. If a shared pattern is missing or partly themed, record the verified gap and the app-local adaptation. A source-only observation remains source-only. Finish with the complete coverage matrix, prioritized findings and explicit remaining browser checks. Use isolated fictional data for role switching or mutation; preserve ordinary demo/user data and external systems.

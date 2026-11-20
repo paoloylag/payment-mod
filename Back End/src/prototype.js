@@ -1,3 +1,4 @@
+import { humanDateTime } from "./date-time.js";
 import { generalRequestVendor } from "./request-vendor.js";
 import { documentAccept, documentFormats, documentSelectionError, documentUploadError } from "./document-upload.js";
 import { promptIncomplete, retainPromptValues, takePromptSubmission, rememberFocus } from "./action-prompt.js";
@@ -1442,7 +1443,7 @@ function apiRequestToPrototype(item) {
     requestor: item.requestor_name, requestorId: item.requestor_id, department: item.department_name,
     vendor: item.payee_name || item.lines?.find((line) => line.vendor_name)?.vendor_name || "To Be Confirmed",
     amount: Number(item.gross_amount) || 0, budgeted: item.type_data?.budgeted !== false,
-    status, currentStep: item.approval_state === "approved" ? item.request_type === "pettyCash" ? 15 : 9 : ({department_head:3,finance_associate:4,finance_manager:5,coo:7,president:8,board_member:8.5}[item.workflow_stage_role] || currentStep), submitted: item.submitted_at?.slice(0, 10) || item.created_at.slice(0, 10),
+    status, currentStep: item.status === "archived" ? 15 : item.approval_state === "approved" ? item.request_type === "pettyCash" ? 15 : 9 : ({department_head:3,finance_associate:4,finance_manager:5,coo:7,president:8,board_member:8.5}[item.workflow_stage_role] || currentStep), submitted: item.submitted_at?.slice(0, 10) || item.created_at.slice(0, 10),
     returned: item.status === "returned" ? item.updated_at.slice(0, 10) : "", resubmitted: "",
     documents: item.lines?.reduce((count, line) => count + (line.attachment_refs?.length || 0), 0) || 0,
     missing: 0, currency: item.currency_code, unlocked: item.status === "returned", audit: [], lines: item.lines || [],
@@ -2662,17 +2663,15 @@ function detail(r, showWorkflowSummary = false) {
   let requestControls = canEdit || canUnlock || r.unlocked ? `<div class="request-control-bar"><div><span class="eyebrow">Request Controls</span><strong>${r.unlocked ? "Unlocked for urgent correction" : canEdit ? "Editing is available before Document Validation" : "Request is workflow-locked"}</strong></div>${canEdit ? `<button type="button" data-edit-request="${r.id}">Edit Request</button>` : ""}${canUnlock ? `<button type="button" class="danger" data-unlock-request="${r.id}">Authorize Unlock</button>` : ""}</div>` : "";
   requestControls += approvalOverridePanel(r);
   requestControls += workflowExceptionPanel(r);
-  requestControls += financeTaxPanel(r);
-  requestControls += financeAccountingPanel(r);
-  requestControls += financeVoucherPanel(r);
+  requestControls += financeWorkspaceTabs(r, showWorkflowSummary);
   const latestReturn = r.backendId ? [...(state.workflowDetails[r.backendId]?.events || [])].reverse().find((event) => event.action === "returned") : null;
-  return `<div class="request-detail-groups"><section class="panel request-information-card request-summary-card"><details class="request-metadata responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Request Summary</span><strong>${r.requestor} · ${requestMoney(r)}</strong><small>${r.department} · ${r.vendor}</small></span><span class="disclosure-label">Details</span></summary><dl class="detail-list">
+  return `<div class="request-detail-groups"><section class="panel request-information-card request-summary-card"><details class="request-metadata responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><strong>Request Summary</strong></span><span class="disclosure-label">Details</span></summary><dl class="detail-list">
       <div><dt>Requestor</dt><dd>${r.requestor}</dd></div><div><dt>Department</dt><dd>${r.department}</dd></div>
       <div><dt>Payee</dt><dd>${r.vendor}</dd></div><div><dt>Amount</dt><dd>${requestMoney(r)}</dd></div>
       ${reimbursementBatchDetail(r)}<div><dt>Currency</dt><dd>${r.currency || "PHP"}</dd></div><div><dt>Aging Days</dt><dd>${agingDays(r)} day${agingDays(r) === 1 ? "" : "s"}</dd></div>
       <div><dt>Documents</dt><dd>${r.documents} attached, ${r.missing} missing</dd></div><div><dt>Budget</dt><dd>${r.budgeted ? "Budgeted" : "Unbudgeted"}</dd></div>
       ${r.submittedByFinance ? `<div><dt>Submitted by Finance</dt><dd>${r.requestor}</dd></div><div><dt>Independent Review</dt><dd>Required</dd></div>` : ""}
-    </dl></details></section>${r.decisionReason ? `<section class="panel request-information-card"><div class="request-control-bar"><div><span class="eyebrow">${r.backendStatus === "declined" ? "Decline Reason" : "Correction Requested"}</span><strong>${escapeHtml(r.decisionReason)}</strong>${r.backendStatus === "returned" ? correctionTargetList(latestReturn?.correction_targets) : ""}</div></div></section>` : ""}${requestControls}<details class="panel request-information-card request-routing-card responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Routing</span><strong>${r.budgeted ? "Budgeted" : "Unbudgeted"} · ${requestMoney(r)}</strong></span><span class="disclosure-label">Why this route?</span></summary><div class="routing-detail"><strong>${route(r)}</strong></div></details>${showWorkflowSummary ? workflowSummary(r) : ""}${requestActivity(r)}</div>`;
+    </dl></details></section>${r.decisionReason ? `<section class="panel request-information-card"><div class="request-control-bar"><div><span class="eyebrow">${r.backendStatus === "declined" ? "Decline Reason" : "Correction Requested"}</span><strong>${escapeHtml(r.decisionReason)}</strong>${r.backendStatus === "returned" ? correctionTargetList(latestReturn?.correction_targets) : ""}</div></div></section>` : ""}${requestControls}</div>`;
 }
 
 function conversationLayoutClass() {
@@ -2772,6 +2771,53 @@ async function loadFinanceValidation(r, force = false) {
   finally { state.financeValidationLoading[key] = false; render(); }
 }
 
+const financeWorkspaceSelection = new Map();
+
+function approvalHistoryPanel(r, showWorkflowSummary) {
+  return `<details class="panel request-information-card request-routing-card responsive-disclosure" ${window.matchMedia("(min-width: 640px)").matches ? "open" : ""}><summary><span><span class="eyebrow">Routing</span><strong>${r.budgeted ? "Budgeted" : "Unbudgeted"} · ${requestMoney(r)}</strong></span><span class="disclosure-label">Why this route?</span></summary><div class="routing-detail"><strong>${route(r)}</strong></div></details>${showWorkflowSummary ? workflowSummary(r) : ""}${workflow(r.currentStep, r.type)}${requestActivity(r)}`;
+}
+
+function financeWorkspaceTabs(r, showWorkflowSummary = false) {
+  const tabs = [
+    ["tax", ["cashAdvance", "liquidation"].includes(r.type) ? "Advance Calculation" : "Tax & Withholding", financeTaxPanel(r)],
+    ["accounting", "Accounting", financeAccountingPanel(r)],
+    ["voucher", r.type === "pettyCash" ? "Voucher" : "Voucher & Payment", financeVoucherPanel(r)],
+    ["approval", "Approval & History", approvalHistoryPanel(r, showWorkflowSummary)],
+  ].filter(([, , content]) => content);
+  if (!tabs.length) return "";
+  const key = `${state.authUser?.id}:${r.backendId || r.id}`;
+  const selected = tabs.some(([id]) => id === financeWorkspaceSelection.get(key)) ? financeWorkspaceSelection.get(key) : tabs[0][0];
+  const prefix = `finance-workspace-${r.backendId || r.id}`;
+  return `<div class="finance-workspace" data-finance-workspace="${escapeHtml(key)}"><div class="finance-workspace-tabs" role="tablist" aria-label="Request details sections">${tabs.map(([id, label]) => `<button type="button" role="tab" id="${escapeHtml(prefix)}-${id}-tab" aria-controls="${escapeHtml(prefix)}-${id}-panel" aria-selected="${id === selected}" tabindex="${id === selected ? 0 : -1}" data-finance-tab="${id}">${label}</button>`).join("")}</div>${tabs.map(([id, , content]) => `<div role="tabpanel" id="${escapeHtml(prefix)}-${id}-panel" aria-labelledby="${escapeHtml(prefix)}-${id}-tab" tabindex="0" data-finance-tab-panel="${id}" ${id === selected ? "" : "hidden"}>${content}</div>`).join("")}</div>`;
+}
+
+function selectFinanceWorkspaceTab(button) {
+  const workspace = button.closest("[data-finance-workspace]");
+  if (!workspace) return;
+  financeWorkspaceSelection.set(workspace.dataset.financeWorkspace, button.dataset.financeTab);
+  workspace.querySelectorAll("[data-finance-tab]").forEach(tab => {
+    const selected = tab === button;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  workspace.querySelectorAll("[data-finance-tab-panel]").forEach(panel => { panel.hidden = panel.dataset.financeTabPanel !== button.dataset.financeTab; });
+}
+
+document.addEventListener("click", event => {
+  const tab = event.target.closest("[data-finance-tab]");
+  if (tab) selectFinanceWorkspaceTab(tab);
+});
+document.addEventListener("keydown", event => {
+  const tab = event.target.closest("[data-finance-tab]");
+  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+  const index = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  selectFinanceWorkspaceTab(tabs[index]);
+  tabs[index].focus();
+  tabs[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+});
+
 function financeTaxKey(r) { return `${state.authUser?.id}:${r.backendId}:${r.backendVersion}:${r.currentStep}:${r.backendStatus}`; }
 
 async function loadFinanceTax(r, force = false) {
@@ -2809,8 +2855,8 @@ function financeTaxPanel(r) {
     </form></details>` : ""}
     ${editable && ["cashAdvance", "liquidation"].includes(r.type) ? `<form data-finance-tax-form class="identity-form"><p>${r.type === "cashAdvance" ? "Cash Advance uses the configured advance asset account without VAT/EWT deductions." : "Liquidation offsets the released advance. Only excess expenses create a new payment."}</p><label>Calculation review reason<textarea name="reason" rows="2" maxlength="4000" required>${escapeHtml(draft.reason)}</textarea></label><p data-tax-error role="alert"></p><button type="submit" ${tax.blocker ? "disabled" : ""}>Save Finance calculation</button></form>` : ""}
     ${result?.advance_source ? `<p>Original advance: ${escapeHtml(result.advance_source.request_number)} · Applied ${money(Number(result.totals.advance_applied), r.currency)} · Cash return pending ${money(Number(result.totals.cash_return_pending), r.currency)}</p>` : ""}
-    ${result ? `<details><summary>Calculation by line</summary>${result.lines.map(line => `<p><strong>Line ${line.position}: ${escapeHtml(line.particulars)}</strong><br>${escapeHtml(line.ewt_tax.ewt_classification)} ${escapeHtml(line.ewt_tax.ewt_rate)}% · ${line.source === "line" ? "Line override" : "Request EWT"}<br>Base ${money(Number(line.ewt_base), r.currency)} · EWT ${money(Number(line.ewt), r.currency)} · Due ${money(Number(line.amount_due), r.currency)}</p>`).join("")}</details>` : ""}
-    ${tax.history.length ? `<details><summary>EWT history (${tax.history.length})</summary>${tax.history.map(entry => `<p><strong>Calculation ${entry.version}</strong> · ${escapeHtml(entry.result.assigned_by || "Finance Associate")} · ${escapeHtml(entry.created_at)}<br>${escapeHtml(entry.reason)}<br>EWT ${money(Number(entry.result.totals.ewt), r.currency)} · Due ${money(Number(entry.result.totals.amount_due), r.currency)}</p>`).join("")}</details>` : ""}`);
+    ${result ? `<details><summary>Calculation by line</summary>${result.lines.map(line => `<article class="finance-record"><h4>Line ${line.position}</h4><p class="finance-record-purpose">${escapeHtml(line.particulars)}</p><dl class="finance-record-fields"><div><dt>EWT classification</dt><dd>${escapeHtml(line.ewt_tax.ewt_classification || "None")}</dd></div><div><dt>Rate</dt><dd>${Number(line.ewt_tax.ewt_rate).toLocaleString("en-PH", { maximumFractionDigits: 4 })}%</dd></div><div><dt>Assignment</dt><dd>${line.source === "line" ? "Line override" : "Request EWT"}</dd></div></dl><dl class="finance-record-amounts"><div><dt>EWT base</dt><dd>${money(Number(line.ewt_base), r.currency)}</dd></div><div><dt>EWT</dt><dd>${money(Number(line.ewt), r.currency)}</dd></div><div><dt>Amount due</dt><dd>${money(Number(line.amount_due), r.currency)}</dd></div></dl></article>`).join("")}</details>` : ""}
+    ${tax.history.length ? `<details><summary>EWT history (${tax.history.length})</summary>${tax.history.map(entry => `<article class="finance-record"><h4>Calculation ${entry.version}</h4><dl class="finance-record-fields"><div><dt>Assigned by</dt><dd>${escapeHtml(entry.result.assigned_by || "Finance Associate")}</dd></div><div><dt>Date and time</dt><dd>${escapeHtml(humanDateTime(entry.created_at))}</dd></div><div class="finance-record-wide"><dt>Reason</dt><dd>${escapeHtml(entry.reason || "Not provided")}</dd></div></dl><dl class="finance-record-amounts"><div><dt>EWT</dt><dd>${money(Number(entry.result.totals.ewt), r.currency)}</dd></div><div><dt>Amount due</dt><dd>${money(Number(entry.result.totals.amount_due), r.currency)}</dd></div></dl></article>`).join("")}</details>` : ""}`);
 }
 
 function bindFinanceTax() {
@@ -3540,14 +3586,14 @@ function requestBuilder() {
     : isPoPayment
     ? `<label>P.O. Reference Number <small>(From Procurement)</small><select data-po-reference data-request-field="po_reference">${poRecords.map((record) => `<option value="${record.id}" ${record.id === poRecord.id ? "selected" : ""}>${record.id} · ${escapeHtml(record.payee)}</option>`).join("")}</select></label><label>Requestor<input data-request-field="requestor_name" value="${requestorName}"></label><label>Payee / Vendor <small>(System Generated)</small><input data-request-field="payee_name" value="${poRecord.payee}" readonly></label><label>Calculated Amount <small>(System Generated)</small><output id="draftAmount" class="calculated-amount">${money(poRecord.amount, state.draftCurrency)}</output></label>${currencyField}<label>Department / Cost Center <small>(From Procurement)</small><input value="${poRecord.department}" readonly></label><label>P.O. Status <small>(From Procurement)</small><input value="${escapeHtml(statusLabel(poRecord.status))}" readonly></label>${config.mandatoryFields.map(fieldInput).join("")}`
     : `<label>Requestor<input data-request-field="requestor_name" value="${requestorName}" placeholder="Enter requestor's full name"></label><label>Calculated Amount<output id="draftAmount" class="calculated-amount">${money(draftAmount, state.draftCurrency)}</output></label>${currencyField}${config.mandatoryFields.map(fieldInput).join("")}`;
-  const generalVendorSection = state.draftType === "general" ? `<section class="general-vendor-section" aria-labelledby="general-vendor-heading"><div class="panel-header"><h3 id="general-vendor-heading">Vendor</h3></div><label>Supplier option<select data-request-field="general_vendor_mode" data-general-vendor-mode><option value="existing">Select existing vendor</option><option value="new">Add new vendor</option></select></label><div data-general-existing-vendor><label>Payee / Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).filter(vendor => vendor.status === "active" && vendor.source !== "procurement").map(vendor => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label><small>Finance-validated APS suppliers.</small></div><div data-general-new-vendor hidden><div data-request-vendor-summary aria-live="polite"></div><button type="button" data-open-request-vendor>Edit new vendor</button><dialog class="finance-upload-modal" data-request-vendor-dialog aria-labelledby="request-vendor-dialog-title"><header><h3 id="request-vendor-dialog-title">Add vendor</h3><button type="button" class="close-icon-button" data-close-request-vendor aria-label="Close vendor">${closeIcon}</button></header><div class="finance-upload-modal-body"><p class="field-help">Available to other requestors after Finance Associate accepts the supplier documents.</p><div class="field-grid">${[["name", "Supplier name", 160], ["taxId", "TIN", 80], ["contactPerson", "Contact person", 160], ["email", "Supplier email", 254], ["phone", "Phone", 80], ["businessRegistration", "SEC/DTI registration number", 160], ["street", "Street address", 300], ["city", "City", 160]].map(([key, label, limit]) => `<label>${label}<input data-request-field="general_vendor_${key}" maxlength="${limit}" type="${key === "email" ? "email" : "text"}"></label>`).join("")}</div><h4>Required supplier documents</h4><div class="upload-list">${["BIR 2303", "Business registration (SEC/DTI)", "Business permit"].map(uploadInput).join("")}</div><div class="identity-form-actions"><button type="button" class="primary-button" data-save-request-vendor>Save vendor details</button></div></div></dialog></div></section>` : "";
+  const generalVendorSection = state.draftType === "general" ? `<section class="general-vendor-section" aria-labelledby="general-vendor-heading"><div class="panel-header"><h3 id="general-vendor-heading">Vendor</h3></div><input type="hidden" data-request-field="general_vendor_mode" data-general-vendor-mode value="existing"><div class="request-vendor-picker"><div data-general-existing-vendor><label>Vendor<select data-vendor-reference data-request-field="vendor_external_id"><option value="">Select vendor</option>${(state.masterData.vendors || []).filter(vendor => vendor.status === "active" && vendor.source !== "procurement").map(vendor => `<option value="${escapeHtml(vendor.id)}">${escapeHtml(vendor.name)}</option>`).join("")}</select></label></div><button type="button" data-add-request-vendor>+ Add new vendor</button><button type="button" data-use-existing-vendor hidden>Choose existing vendor</button></div><div data-general-new-vendor hidden><div data-request-vendor-summary aria-live="polite"></div><button type="button" data-open-request-vendor>Edit new vendor</button><dialog class="finance-upload-modal" data-request-vendor-dialog aria-labelledby="request-vendor-dialog-title"><header><h3 id="request-vendor-dialog-title">Add vendor</h3><button type="button" class="close-icon-button" data-close-request-vendor aria-label="Close vendor">${closeIcon}</button></header><div class="finance-upload-modal-body"><p class="field-help">Available to other requestors after Finance Associate accepts the supplier documents.</p><div class="field-grid">${[["name", "Supplier name", 160], ["taxId", "TIN", 80], ["contactPerson", "Contact person", 160], ["email", "Supplier email", 254], ["phone", "Phone", 80], ["businessRegistration", "SEC/DTI registration number", 160], ["street", "Street address", 300], ["city", "City", 160]].map(([key, label, limit]) => `<label>${label}<input data-request-field="general_vendor_${key}" maxlength="${limit}" type="${key === "email" ? "email" : "text"}"></label>`).join("")}</div><h4>Required supplier documents</h4><div class="upload-list">${["BIR 2303", "Business registration (SEC/DTI)", "Business permit"].map(uploadInput).join("")}</div><div class="identity-form-actions"><button type="button" class="primary-button" data-save-request-vendor>Save vendor details</button></div></div></dialog></div></section>` : "";
   const liquidationSummary = isLiquidation ? `<div class="liquidation-summary"><label>Cash Advance Amount<input id="liquidationAdvanceAmount" type="number" placeholder="e.g. 50000"></label><div><span>Total Expenses</span><strong id="liquidationExpenses">${money(draftAmount)}</strong></div><div><span>For Return / For Reimbursement</span><strong id="liquidationSettlement">${settlementFor(state.liquidationAdvanceAmount, draftAmount)}</strong></div><label>Amount Returned Offline<input id="liquidationReturnAmount" type="number" min="0" step="0.01" value="${state.liquidationReturnAmount || ""}" placeholder="0.00"><small>Enter the amount returned directly to Finance. No proof-of-return upload is required.</small></label></div>` : "";
   const poSupplierNotice = isPoPayment && poRecord.newSupplier ? `<div class="po-system-notice"><strong>New Supplier Requirement</strong><p>BIR 2303 must be uploaded and validated in the P.O. system before this payment request can proceed.</p></div>` : "";
   const reimbursementTiming = state.draftType === "reimbursement" ? `<section class="cash-advance-policy"><h4>Finance processing guidance</h4><ul><li>Submit complete requests at least 15 days before the required payment date.</li><li>Submit invoices within 30 days of the invoice date.</li><li>Low-value expenses remain Reimbursement requests in this module.</li><li>${state.reimbursementBatchSetting?.cutoff_days?.length ? `Monthly processing cutoff days: ${state.reimbursementBatchSetting.cutoff_days.map(day => escapeHtml(String(day))).join(" and ")}. If a cutoff day does not exist, the last calendar day is used. Submissions after a cutoff move to the next batch.` : "The processing schedule is currently unavailable. Your batch date will be assigned when you submit."}</li></ul></section>` : "";
   const accountability = isCashAdvance ? `<section class="accountability-box"><h4>Accountability / Authority to Deduct</h4><p>I have read and understood the <a href="#cash-advance-policy" data-cash-advance-policy>Cash Advance policies</a> and procedures. I agree to fully liquidate this Cash Advance after completion of the transaction, project, or event. I authorize payroll deduction of any unliquidated or unsubstantiated cash advance in accordance with labor laws and company policy.</p><label><input type="checkbox" data-request-field="accountability_acknowledged" required><span>I acknowledge full accountability for the amount received and agree to the authority to deduct.</span></label></section><section class="cash-advance-policy"><h4>Cash Advance Policy</h4><ul><li>Staff may request up to PHP 40,000 and may hold only one cash advance at a time.</li><li>Liquidation is due within 15 days after the event or project.</li><li>Excess cash must be returned directly to Finance.</li></ul></section>` : "";
   return `<section class="request-form-page" data-request-form-type="${state.draftType}" data-request-form-draft="${state.activeDraftId || ""}"><div class="request-navigation-row"><button type="button" class="back-button" data-back-request-types>← Back to Request Types</button><button type="button" data-view-drafts>My Drafts (${state.drafts.filter((draft) => draft.requestor === activeRequestor()).length})</button></div><section class="form-layout"><div class="panel request-form-panel"><div class="panel-header request-details-header"><div><h3>${state.draftType === "reimbursement" ? "Reimbursement Details" : isLiquidation ? "Liquidation Details" : isCashAdvance ? "Cash Advance Details" : "Request Details"}</h3>${state.activeDraftId ? `<small class="draft-save-state">Draft saved · Auto-save enabled</small>` : ""}</div></div>${state.persona === "financeAssociate" ? `<div class="independent-validation-notice"><p>The system will assign document validation to another Finance Associate.</p></div>` : ""}
     <div class="field-grid ${state.draftType === "reimbursement" || isLiquidation || isCashAdvance ? "reimbursement-fields" : ""}">${primaryFields}</div>${generalVendorSection}${poSupplierNotice}${liquidationSummary}
-    ${isCashAdvance || isLiquidation || state.draftType === "pettyCash" ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}>Unbudgeted Request</label>`}
+    ${isCashAdvance || isLiquidation || state.draftType === "pettyCash" ? "" : `<label class="toggle-row"><input id="unbudgeted" type="checkbox" ${!state.budgeted ? "checked" : ""}><span>Unbudgeted Request</span></label>`}
     <div class="line-items-section ${multipleItems ? "" : "single-item-section"}">${multipleItems ? `<div class="line-items-header"><div><span class="eyebrow">Request Breakdown</span><h4>Line Items</h4></div></div>` : ""}<div class="line-card-list">
       ${lineItems.map((item, rowIndex) => `<${multipleItems ? "details" : "div"} class="${multipleItems ? "line-item-card" : "single-request-item"}" data-line-card="${rowIndex}" ${multipleItems && rowIndex === expandedLineIndex ? "open" : ""}>${multipleItems ? `<summary><span class="line-card-number">${rowIndex + 1}</span><span class="line-card-summary"><strong data-line-title>${escapeHtml(item.Particulars || item["Merchant Name"] || item.Supplier || item["P.O. Number"] || `Line item ${rowIndex + 1}`)}</strong>${config.lineColumns.some((column) => column.includes("Department")) ? `<small data-line-subtitle>${escapeHtml(lineCenterLabel(item["Department / Cost Center"] || item["Department to Be Charged"]))}</small>` : ""}</span><span class="line-card-meta"><strong data-line-amount>${money(Number(item.Amount) || 0, state.draftCurrency)}</strong>${config.lineColumns.includes("Attachment") || config.lineColumns.includes("Receipt") || config.lineColumns.includes("Proof of Payment") ? `<small data-line-file-count>${lineAttachmentNames(state.draftType === "reimbursement" ? item["Proof of Payment"] : item.Attachment || item.Receipt).length} files</small>` : ""}</span><span class="line-card-chevron" aria-hidden="true">⌄</span></summary>` : ""}<div class="line-card-body"><div class="line-card-fields">${config.lineColumns.map((column) => {
         const isFile = column === "Receipt" || column === "Attachment" || column === "Proof of Payment";
@@ -5555,6 +5601,10 @@ function render() {
     const added = document.querySelector("[data-general-new-vendor]");
     if (existing) existing.hidden = isNew;
     if (added) added.hidden = !isNew;
+    const addButton = document.querySelector("[data-add-request-vendor]");
+    const existingButton = document.querySelector("[data-use-existing-vendor]");
+    if (addButton) addButton.hidden = isNew;
+    if (existingButton) existingButton.hidden = !isNew;
     syncLineVendors();
   };
   const vendorDialog = document.querySelector("[data-request-vendor-dialog]");
@@ -5570,6 +5620,15 @@ function render() {
     if (supplierMode.value === "new") openRequestVendor(supplierMode);
   });
   vendorOpener?.addEventListener("click", () => openRequestVendor(vendorOpener));
+  document.querySelector("[data-add-request-vendor]")?.addEventListener("click", () => {
+    supplierMode.value = "new";
+    supplierMode.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  document.querySelector("[data-use-existing-vendor]")?.addEventListener("click", () => {
+    supplierMode.value = "existing";
+    supplierMode.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector("[data-vendor-reference]")?.focus();
+  });
   let vendorDetailsSaved = false;
   const updateVendorSummary = (saved = vendorDetailsSaved) => {
     vendorDetailsSaved = saved;
@@ -5597,7 +5656,14 @@ function render() {
     updateVendorSummary(true);
     vendorDialog.close();
   });
-  vendorDialog?.addEventListener("close", () => { syncLineVendors(); updateVendorSummary(); vendorDialogOpener?.focus(); });
+  vendorDialog?.addEventListener("close", () => {
+    if (!vendorDialog.querySelector('[data-request-field="general_vendor_name"]').value.trim()) {
+      supplierMode.value = "existing";
+      updateSupplierMode();
+    }
+    syncLineVendors(); updateVendorSummary();
+    (supplierMode.value === "new" ? vendorOpener : document.querySelector("[data-add-request-vendor]"))?.focus();
+  });
   updateSupplierMode();
   updateVendorSummary();
   if (requestVendorDialogOpen && vendorDialog && !vendorDialog.open) {

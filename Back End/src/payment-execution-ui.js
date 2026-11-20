@@ -1,3 +1,4 @@
+import { humanDateTime } from "./date-time.js";
 import { statusLabel } from "./status-label.js";
 import { closeIcon, uploadIcon } from "./icons.js";
 import { fundReturnBody } from "./fund-return-ui.js";
@@ -54,6 +55,6 @@ export function paymentExecutionBody(data, drafts, text, money) {
       ${line.can_fail ? `${actionForm(line, "fail", "Mark payment failed")}${actionForm(line, "void", "Void payment line")}` : ""}
       ${line.can_replace ? `<button type="button" data-replace-payment="${text(line.id)}">Prepare replacement</button>` : ""}
       ${line.evidence.length ? `<details><summary>Supporting evidence (${line.evidence.length})</summary>${line.evidence.map(row => `<p>${text(row.kind)} · ${text(row.filename)}${row.available ? ` <a href="/api/v1/documents/${text(row.document_id)}/content" target="_blank" rel="noopener">Open evidence</a>` : " · Unavailable"}</p>`).join("")}</details>` : ""}
-      ${line.history.length ? `<details><summary>Payment history (${line.history.length})</summary>${line.history.map(row => `<details class="payment-history-event"><summary><strong>${row.result.recovery_rejected ? "Recovery Rejected" : label(row.state)}</strong> · ${text(row.result.actor_name)} · ${text(new Date(row.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }))}</summary><p>${text(row.reason)}</p>${row.result.bank_name ? `<p>${text(row.result.bank_name)} · ${text(row.result.recipient_name)}</p>` : ""}${row.result.recorded_on ? `<p>Recorded date: ${text(row.result.recorded_on)}</p>` : ""}</details>`).join("")}</details>` : ""}</article>`).join("")}
+      ${line.history.length ? `<details><summary>Payment history (${line.history.length})</summary>${line.history.map(row => `<details class="payment-history-event"><summary><strong>${row.result.recovery_rejected ? "Recovery Rejected" : label(row.state)}</strong> · ${text(row.result.actor_name)} · ${text(humanDateTime(row.created_at))}</summary><p>${text(row.reason)}</p>${row.result.bank_name ? `<p>${text(row.result.bank_name)} · ${text(row.result.recipient_name)}</p>` : ""}${row.result.recorded_on ? `<p>Recorded date: ${text(row.result.recorded_on)}</p>` : ""}</details>`).join("")}</details>` : ""}</article>`).join("")}
     ${preparation}</section>`;
 }

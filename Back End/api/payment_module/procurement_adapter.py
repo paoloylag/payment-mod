@@ -147,9 +147,21 @@ class MockProcurementAdapter:
         from .config import get_settings
 
         samples = SAMPLE_PURCHASE_ORDERS if get_settings().app_env in {"local", "test"} else ()
+        if get_settings().app_env == "local":
+            from sqlalchemy import select
+
+            from .database import SessionLocal
+            from .demo_scenarios import CATALOG, purchase_orders
+            from .models import SystemSetting
+
+            with SessionLocal() as db:
+                enabled = db.scalar(select(SystemSetting.value).where(SystemSetting.key == "development.demo_catalog"))
+            if enabled == CATALOG:
+                samples = (*samples, *purchase_orders())
         items = [normalize_purchase_order(payload) for payload in samples]
         return [
-            item for item in items
+            item
+            for item in items
             if (not eligible_only or item["paymentEligible"])
             and (not needle or needle in f"{item['poNumber']} {item['title']} {item['vendorName']}".casefold())
         ]

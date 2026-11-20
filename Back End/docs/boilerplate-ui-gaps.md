@@ -32,3 +32,10 @@ APS now uses the existing native dialog/showModal pattern with an inert backgrou
 - Coverage: underlying patterns implemented in tenant boilerplate; APS presentation aligned. No missing base component identified.
 - Evidence: tenant `src/styles.css` ops-card (2924ff), upload-document-row (2294ff); `src/App.tsx` document checklist (1200). APS reuses its shared preview-detail-list/status-pill/button tokens and adapts the existing card/checklist hierarchy for a request-bound supplier summary.
 - Result: header with Edit action and saved state; mobile-first metadata grid; Attached/Missing document rows and concise footer. Domain validation remains in APS. No changes to the boilerplate are required.
+
+## 2026-11-12 — Approved APS Finance workspace variants
+- Coverage: underlying tabs, disclosures, dialogs, badges and document viewer are implemented in tenant boilerplate. Rounded tinted Finance tabs and bold crimson bordered accordion headers are intentionally app-only variants approved by the user; they are not missing base controls or defects requiring reversion.
+- Source: APS request detail Finance workspace; `src/boilerplate-shell.css:2685–2722`, Tax & Withholding / Accounting / Voucher & Payment / Approval & History.
+- Boilerplate evidence: `src/App.tsx:1266–1276` UI Lab tabs/accordion (labelled Baseline); `src/styles.css:2698` lab-tabs, `:2748` lab-accordion. Existing sticky modal/body/footer at2408–2418 and status-badge at1640 cover the encountered reusable primitives.
+- Reuse candidate: if desired, document an optional bordered disclosure and tinted tab variant in the boilerplate with light/dark, selected/focus/disabled, nested disclosure,375px horizontal tab scrolling and768px coverage. Do not promote APS workflow or accounting logic.
+- Audit result: expanded Finance sections and voucher preview were inspected in the actual browser; remaining app-level spacing, status and metadata drift is listed in [parity audit](boilerplate-parity-audit-2026-11-12.md). No shared boilerplate implementation was changed and no gap was marked resolved by this sweep.

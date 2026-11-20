@@ -1056,7 +1056,9 @@ def seed(*, include_document_requirement_rules: bool | None = None) -> None:
                 if center and center.approver_user_id is None:
                     center.approver_user_id = user_ids["department_head"]
                 session.flush()
-            if settings.app_env in {"local", "development"}:
+            if settings.app_env in {"local", "development"} and not session.scalar(
+                select(SystemSetting).where(SystemSetting.key == "development.demo_catalog")
+            ):
                 marketing_cost_center_id = stable_id("cost-center", "MKTG")
                 account_ids = [stable_id("chart-account", code) for code, _, _ in DEMO_ACCOUNTS]
                 now = datetime.now(UTC)

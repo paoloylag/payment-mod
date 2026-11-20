@@ -164,6 +164,9 @@ def save_tax(
     )
     db.add(snapshot)
     db.flush()
+    from ..procurement_events import queue_financial_update
+
+    queue_financial_update(db, item, f"tax:{snapshot.id}", snapshot.created_at)
     audit(
         db,
         actor_id=actor.id,
